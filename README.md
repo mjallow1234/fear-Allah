@@ -1,4 +1,5 @@
 # fear-Allah
+<<<<<<< HEAD
 
 A real-time team chat application built with modern technologies.
 
@@ -44,3 +45,6 @@ cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload
 ## License
 
 MIT
+=======
+Self-Hosted team communication platform scaffold.
+>>>>>>> 3ab50a32907ac3d7920a01ab6a09695b0dc4b357
