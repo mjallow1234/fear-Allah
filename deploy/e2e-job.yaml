@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: e2e-tests
+  namespace: fear-allah
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: e2e
+        image: fear-allah-e2e:e2e-run
+        command: ["python", "/app/scripts/e2e_extended.py"]

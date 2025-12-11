@@ -1,0 +1,22 @@
+name: No Debug Prints Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  no-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt || true
+
+      - name: Run debug print validator
+        run: python scripts/check_no_debug_prints.py

@@ -1,0 +1,10 @@
+Archived debug traces from presence debugging session.
+
+[presence-debug] 2025-12-11T13:43:30.013137 websocket_disconnect set_user_status offline user_id=1 username=admin ttl=300
+[presence-debug] 2025-12-11T13:43:30.013108 websocket_disconnect set_user_status offline user_id=6 username=testuser1 ttl=300
+[presence-debug] 2025-12-11T13:47:26.965129 set_user_status online user_id=1 username=admin-1 ttl=300
+[presence-debug] 2025-12-11T13:47:26.964648 set_user_status online user_id=6 username=user-6 ttl=300
+    logger.debug(f"[presence-debug] {datetime.utcnow().isoformat()} set_user_status offline user_id={user_id} username={username} ttl={ttl}")
+    logger.debug(f"[presence-debug] {datetime.utcnow().isoformat()} set_user_status offline user_id={user_id} username={username} ttl={ttl}")
+
+These logs have been archived to remove debug noise from the main workspace. Do not delete without review.

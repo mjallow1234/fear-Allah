@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fear-allah-migrations
+  namespace: fear-allah
+spec:
+  template:
+    spec:
+      containers:
+        - name: alembic
+          image: ghcr.io/<OWNER>/fearallah-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/app/scripts/run_migrations.sh"]
+          env:
+              - name: REDIS_PORT
+                value: "6379"
+              - name: DATABASE_URL
+                value: "postgresql://postgres:postgres@postgres:5432/fearallah"
+      restartPolicy: Never

@@ -1,0 +1,18 @@
+[project]
+name = "fear-allah-backend"
+version = "0.1.0"
+description = "Backend API for fear-Allah chat application"
+requires-python = ">=3.11"
+
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

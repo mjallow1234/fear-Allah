@@ -1,0 +1,19 @@
+postgres:
+  enabled: true
+  image: postgres:15-alpine
+  database: fearallah
+  user: postgres
+  password: postgres
+  storage: 1Gi
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  password: ""
+
+minio:
+  enabled: true
+  image: minio/minio:latest
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  storage: 5Gi

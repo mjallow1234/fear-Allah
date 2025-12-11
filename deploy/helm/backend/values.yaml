@@ -1,0 +1,44 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/<OWNER>/fearallah-backend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/fearallah"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  MINIO_ENDPOINT: "minio:9000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"
+  JWT_SECRET: "your-production-secret-change-me"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 5
