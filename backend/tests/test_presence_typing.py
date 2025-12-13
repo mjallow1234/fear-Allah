@@ -3,6 +3,8 @@ import pytest
 import anyio
 from app.api import ws as ws_module
 
+pytestmark = pytest.mark.integration
+
 
 class FakeRedis:
     def __init__(self):

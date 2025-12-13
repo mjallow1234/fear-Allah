@@ -3,6 +3,8 @@ import anyio
 import pytest
 from starlette.testclient import TestClient
 
+pytestmark = pytest.mark.integration
+
 from app.main import app
 from app.api import ws as ws_module
 
