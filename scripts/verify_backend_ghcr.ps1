@@ -7,7 +7,7 @@ param(
     [string]$tag = "latest"
 )
 
-$imageRef = "ghcr.io/${owner}/${imageName}:${tag}"
+$imageRef = "ghcr.io/$($owner)/$($imageName):$($tag)"
 
 Write-Host "=== 1. Check GHCR pull secret ==="
 kubectl -n $namespace get secret | Select-String "ghcr-pull-secret"

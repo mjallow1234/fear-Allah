@@ -8,7 +8,7 @@ spec:
     spec:
       containers:
         - name: alembic
-          image: ghcr.io/<OWNER>/fearallah-backend:latest
+          image: ghcr.io/mjallow1234/fearallah-backend:latest
           imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "/app/scripts/run_migrations.sh"]
           env:

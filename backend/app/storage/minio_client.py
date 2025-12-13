@@ -74,4 +74,13 @@ class MinioStorage:
             raise Exception(f"Failed to generate presigned URL: {e}")
 
 
-minio_storage = MinioStorage()
+_minio_storage_singleton = None
+
+def get_minio_storage():
+    global _minio_storage_singleton
+    if _minio_storage_singleton is None:
+        try:
+            _minio_storage_singleton = MinioStorage()
+        except Exception:
+            _minio_storage_singleton = None
+    return _minio_storage_singleton
