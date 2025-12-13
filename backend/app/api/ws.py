@@ -385,7 +385,11 @@ async def websocket_chat(
                     }, exclude_user=user_id)
                 
                 elif event_type == "typing_stop":
-                    # Broadcast typing stop
+                    # Clear typing in Redis (publish stop) and broadcast locally
+                    try:
+                        await redis_client.clear_typing(channel_id, user_id)
+                    except Exception:
+                        pass
                     await manager.broadcast_to_channel(channel_id, {
                         "type": "typing_stop",
                         "user_id": user_id,

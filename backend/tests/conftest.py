@@ -16,7 +16,7 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def test_engine():
     engine = create_async_engine(TEST_DATABASE_URL, echo=True)
     async with engine.begin() as conn:

@@ -13,7 +13,8 @@ def start_redis_listener(redis_client, manager) -> dict:
 
     try:
         pubsub = redis_client.client.pubsub()
-        pubsub.psubscribe("channel:*")
+        # Listen for channel events and global presence events
+        pubsub.psubscribe("channel:*", "presence")
     except Exception:
         # If redis is not reachable, we still return a control structure
         return {"thread": None, "stop_event": stop_event, "pubsub": None}
@@ -43,7 +44,7 @@ def start_redis_listener(redis_client, manager) -> dict:
                     # Ignore our own events
                     continue
 
-                # Extract channel_id from message channel name
+                # Extract channel_name from message channel name
                 channel_name = msg.get('channel') or msg.get('pattern')
                 if not channel_name:
                     continue
@@ -51,6 +52,14 @@ def start_redis_listener(redis_client, manager) -> dict:
                 try:
                     if isinstance(channel_name, bytes):
                         channel_name = channel_name.decode('utf-8')
+                    # If presence channel, broadcast presence update instead
+                    if channel_name == "presence":
+                        coro = manager.broadcast_presence(payload)
+                        try:
+                            asyncio.run_coroutine_threadsafe(coro, loop)
+                        except Exception:
+                            pass
+                        continue
                     parts = channel_name.split(b":") if isinstance(channel_name, bytes) else channel_name.split(":" )
                     channel_id = int(parts[-1])
                 except Exception:
