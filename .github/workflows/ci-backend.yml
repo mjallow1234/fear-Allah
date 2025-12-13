@@ -22,6 +22,8 @@ jobs:
         pip install pytest
 
     - name: Run unit tests
+      working-directory: backend
+      env:
+        PYTHONPATH: ${{ github.workspace }}/backend
       run: |
-        cd backend
         pytest -q -k 'not e2e' -m "not integration"
