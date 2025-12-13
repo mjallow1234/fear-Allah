@@ -1,0 +1,10 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+config.json
+config-*.json
+*.pem
+*.crt
+*.key
+/.env

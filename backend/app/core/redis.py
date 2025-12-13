@@ -1,4 +1,6 @@
 import redis
+import uuid
+import json
 from app.core.config import settings
 from app.db.enums import UserStatus
 
@@ -11,6 +13,8 @@ class RedisClient:
             password=settings.REDIS_PASSWORD or None,
             decode_responses=True,
         )
+        # Unique instance id so a pod can ignore its own published events
+        self.instance_id = uuid.uuid4().hex
     
     async def set_user_status(self, user_id: int, status: str):
         """Set user online status"""
@@ -53,6 +57,19 @@ class RedisClient:
             return self.client.ping()
         except Exception:
             return False
+
+    def publish_channel_event(self, channel_id: int, payload: dict) -> None:
+        """Publish a JSON payload for a channel to Redis pub/sub.
+
+        Adds `origin` to the payload for origin filtering on subscribers.
+        """
+        try:
+            payload = dict(payload)
+            payload["origin"] = self.instance_id
+            self.client.publish(f"channel:{channel_id}", json.dumps(payload))
+        except Exception:
+            # Never raise on pub/sub publish failure — best-effort
+            return
 
 
 redis_client = RedisClient()

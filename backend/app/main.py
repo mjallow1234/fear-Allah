@@ -74,8 +74,27 @@ async def lifespan(app: FastAPI):
     # Startup
     await create_tables()
     await seed_default_data()
+    # Start Redis pub/sub listener for cross-pod broadcasts (Phase 9)
+    try:
+        from app.core.redis import redis_client
+        from app.ws.redis_pubsub import start_redis_listener
+        from app.api.ws import manager as ws_manager
+        app.state._redis_listener = start_redis_listener(redis_client, ws_manager)
+    except Exception:
+        # Best-effort: do not fail startup if redis listener cannot be started
+        app.state._redis_listener = None
     yield
     # Shutdown
+    # Stop Redis pub/sub listener if running
+    ctl = getattr(app.state, '_redis_listener', None)
+    if ctl and ctl.get('stop_event'):
+        try:
+            ctl['stop_event'].set()
+            th = ctl.get('thread')
+            if th and th.is_alive():
+                th.join(timeout=2)
+        except Exception:
+            pass
 
 
 app = FastAPI(

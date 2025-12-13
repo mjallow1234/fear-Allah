@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.database import async_session
-from app.db.models import Message, User, Channel, MessageReaction, FileAttachment, AuditLog, Notification, NotificationType
+from app.db.models import Message, User, Channel, ChannelMember, MessageReaction, FileAttachment, AuditLog, Notification, NotificationType
 from app.db.enums import UserStatus
 from app.core.redis import RedisClient
 import logging
@@ -294,6 +294,23 @@ async def websocket_chat(
         await websocket.close(code=4403)
         return
 
+    # Verify channel membership before connecting
+    try:
+        async with async_session() as session:
+            from sqlalchemy import select
+            result = await session.execute(select(ChannelMember).where(
+                ChannelMember.channel_id == channel_id,
+                ChannelMember.user_id == user_id
+            ))
+            member = result.scalar_one_or_none()
+            if member is None:
+                await websocket.close(code=4403)
+                return
+    except Exception:
+        # On DB errors, deny connect for safety
+        await websocket.close(code=4403)
+        return
+
     await manager.connect(websocket, channel_id, user_id, username)
     
     try:
@@ -331,6 +348,22 @@ async def websocket_chat(
                             "reactions": [],
                         })
                         
+                        # Publish to Redis for cross-pod fanout (best-effort)
+                        try:
+                            # Ensure lib call happens without blocking the event loop
+                            asyncio.create_task(asyncio.to_thread(redis_client.publish_channel_event, channel_id, {
+                                "type": "message",
+                                "id": msg.id,
+                                "content": content,
+                                "user_id": user_id,
+                                "username": username,
+                                "channel_id": channel_id,
+                                "timestamp": msg.created_at.isoformat(),
+                            }))
+                        except Exception:
+                            # ignore publish failures (best effort)
+                            pass
+
                         # Create notifications for mentions
                         await create_mention_notifications(
                             session, content, user_id, username, channel_id, msg.id
