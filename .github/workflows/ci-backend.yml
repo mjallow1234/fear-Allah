@@ -26,13 +26,4 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/backend
       run: |
-        set +e
-        pytest -q -k 'not e2e' -m "not integration"
-        EXIT_CODE=$?
-        # pytest exit code 5 means no tests were collected; treat as success
-        if [ "$EXIT_CODE" -eq 5 ]; then
-          echo "No tests collected (pytest exit code 5). Treating as success in CI."
-          exit 0
-        else
-          exit $EXIT_CODE
-        fi
+        bash -lc 'pytest -q -k "not e2e" -m "not integration"; RC=$?; if [ "$RC" -eq 5 ]; then echo "No tests collected (pytest exit code 5). Treating as success in CI."; exit 0; else exit $RC; fi'
