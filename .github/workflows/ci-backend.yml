@@ -23,4 +23,5 @@ jobs:
 
     - name: Run unit tests
       run: |
+        cd backend
         pytest -q -k 'not e2e' -m "not integration"
