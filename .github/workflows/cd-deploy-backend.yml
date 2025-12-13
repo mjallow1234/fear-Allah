@@ -1,9 +1,7 @@
 name: CI/CD Backend Deployment
 
+# Manual deployment only (local cluster)
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
