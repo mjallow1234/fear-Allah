@@ -1,0 +1,88 @@
+name: CI/CD Backend Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      KUBE_NAMESPACE: fear-allah
+      DEPLOYMENT_NAME: backend-fear-allah-backend
+      HELM_RELEASE_NAME: backend
+      HELM_CHART_PATH: ./deploy/helm/backend
+      SERVICE_NAME: backend-fear-allah-backend
+      LOCAL_PORT: 8000
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+        pip install pytest
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PAT }}
+
+    - name: Build Docker image with commit SHA tag
+      run: |
+        IMAGE_TAG=${GITHUB_SHA}
+        IMAGE_REPO=ghcr.io/${{ github.repository_owner }}/fearallah-backend
+        docker build -t ${IMAGE_REPO}:${IMAGE_TAG} backend/
+        docker push ${IMAGE_REPO}:${IMAGE_TAG}
+        docker tag ${IMAGE_REPO}:${IMAGE_TAG} ${IMAGE_REPO}:latest
+        docker push ${IMAGE_REPO}:latest
+
+    - name: Set up kubectl and Helm
+      uses: azure/setup-kubectl@v3
+      with:
+        version: '1.30.0'
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Configure kubeconfig
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml
+        export KUBECONFIG=$(pwd)/kubeconfig.yaml
+
+    - name: Deploy backend via Helm
+      run: |
+        IMAGE_TAG=${GITHUB_SHA}
+        helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
+          -n $KUBE_NAMESPACE \
+          --set image.tag=$IMAGE_TAG \
+          --set image.pullPolicy=IfNotPresent \
+          --wait --timeout 180s
+        kubectl -n $KUBE_NAMESPACE rollout status deployment/$DEPLOYMENT_NAME
+
+    - name: Smoke Test Backend
+      run: |
+        kubectl -n $KUBE_NAMESPACE port-forward svc/$SERVICE_NAME $LOCAL_PORT:8000 &
+        sleep 5
+        curl -f http://127.0.0.1:$LOCAL_PORT/health
+        pkill -f "kubectl -n $KUBE_NAMESPACE port-forward" || true
+
+    - name: Run backend unit tests
+      run: |
+        pytest -q -k 'not e2e'
+
+    - name: Run backend E2E tests
+      run: |
+        pytest -q tests/e2e
