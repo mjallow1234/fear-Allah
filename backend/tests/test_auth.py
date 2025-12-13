@@ -65,12 +65,12 @@ async def test_login(client: AsyncClient):
         },
     )
     # Login
-    response = await client.post(
+        response = await client.post(
         "/api/auth/login",
-        json={
-            "email": "login@example.com",
-            "password": "testpassword123",
-        },
+            json={
+                "identifier": "login@example.com",
+                "password": "testpassword123",
+            },
     )
     assert response.status_code == 200
     data = response.json()
@@ -81,11 +81,11 @@ async def test_login(client: AsyncClient):
 @pytest.mark.anyio
 async def test_login_invalid_credentials(client: AsyncClient):
     """Test login with invalid credentials"""
-    response = await client.post(
+        response = await client.post(
         "/api/auth/login",
-        json={
-            "email": "nonexistent@example.com",
-            "password": "wrongpassword",
-        },
+            json={
+                "identifier": "nonexistent@example.com",
+                "password": "wrongpassword",
+            },
     )
     assert response.status_code == 401

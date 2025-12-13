@@ -14,10 +14,10 @@ spec:
         app: backend
     spec:
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-secret
       containers:
         - name: backend
-          image: ghcr.io/<OWNER>/fearallah-backend:latest
+          image: ghcr.io/mjallow1234/fearallah-backend:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

@@ -1,0 +1,1 @@
+﻿{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ghcr-pull-secret"},{"name":"ghcr-secret"}]}}}}

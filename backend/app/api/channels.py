@@ -9,7 +9,7 @@ import uuid
 from app.db.database import get_db
 from app.db.models import Channel, ChannelMember, ChannelType, Team, FileAttachment, AuditLog, User
 from app.core.security import get_current_user
-from app.storage.minio_client import minio_storage
+from app.storage.minio_client import get_minio_storage
 
 router = APIRouter()
 
@@ -353,7 +353,8 @@ async def list_channel_files(
     file_responses = []
     for f in files:
         try:
-            download_url = minio_storage.get_presigned_url(f.file_path)
+            storage = get_minio_storage()
+            download_url = storage.get_presigned_url(f.file_path) if storage else None
         except Exception:
             download_url = None
         
@@ -396,11 +397,12 @@ async def upload_file(
     
     # Upload to MinIO
     try:
-        file_path = await minio_storage.upload_file(
+        storage = get_minio_storage()
+        file_path = await storage.upload_file(
             content,
             unique_filename,
             file.content_type or "application/octet-stream"
-        )
+        ) if storage else None
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
     
@@ -431,7 +433,8 @@ async def upload_file(
     
     # Get download URL
     try:
-        download_url = minio_storage.get_presigned_url(file_path)
+        storage = get_minio_storage()
+        download_url = storage.get_presigned_url(file_path) if storage else None
     except Exception:
         download_url = None
     
@@ -471,7 +474,9 @@ async def delete_file(
     
     # Delete from MinIO
     try:
-        await minio_storage.delete_file(file_attachment.file_path)
+        storage = get_minio_storage()
+        if storage:
+            await storage.delete_file(file_attachment.file_path)
     except Exception:
         pass  # File might not exist in storage
     
@@ -519,7 +524,8 @@ async def download_file(
     
     # Download from MinIO
     try:
-        file_content = await minio_storage.download_file(file_attachment.file_path)
+        storage = get_minio_storage()
+        file_content = await storage.download_file(file_attachment.file_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
     

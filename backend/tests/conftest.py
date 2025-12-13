@@ -1,12 +1,14 @@
+import os
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 from app.main import app
 from app.db.database import Base, get_db
 
 # Test database URL
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture(scope="session")
