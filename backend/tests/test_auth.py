@@ -7,7 +7,7 @@ async def test_health_endpoint(client: AsyncClient):
     """Test the health check endpoint"""
     response = await client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+    assert response.json()["status"] == "ok"
 
 
 @pytest.mark.anyio
@@ -23,9 +23,9 @@ async def test_register_user(client: AsyncClient):
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["email"] == "test@example.com"
-    assert data["username"] == "testuser"
-    assert "id" in data
+    assert data["user"]["email"] == "test@example.com"
+    assert data["user"]["username"] == "testuser"
+    assert "id" in data["user"]
 
 
 @pytest.mark.anyio
@@ -65,12 +65,12 @@ async def test_login(client: AsyncClient):
         },
     )
     # Login
-        response = await client.post(
+    response = await client.post(
         "/api/auth/login",
-            json={
-                "identifier": "login@example.com",
-                "password": "testpassword123",
-            },
+        json={
+            "identifier": "login@example.com",
+            "password": "testpassword123",
+        },
     )
     assert response.status_code == 200
     data = response.json()
@@ -81,11 +81,11 @@ async def test_login(client: AsyncClient):
 @pytest.mark.anyio
 async def test_login_invalid_credentials(client: AsyncClient):
     """Test login with invalid credentials"""
-        response = await client.post(
+    response = await client.post(
         "/api/auth/login",
-            json={
-                "identifier": "nonexistent@example.com",
-                "password": "wrongpassword",
-            },
+        json={
+            "identifier": "nonexistent@example.com",
+            "password": "wrongpassword",
+        },
     )
     assert response.status_code == 401
