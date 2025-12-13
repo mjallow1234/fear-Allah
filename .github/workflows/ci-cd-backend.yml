@@ -59,7 +59,7 @@ jobs:
 
     - name: Configure kubeconfig
       run: |
-        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > kubeconfig.yaml
         export KUBECONFIG=$(pwd)/kubeconfig.yaml
 
     - name: Deploy backend via Helm
