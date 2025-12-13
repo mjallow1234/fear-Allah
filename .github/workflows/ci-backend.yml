@@ -1,0 +1,26 @@
+name: CI Backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+
+    - name: Install dependencies
+      run: |
+        pip install -r backend/requirements.txt
+        pip install pytest
+
+    - name: Run unit tests
+      run: |
+        pytest -q -k 'not e2e'
