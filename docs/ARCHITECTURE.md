@@ -287,6 +287,29 @@ fear-Allah is a real-time team chat application built with a modern microservice
 - **Helm** - K8s package manager
 - **NGINX Ingress** - Load balancing
 
+## Test database strategy ✅
+
+To keep concurrency and integration tests deterministic the test suite uses a dedicated session-scoped AsyncEngine and a temporary on-disk SQLite database (test-only, **no** production changes):
+
+- **Single AsyncEngine (session-scoped)**: the test session creates one AsyncEngine that is used by both the test harness and the app under test. This avoids creating separate engines per test which can cause isolation and connection provisioning problems during concurrent access.
+- **Temporary on-disk SQLite file**: the engine points to a temporary on-disk SQLite file (e.g. `./test_concurrency.db`) and is created/removed at session start/end. On-disk DB files avoid the per-connection isolation behavior of in-memory SQLite on some platforms.
+- **Cross-thread access enabled**: `connect_args={"check_same_thread": False}` is used so multiple AsyncSessions/threads can access the DB concurrently.
+- **Single dependency override**: `get_db` is overridden once at session scope to use this engine but each request still receives a fresh `AsyncSession` (request isolation maintained).
+- **Per-test cleanup (no DROP TABLES)**: the schema is created once for the session and individual tests clean up rows between runs (DELETE FROM ...) so we don't repeatedly recreate/destroy schema, which improves speed and stability.
+
+Example connection snippet (test-only):
+
+```py
+engine = create_async_engine(
+    "sqlite+aiosqlite:///./test_concurrency.db",
+    connect_args={"check_same_thread": False},
+)
+```
+
+**Why:** in-memory SQLite is often isolated per connection and is unreliable for tests requiring multiple concurrent connections; using a single on-disk engine gives consistent behavior and makes concurrency tests (eg. optimistic-update races) deterministic and repeatable.
+
+> Note: this is a *test-only* strategy; production uses PostgreSQL as documented above.
+
 ## Project Structure
 
 \\\
