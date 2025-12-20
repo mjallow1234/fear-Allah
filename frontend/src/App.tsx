@@ -3,7 +3,7 @@ import { useAuthStore } from './stores/authStore'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
-import ChannelView from './pages/ChannelView'
+import ChannelView from './pages/ChannelViewSimple'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 

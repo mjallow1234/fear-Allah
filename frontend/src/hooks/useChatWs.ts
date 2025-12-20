@@ -1,11 +1,26 @@
 import { useEffect, useState, useRef } from 'react'
 
+function websocketsEnabled() {
+  try {
+    if (typeof window === 'undefined') return false
+    return !!(window as any).__ENABLE_WEBSOCKETS__
+  } catch (e) {
+    return false
+  }
+}
+
 export default function useChatWs(channelId: number, token?: string) {
   const [messages, setMessages] = useState<any[]>([])
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
     if (!channelId) return
+
+    if (!websocketsEnabled()) {
+      // WebSockets explicitly disabled: do not create connections
+      return
+    }
+
     const wsUrl = `ws://localhost:8000/ws/chat/${channelId}?token=${token || ''}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws

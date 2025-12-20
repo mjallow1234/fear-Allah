@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Smile, Download, MessageSquare, X, Pencil, Trash2 } from 'lucide-react'
-import { useWebSocket, Message, Reaction } from '../services/useWebSocket'
+import type { Message, Reaction } from '../services/useWebSocket'
+import { useChatSocket } from '../contexts/ChatSocketContext'
 import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
 import MarkdownContent from './MarkdownContent'
@@ -114,17 +115,42 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     )
   }, [])
 
-  const {
-    isConnected,
-    typingUsers,
-    sendReaction,
-    sendMessage,
-    sendTyping,
-  } = useWebSocket({
-    channelId: channelIdNum,
-    onMessage: handleMessage,
-    onReaction: handleReaction,
-  })
+  const { connectChannel, wsStatus, sendReaction, sendMessage, sendTyping, onMessage, typingUsers, reconnect } = useChatSocket()
+
+  // Register handler for incoming websocket events once and keep it stable
+  useEffect(() => {
+    const handler = (data: any) => {
+      switch (data.type) {
+        case 'message':
+          handleMessage(data)
+          break
+        case 'reaction_add':
+          handleReaction(data.message_id, data.emoji, data.user_id, 'add')
+          break
+        case 'reaction_remove':
+          handleReaction(data.message_id, data.emoji, data.user_id, 'remove')
+          break
+        case 'typing_start':
+          // optionally handle typing UI
+          break
+        case 'typing_stop':
+          // optionally handle typing UI
+          break
+        default:
+          break
+      }
+    }
+
+    const unsubscribe = onMessage(handler)
+    return () => {
+      unsubscribe()
+    }
+  }, [onMessage, handleMessage, handleReaction])
+
+  // Connect to the chat socket for this channel; provider handles guards
+  useEffect(() => {
+    connectChannel(channelIdNum)
+  }, [channelIdNum, connectChannel])
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -342,9 +368,23 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
       {/* Main chat area */}
       <div className={`flex-1 flex flex-col overflow-hidden ${activeThread ? 'border-r border-[#3f4147]' : ''}`}>
         {/* Connection status */}
-        {!isConnected && (
+        {wsStatus === 'connecting' && (
           <div className="bg-yellow-600 text-white text-center py-1 text-sm">
             Connecting to chat...
+          </div>
+        )}
+
+        {wsStatus === 'error' && (
+          <div className="bg-red-600 text-white text-center py-1 text-sm flex items-center justify-center gap-2">
+            <span>Failed to connect to chat server.</span>
+            <button onClick={() => reconnect()} className="underline">Retry</button>
+          </div>
+        )}
+
+        {wsStatus === 'disconnected' && (
+          <div className="bg-yellow-600 text-white text-center py-1 text-sm flex items-center justify-center gap-2">
+            <span>Disconnected from chat server. Reconnecting...</span>
+            <button onClick={() => reconnect()} className="underline">Retry</button>
           </div>
         )}
 

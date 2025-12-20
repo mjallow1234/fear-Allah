@@ -8,8 +8,10 @@ import uuid
 
 from app.db.database import get_db
 from app.db.models import Channel, ChannelMember, ChannelType, Team, FileAttachment, AuditLog, User
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_admin
+from app.api.ws import manager as ws_manager
 from app.storage.minio_client import get_minio_storage
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -34,24 +36,41 @@ class ChannelResponse(BaseModel):
         from_attributes = True
 
 
+@router.post("", response_model=ChannelResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=ChannelResponse, status_code=status.HTTP_201_CREATED)
 async def create_channel(
     request: ChannelCreateRequest,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    # Require admin privileges to create channels
+    await require_admin(db, current_user)
+
     # If team_id provided, verify team exists
     if request.team_id:
         query = select(Team).where(Team.id == request.team_id)
         result = await db.execute(query)
         if not result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Team not found")
-    
+    # Accept short types (Mattermost style) "O" (open/public) and "P" (private)
+    # Use the raw dict value to avoid Pydantic coercion to enums which can raise on short codes like 'O'/'P'
+    t = request.dict().get('type', 'public')
+    if t in ("O", "o"):
+        channel_type = ChannelType.public.value
+    elif t in ("P", "p"):
+        channel_type = ChannelType.private.value
+    else:
+        # fall back to provided keyword or default
+        try:
+            channel_type = ChannelType(t).value
+        except Exception:
+            channel_type = ChannelType.public.value
+
     channel = Channel(
         name=request.name,
         display_name=request.display_name or request.name,
         description=request.description,
-        type=(ChannelType(request.type).value if request.type else ChannelType.public.value),
+        type=channel_type,
         team_id=request.team_id,
     )
     db.add(channel)
@@ -65,6 +84,24 @@ async def create_channel(
     )
     db.add(membership)
     await db.commit()
+    
+    # Broadcast channel_created to presence subscribers so sidebar can update live
+    try:
+        await ws_manager.broadcast_presence({
+            "type": "channel_created",
+            "channel": {
+                "id": channel.id,
+                "name": channel.name,
+                "display_name": channel.display_name,
+                "description": channel.description,
+                "type": channel.type,
+                "team_id": channel.team_id,
+            }
+        })
+    except Exception:
+        # Do not fail create on websocket broadcast errors — log and continue
+        import logging
+        logging.exception('Failed to broadcast channel_created')
     
     return channel
 
@@ -261,6 +298,50 @@ async def get_channel(
     return channel
 
 
+@router.post("/{channel_id}/read")
+async def mark_channel_read(
+    channel_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Validate channel exists
+    query = select(Channel).where(Channel.id == channel_id)
+    result = await db.execute(query)
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Validate membership
+    from app.db.crud import get_channel_member
+
+    membership = await get_channel_member(db, channel_id, current_user["user_id"])
+    if not membership:
+        raise HTTPException(status_code=403, detail="User not a member of this channel")
+
+    # Update last_read_at (authoritative unread boundary)
+    from datetime import datetime
+    membership.last_read_at = datetime.utcnow()
+    db.add(membership)
+    await db.commit()
+    await db.refresh(membership)
+
+    # Emit unread_update with zero for this user
+    try:
+        from app.api.ws import manager
+        await manager.send_to_user(current_user["user_id"], {
+            "type": "unread_update",
+            "channel_id": channel_id,
+            "unread_count": 0,
+        })
+    except Exception:
+        pass
+
+    return {
+        "channel_id": channel_id,
+        "last_read_at": membership.last_read_at.isoformat() + "Z"
+    }
+
+
 @router.post("/{channel_id}/join")
 async def join_channel(
     channel_id: int,
@@ -387,24 +468,49 @@ async def upload_file(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Channel not found")
     
-    # Read file content
-    content = await file.read()
-    file_size = len(content)
-    
-    # Generate unique filename
-    ext = file.filename.split(".")[-1] if "." in file.filename else ""
-    unique_filename = f"{channel_id}/{uuid.uuid4()}.{ext}" if ext else f"{channel_id}/{uuid.uuid4()}"
-    
-    # Upload to MinIO
-    try:
-        storage = get_minio_storage()
-        file_path = await storage.upload_file(
-            content,
-            unique_filename,
-            file.content_type or "application/octet-stream"
-        ) if storage else None
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+    # Stream file content and enforce size limit to avoid loading whole file into memory
+    import tempfile
+
+    MAX_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024
+
+    print(f"[UPLOAD] receiving file {file.filename}; configured MAX_UPLOAD_MB={settings.MAX_UPLOAD_MB}")
+
+    # Write to temporary file while checking size
+    total = 0
+    with tempfile.TemporaryFile() as tmp:
+        chunk_size = 64 * 1024
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            tmp.write(chunk)
+            total += len(chunk)
+            if total > MAX_BYTES:
+                print(f"[UPLOAD] rejected (size limit) {file.filename} {total} bytes")
+                raise HTTPException(status_code=413, detail="File exceeds maximum size of 50MB")
+
+        tmp.seek(0)
+        file_size = total
+
+        print(f"[UPLOAD] MAX_BYTES={MAX_BYTES}, final_size={file_size}")
+        # Log received file name + size (accepted)
+        print(f"[UPLOAD] received {file.filename} {file_size}")
+
+        # Generate unique filename
+        ext = file.filename.split(".")[-1] if "." in file.filename else ""
+        unique_filename = f"{channel_id}/{uuid.uuid4()}.{ext}" if ext else f"{channel_id}/{uuid.uuid4()}"
+
+        # Upload to MinIO using streaming helper
+        try:
+            storage = get_minio_storage()
+            file_path = await storage.upload_file_stream(
+                tmp,
+                file_size,
+                unique_filename,
+                file.content_type or "application/octet-stream"
+            ) if storage else None
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
     
     # Save to database
     file_attachment = FileAttachment(

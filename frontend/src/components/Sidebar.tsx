@@ -1,11 +1,22 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { usePresence } from '../services/useWebSocket'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+
+function websocketsEnabled() {
+  try {
+    if (typeof window === 'undefined') return false
+    return !!(window as any).__ENABLE_WEBSOCKETS__
+  } catch (e) {
+    return false
+  }
+}
 import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
 import clsx from 'clsx'
 import NewDMModal from './NewDMModal'
-import { pushNotification } from './NotificationBell'
+import CreateChannelModal from './CreateChannelModal'
+
 
 interface Team {
   id: number
@@ -24,11 +35,6 @@ interface Channel {
   team_id: number | null
 }
 
-interface OnlineUser {
-  user_id: string
-  username: string
-  status: 'online' | 'away' | 'offline'
-}
 
 interface DMChannel {
   id: number
@@ -47,12 +53,32 @@ export default function Sidebar() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [showTeamMenu, setShowTeamMenu] = useState(false)
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
+  // Presence hook manages its own connection and reconnection logic.
+  // Only initialize presence when runtime flag explicitly allows WebSockets.
+  const presence = websocketsEnabled() ? usePresence() : null
+
+  // Listen for server-side events (e.g., channel_created)
+  useEffect(() => {
+    if (!presence || !('onEvent' in presence)) return
+    const unsub = (presence as any).onEvent((data: any) => {
+      if (data?.type === 'channel_created' && data.channel) {
+        setChannels((prev) => {
+          if (prev.some((c) => c.id === data.channel.id)) return prev
+          return [...prev, data.channel]
+        })
+      }
+    })
+    return () => unsub()
+  }, [presence])
+  // small safety: guard access to presence in render paths
+  const onlineUsersCount = presence?.onlineUsers ? presence.onlineUsers.filter(u => u.user_id !== String(user?.id)).length : 0
+  const onlineUsers = presence?.onlineUsers ?? []
+  const isCurrentUserOnline = (id?: number | null) => presence ? presence.isUserOnline(id ?? '') : false
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([])
-  const [myStatus, setMyStatus] = useState<'online' | 'away' | 'offline'>('offline')
+
   const [showNewDMModal, setShowNewDMModal] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const [showCreateChannelModal, setShowCreateChannelModal] = useState(false)
+  // local WS refs removed: presence hook manages its own socket
 
   // Fetch teams
   const fetchTeams = useCallback(async () => {
@@ -70,83 +96,20 @@ export default function Sidebar() {
     }
   }, [token, selectedTeam])
 
-  // Fetch channels for selected team
+  // Fetch channels (global list)
   const fetchChannels = useCallback(async () => {
-    if (!token || !selectedTeam) return
+    if (!token) return
     try {
-      const response = await api.get(`/api/channels/?team_id=${selectedTeam.id}`)
-      setChannels(response.data)
+      // Use trailing slash to match backend route exactly and avoid 405
+      const response = await api.get('/api/channels/')
+      setChannels(response.data.channels || response.data)
     } catch (error) {
       console.error('Failed to fetch channels:', error)
     }
-  }, [token, selectedTeam])
-
-  const connectPresence = useCallback(() => {
-    if (!token || wsRef.current?.readyState === WebSocket.OPEN) return
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.host
-    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/presence?token=${token}`)
-
-    ws.onopen = () => {
-      setMyStatus('online')
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'presence_list') {
-          // Deduplicate users by user_id
-          const users = data.users || []
-          const uniqueUsers = Array.from(
-            new Map(users.map((u: OnlineUser) => [u.user_id, u])).values()
-          ) as OnlineUser[]
-          setOnlineUsers(uniqueUsers)
-        } else if (data.type === 'presence_update') {
-          setOnlineUsers((prev) => {
-            const existing = prev.find((u) => u.user_id === data.user_id)
-            if (data.status === 'offline') {
-              return prev.filter((u) => u.user_id !== data.user_id)
-            }
-            if (existing) {
-              return prev.map((u) =>
-                u.user_id === data.user_id ? { ...u, status: data.status } : u
-              )
-            }
-            // Add new user (already not in list)
-            return [...prev, { user_id: data.user_id, username: data.username, status: data.status }]
-          })
-        } else if (data.type === 'notification') {
-          // Handle real-time notification
-          pushNotification({
-            id: data.notification_id,
-            type: data.notification_type,
-            title: data.title,
-            content: data.content,
-            channel_id: data.channel_id,
-            message_id: data.message_id,
-            sender_id: data.sender_id,
-            sender_username: data.sender_username,
-            is_read: false,
-            created_at: data.created_at || new Date().toISOString()
-          })
-        }
-      } catch (err) {
-        console.error('Presence parse error:', err)
-      }
-    }
-
-    ws.onclose = () => {
-      setMyStatus('offline')
-      reconnectTimeoutRef.current = setTimeout(connectPresence, 3000)
-    }
-
-    ws.onerror = () => {
-      ws.close()
-    }
-
-    wsRef.current = ws
   }, [token])
+
+  // Presence is enabled via `usePresence()` and will connect once auth/user is ready.
+  // The hook ensures it only starts once and manages reconnection; do not reconnect on every render.
 
   // Fetch DM channels
   const fetchDMChannels = useCallback(async () => {
@@ -174,15 +137,12 @@ export default function Sidebar() {
 
   useEffect(() => {
     fetchTeams()
-    connectPresence()
+    fetchChannels()
     fetchDMChannels()
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-      }
-      wsRef.current?.close()
+      // no local presence cleanup required — `usePresence` manages its own lifecycle
     }
-  }, [connectPresence, fetchDMChannels, fetchTeams])
+  }, [fetchChannels, fetchDMChannels, fetchTeams])
 
   // Fetch channels when team changes
   useEffect(() => {
@@ -217,7 +177,10 @@ export default function Sidebar() {
         >
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded bg-[#5865f2] flex items-center justify-center text-white text-xs font-bold">
-              {selectedTeam?.display_name?.charAt(0) || selectedTeam?.name?.charAt(0) || 'T'}
+              {(() => {
+                const name = selectedTeam?.display_name ?? selectedTeam?.name ?? ''
+                return name ? name.charAt(0) : 'T'
+              })()}
             </div>
             <span className="font-bold text-white truncate">
               {selectedTeam?.display_name || selectedTeam?.name || 'Select Team'}
@@ -239,7 +202,7 @@ export default function Sidebar() {
                 )}
               >
                 <div className="w-6 h-6 rounded bg-[#5865f2] flex items-center justify-center text-white text-xs font-bold">
-                  {team.display_name?.charAt(0) || team.name.charAt(0)}
+                  {(() => { const name = team.display_name ?? team.name ?? ''; return name ? name.charAt(0) : 'T' })()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-white text-sm font-medium truncate">{team.display_name || team.name}</div>
@@ -268,8 +231,10 @@ export default function Sidebar() {
             Channels
           </span>
           <button 
-            className="p-1 text-[#949ba4] hover:text-white transition-colors"
-            title="Add Channel"
+            onClick={() => setShowCreateChannelModal(true)}
+            className={clsx('p-1 transition-colors', user?.is_system_admin ? 'text-[#949ba4] hover:text-white' : 'text-[#949ba4] opacity-50 cursor-not-allowed')}
+            title={user?.is_system_admin ? 'Add Channel' : 'Only admins can create channels'}
+            disabled={!user?.is_system_admin}
           >
             <Plus size={14} />
           </button>
@@ -326,46 +291,51 @@ export default function Sidebar() {
               )}
             >
               <div className="w-6 h-6 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
-                {dm.other_username.charAt(0).toUpperCase()}
+                {dm.other_username ? dm.other_username.charAt(0).toUpperCase() : '?'}
               </div>
               <span className="truncate">{dm.display_name}</span>
             </Link>
           ))
         )}
 
-        {/* Online Users */}
+        {/* Online Users (presence) */}
         <div className="px-2 mt-6 mb-2">
           <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
-            Online — {onlineUsers.filter(u => u.user_id !== String(user?.id)).length}
+            Online — {onlineUsersCount}
           </span>
         </div>
-        {onlineUsers.filter(u => u.user_id !== String(user?.id)).length === 0 ? (
+        {onlineUsersCount === 0 ? (
           <div className="flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm">
             <MessageSquare size={16} />
-            <span>No one online</span>
+            <span>Offline</span>
           </div>
         ) : (
           onlineUsers
             .filter(u => u.user_id !== String(user?.id))
-            .map((onlineUser) => (
-            <button
-              key={onlineUser.user_id}
-              onClick={() => startDM(onlineUser.user_id)}
-              className="w-full flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm hover:bg-[#35373c] rounded transition-colors text-left"
-              title="Click to start a DM"
-            >
-              <div className="relative">
-                <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
-                  {onlineUser.username.charAt(0).toUpperCase()}
-                </div>
-                <Circle
-                  size={10}
-                  className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', getStatusColor(onlineUser.status))}
-                />
-              </div>
-              <span className="truncate">{onlineUser.username}</span>
-            </button>
-          ))
+            .map((onlineUser) => {
+              const uid = onlineUser.user_id
+              const displayName = onlineUser.username || `User ${uid}`
+              const status = onlineUser.status || 'offline'
+              return (
+                <button
+                  key={uid}
+                  onClick={() => startDM(String(uid))}
+                  className="w-full flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm hover:bg-[#35373c] rounded transition-colors text-left"
+                  title="Click to start a DM"
+                >
+                  <div className="relative">
+                    <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
+                      {displayName ? displayName.charAt(0).toUpperCase() : '?'}
+                    </div>
+                    <Circle
+                      size={10}
+                      className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', getStatusColor(status as any))}
+                    />
+                  </div>
+                  <span className="truncate">{displayName}</span>
+                </button>
+              )
+            })
         )}
       </div>
 
@@ -373,18 +343,18 @@ export default function Sidebar() {
       <div className="h-14 bg-[#232428] flex items-center px-2 gap-2">
         <div className="relative">
           <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-sm font-medium">
-            {user?.display_name?.charAt(0) || user?.username?.charAt(0) || 'U'}
+            {(() => { const name = user?.display_name ?? user?.username ?? ''; return name ? name.charAt(0) : 'U' })()}
           </div>
           <Circle
             size={10}
-            className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', getStatusColor(myStatus))}
+            className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', getStatusColor(isCurrentUserOnline(user?.id) ? 'online' : 'offline'))}
           />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-white truncate">
             {user?.display_name || user?.username}
           </div>
-          <div className="text-xs text-[#949ba4] truncate capitalize">{myStatus}</div>
+          <div className="text-xs text-[#949ba4] truncate capitalize">{isCurrentUserOnline(user?.id) ? 'online' : 'offline'}</div>
         </div>
         <Link
           to="/settings"
@@ -407,6 +377,20 @@ export default function Sidebar() {
         onDMCreated={(channelId) => {
           fetchDMChannels()
           navigate(`/channels/${channelId}`)
+        }}
+      />
+
+      <CreateChannelModal
+        isOpen={showCreateChannelModal}
+        onClose={() => setShowCreateChannelModal(false)}
+        onCreated={(channel) => {
+          // Insert into channel list if not present
+          setChannels((prev) => {
+            if (prev.some((c) => c.id === channel.id)) return prev
+            return [...prev, channel]
+          })
+          // Navigate to newly created channel
+          navigate(`/channels/${channel.id}`)
         }}
       />
     </div>

@@ -27,7 +27,14 @@ async def test_ws_message_roundtrip_and_persistence(client, test_session):
     u1_id = login1.json()['user']['id']
     u2_id = login2.json()['user']['id']
 
-    # Create channel as u1
+    # Make u1 a system admin so they can create channels, then create channel as u1
+    from app.db.models import User
+    res = await test_session.execute(__import__('sqlalchemy').select(User).where(User.username == 'u1'))
+    user = res.scalar_one()
+    user.is_system_admin = True
+    test_session.add(user)
+    await test_session.commit()
+
     create = await client.post('/api/channels/', json={'name': 'realtime', 'display_name': 'Realtime'}, headers={'Authorization': f'Bearer {t1}'})
     assert create.status_code == 201
     channel_id = create.json()['id']
@@ -84,12 +91,20 @@ async def test_ws_message_roundtrip_and_persistence(client, test_session):
 
 
 @pytest.mark.anyio
-async def test_redis_publish_simulation_monkeypatch(client, monkeypatch):
+async def test_redis_publish_simulation_monkeypatch(client, monkeypatch, test_session):
     # Basic setup: register users and create/join channel
     r1 = await client.post('/api/auth/register', json={'email': 's1@example.com', 'password': 'Password123!', 'username': 's1'})
     assert r1.status_code == 201
     login1 = await client.post('/api/auth/login', json={'identifier': 's1@example.com', 'password': 'Password123!'})
     t1 = login1.json()['access_token']
+    # Make s1 a system admin so they can create channels
+    from app.db.models import User
+    res = await test_session.execute(__import__('sqlalchemy').select(User).where(User.username == 's1'))
+    user = res.scalar_one()
+    user.is_system_admin = True
+    test_session.add(user)
+    await test_session.commit()
+
     create = await client.post('/api/channels/', json={'name': 'sim', 'display_name': 'Sim'}, headers={'Authorization': f'Bearer {t1}'})
     channel_id = create.json()['id']
 

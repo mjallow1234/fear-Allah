@@ -85,6 +85,13 @@ async def test_presence_set_on_connect(client, test_session):
     r1 = await client.post('/api/auth/register', json={'email': 'p1@example.com', 'password': 'Password123!', 'username': 'p1'})
     login = await client.post('/api/auth/login', json={'identifier': 'p1@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
+    # Make p1 an admin so channel creation is allowed
+    from app.db.models import User
+    res = await test_session.execute(__import__('sqlalchemy').select(User).where(User.username == 'p1'))
+    user = res.scalar_one()
+    user.is_system_admin = True
+    test_session.add(user)
+    await test_session.commit()
     create = await client.post('/api/channels/', json={'name': 'presence', 'display_name': 'Presence'}, headers={'Authorization': f'Bearer {token}'})
     channel_id = create.json()['id']
 

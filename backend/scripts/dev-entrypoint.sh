@@ -26,5 +26,14 @@ done
 echo "Running migrations"
 /app/scripts/run_migrations.sh
 
-echo "Starting uvicorn (dev mode)"
-exec uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+echo "Starting uvicorn"
+# Allow disabling the auto-reload watcher when running inside containers to avoid
+# watcher-related crashes (e.g. _rust_notify Watchfiles errors on some hosts).
+# Set ENABLE_RELOAD=1 to enable --reload explicitly.
+if [ "${ENABLE_RELOAD:-0}" = "1" ]; then
+  echo "Starting uvicorn with reload"
+  exec uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+else
+  echo "Starting uvicorn without reload"
+  exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+fi

@@ -54,13 +54,34 @@ docker compose down
 
 ### Development (fast feedback)
 
-Use the override file to run the frontend in dev mode (Vite) and the backend in dev mode (uvicorn with reload):
+Option A — Run everything in containers (frontend built/static):
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.override.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 ```
 
-This mounts your local `frontend/` and `backend/` directories into the containers so changes apply immediately.
+Option B — Run frontend locally (fast HMR) and use the compose stack for backend/services:
+
+1. Start the compose stack (backend, Postgres, Redis, MinIO, and an API proxy):
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
+```
+
+2. Run the frontend dev server locally (PowerShell):
+
+```powershell
+cd frontend
+$env:VITE_API_URL = 'http://localhost:18002'
+npm ci
+npm run dev -- --host 0.0.0.0
+```
+
+`VITE_API_URL` points the local Vite dev server to the API proxy at `http://localhost:18002`.
+
+This keeps the backend internal to the compose network; the `api-proxy` service exposes the API on `localhost:18002` for local frontend development.
+
+Note: for security the chat WebSocket requires an auth token in production. For local development (`DEBUG=true`) the backend will auto-join users to channels on WebSocket connect to make iterating easier.
 ```
 
 Notes:

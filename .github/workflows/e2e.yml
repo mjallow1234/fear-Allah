@@ -1,0 +1,104 @@
+# E2E test workflow — Runs Playwright Chromium headless E2E tests against local services
+# Triggered on PRs and pushes to protected branches.
+# NOTE: To *require* this workflow as a branch protection check, go to GitHub Settings → Branches → Protect a branch
+# and add this workflow's check name ("E2E Tests") as a required status check.
+
+name: E2E Tests (Chromium Headless)
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: e2e-tests
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Ensure frontend uses local backend
+      VITE_API_URL: http://localhost:18002
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Docker Compose up (backend + api-proxy)
+        run: |
+          docker compose up -d backend api-proxy
+
+      - name: Wait for backend health
+        run: |
+          echo "Waiting for backend health..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:18002/api/health >/dev/null 2>&1; then
+              echo "Backend healthy"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i)"
+            sleep 2
+          done
+          echo "Backend did not become healthy in time"
+          exit 1
+
+      - name: Install frontend deps
+        working-directory: ./frontend
+        run: |
+          npm ci
+
+      - name: Install Playwright browsers & system deps
+        working-directory: ./frontend
+        run: |
+          npx playwright install --with-deps
+          npx playwright install
+
+      - name: Start frontend (Vite) in background
+        working-directory: ./frontend
+        run: |
+          # Start dev server in background and wait for it to become available
+          nohup npm run dev > ./ci-vite.log 2>&1 &
+          npx wait-on http://localhost:5173 --timeout 120000
+
+      - name: Run Playwright E2E (Chromium headless) — include stability spec
+        working-directory: ./frontend
+        run: |
+          # Run full suite on Chromium headless; ensure stability spec runs
+          npx playwright test --project=chromium --reporter=list
+        env:
+          # make sure tests use the local backend URL
+          VITE_API_URL: ${{ env.VITE_API_URL }}
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/test-results || frontend/playwright-report || frontend/test-results
+
+      - name: Tear down containers
+        if: always()
+        run: |
+          docker compose down --remove-orphans
+
+    outputs:
+      status: ${{ job.status }}
+
+# Guidance: To make this workflow required (block merges when it fails), add the check named "E2E Tests" or the workflow's check name
+# under the branch protection rules for your protected branch (e.g., main). This will prevent merges until the workflow completes successfully.

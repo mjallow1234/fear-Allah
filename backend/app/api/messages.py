@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+import logging
+import traceback
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from sqlalchemy.orm import selectinload
@@ -12,6 +14,8 @@ from app.db.models import Message, Channel, User, MessageReaction, AuditLog
 from app.core.security import get_current_user, check_user_can_post
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 class MessageCreateRequest(BaseModel):
@@ -66,6 +70,17 @@ def transform_message_to_response(message: Message, author_username: str = None,
         for emoji, data in reactions_grouped.items()
     ]
     
+    # Safely access possibly-expired attributes (avoid triggering async lazy loads outside session)
+    try:
+        edited_at_val = message.edited_at.isoformat() if message.edited_at else None
+    except Exception as _:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Could not read edited_at for message {getattr(message, 'id', None)}; returning None")
+        try:
+            edited_at_val = str(message.edited_at) if getattr(message, 'edited_at', None) else None
+        except Exception:
+            edited_at_val = None
+
     return {
         "id": message.id,
         "content": message.content,
@@ -73,7 +88,7 @@ def transform_message_to_response(message: Message, author_username: str = None,
         "author_id": message.author_id,
         "parent_id": message.parent_id,
         "is_edited": message.is_edited,
-        "edited_at": message.edited_at.isoformat() if message.edited_at else None,
+        "edited_at": edited_at_val,
         "thread_count": getattr(message, 'thread_count', 0) or reply_count,
         "last_activity_at": message.last_activity_at.isoformat() if message.last_activity_at else message.created_at.isoformat(),
         "created_at": message.created_at,
@@ -143,9 +158,12 @@ async def create_message(
     result = await db.execute(query)
     message = result.scalar_one()
     
-    # Broadcast to WebSocket clients
+    # Broadcast to WebSocket clients and emit per-user unread updates
     try:
         from app.api.ws import manager, create_mention_notifications
+        from app.db.models import ChannelMember
+        from app.services.unread import get_unread_count
+
         await manager.broadcast_to_channel(request.channel_id, {
             "type": "message",
             "id": message.id,
@@ -156,14 +174,28 @@ async def create_message(
             "timestamp": message.created_at.isoformat(),
             "reactions": [],
         })
-        
+
         # Create notifications for @mentions
         await create_mention_notifications(
             db, request.content, current_user["user_id"], username, request.channel_id, message.id
         )
+
+        # Emit unread_update for each channel member except sender
+        members_q = select(ChannelMember).where(ChannelMember.channel_id == request.channel_id)
+        members_res = await db.execute(members_q)
+        members = members_res.scalars().all()
+        for m in members:
+            if m.user_id == current_user["user_id"]:
+                continue
+            unread = await get_unread_count(db, request.channel_id, m.user_id)
+            await manager.send_to_user(m.user_id, {
+                "type": "unread_update",
+                "channel_id": request.channel_id,
+                "unread_count": unread,
+            })
     except Exception as e:
         # Don't fail the request if broadcast fails
-        print(f"Failed to broadcast message: {e}")
+        print(f"Failed to broadcast message or emit unread updates: {e}")
     
     return transform_message_to_response(message)
 
@@ -317,28 +349,56 @@ async def update_message(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = (
-        select(Message)
-        .options(selectinload(Message.reactions), selectinload(Message.author))
-        .where(Message.id == message_id)
-    )
-    result = await db.execute(query)
-    message = result.scalar_one_or_none()
-    
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found")
-    
-    if message.author_id != current_user["user_id"]:
-        raise HTTPException(status_code=403, detail="Can only edit your own messages")
-    
-    message.content = request.content
-    message.is_edited = True
-    message.edited_at = func.now()
-    message.editor_id = current_user["user_id"]
-    await db.commit()
-    await db.refresh(message, attribute_names=["reactions", "author"])
-    
-    return transform_message_to_response(message)
+    try:
+        logger.info(f"Update message request received: message_id={message_id}, user_id={current_user.get('user_id')}")
+
+        query = (
+            select(Message)
+            .options(selectinload(Message.reactions), selectinload(Message.author))
+            .where(Message.id == message_id)
+        )
+        result = await db.execute(query)
+        message = result.scalar_one_or_none()
+
+        if not message:
+            logger.info(f"Message not found: message_id={message_id}")
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        logger.info(f"Message owner: message_id={message_id}, owner_id={message.author_id}")
+
+        if message.author_id != current_user["user_id"]:
+            logger.warning(f"Permission denied: user_id={current_user.get('user_id')} tried to edit message_id={message_id} owned_by={message.author_id}")
+            raise HTTPException(status_code=403, detail="Can only edit your own messages")
+
+        # Apply update
+        message.content = request.content
+        message.is_edited = True
+        message.edited_at = func.now()
+        message.editor_id = current_user["user_id"]
+        await db.commit()
+
+        # Re-fetch the updated message with relationships to avoid lazy-loaded attribute access
+        query = (
+            select(Message)
+            .options(selectinload(Message.reactions), selectinload(Message.author))
+            .where(Message.id == message.id)
+        )
+        result = await db.execute(query)
+        message = result.scalar_one()
+
+        logger.info(f"Message updated successfully: message_id={message_id}, editor_id={current_user.get('user_id')}")
+
+        return transform_message_to_response(message)
+
+    except HTTPException:
+        # Re-raise known HTTP errors (404, 403) so FastAPI handles them normally
+        raise
+    except Exception as e:
+        # Log full traceback and return 500
+        logger.exception(f"Unhandled error updating message_id={message_id}: {e}")
+        # Also print traceback to stdout for container logs
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{message_id}")

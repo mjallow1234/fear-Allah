@@ -69,6 +69,18 @@ interface UseWebSocketOptions {
   onPresenceUpdate?: (userId: number, status: string) => void
 }
 
+// Small runtime flag to opt in to WebSocket usage. Default: DISABLED in dev/devops unless explicitly enabled.
+function websocketsEnabled() {
+  try {
+    // Runtime global flag set by devs when WebSockets should be enabled
+    // e.g. window.__ENABLE_WEBSOCKETS__ = true
+    if (typeof window === 'undefined') return false
+    return !!(window as any).__ENABLE_WEBSOCKETS__
+  } catch (e) {
+    return false
+  }
+}
+
 export function useWebSocket({
   channelId,
   onMessage,
@@ -82,10 +94,15 @@ export function useWebSocket({
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected')
   const [typingUsers, setTypingUsers] = useState<Map<number, string>>(new Map())
   const typingTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptsRef = useRef<number>(0)
   const currentChannelRef = useRef<number>(channelId)
+  // diagnostic: unique id for this connection to trace lifecycle
+  const connectionId = useRef(Math.random().toString(36).slice(2))
+  const manualCloseRef = useRef<boolean>(false)
   
   // Store callbacks in refs to avoid recreating connect function
   const callbacksRef = useRef({
@@ -114,29 +131,44 @@ export function useWebSocket({
   })
   
   const user = useAuthStore((state) => state.user)
+  const token = useAuthStore((state) => state.token)
   const userRef = useRef(user)
-  
+  const tokenRef = useRef(token)
+
   useEffect(() => {
     userRef.current = user
-  }, [user])
+    tokenRef.current = token
+  }, [user, token])
 
   const disconnect = useCallback(() => {
+    console.log(`[WS ${connectionId.current}] disconnect (manual)`)
+
+    // Mark manual close so onclose doesn't schedule reconnect
+    manualCloseRef.current = true
+
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = null
     }
+    // reset reconnect attempts when manually disconnecting
+    reconnectAttemptsRef.current = 0
     if (wsRef.current) {
       wsRef.current.close()
       wsRef.current = null
     }
     setIsConnected(false)
+    setWsStatus('disconnected')
   }, [])
 
   const connect = useCallback(() => {
     const currentUser = userRef.current
+    const currentToken = tokenRef.current
     const currentChannel = currentChannelRef.current
     
     if (!currentChannel || !currentUser) return
+
+    // Ensure manualCloseRef is cleared when initiating a new connect
+    manualCloseRef.current = false
 
     // Close existing connection before opening new one
     if (wsRef.current) {
@@ -144,23 +176,61 @@ export function useWebSocket({
       wsRef.current = null
     }
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.host
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/chat/${currentChannel}?user_id=${currentUser.id}&username=${encodeURIComponent(currentUser.username || currentUser.display_name || '')}`
-    
-    console.log('Connecting to WebSocket:', wsUrl)
+    // Force WebSocket URL from VITE_API_URL (do not use window.location)
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
+    if (!import.meta.env.VITE_API_URL) {
+      console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
+    }
+
+    const wsBase = apiBase.replace(/^http/, 'ws')
+    // Prefer token auth for chat WebSocket (token required)
+    const token = currentToken
+    if (!token) {
+      throw new Error('WebSocket requires an auth token')
+    }
+
+    const wsUrl = `${wsBase}/ws/chat/${currentChannel}?token=${encodeURIComponent(token)}`
+
+    console.log(`[WS ${connectionId.current}] connect -> ${wsUrl}`)
+    setWsStatus('connecting')
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
-      console.log(`WebSocket connected to channel ${currentChannel}`)
+      console.log(`[WS ${connectionId.current}] onopen for channel ${currentChannel}`)
       setIsConnected(true)
+      setWsStatus('connected')
+      // reset backoff attempts after successful connect
+      reconnectAttemptsRef.current = 0
+
+      // Start heartbeat to keep connection alive (every 25s)
+      const heartbeatInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'heartbeat' }))
+          } catch (err) {
+            console.warn('Failed to send heartbeat:', err)
+          }
+        }
+      }, 25000)
+
+      // Ensure heartbeat is cleared on close
+      const existingOnClose = ws.onclose
+      ws.onclose = (evt) => {
+        clearInterval(heartbeatInterval)
+        if (existingOnClose) existingOnClose.call(ws, evt as CloseEvent)
+      }
     }
 
     ws.onmessage = (event) => {
       try {
         const data: WebSocketMessage = JSON.parse(event.data)
         const callbacks = callbacksRef.current
+
+        // Diagnostic: log heartbeat_ack if received
+        if ((data as any).type === 'heartbeat_ack') {
+          console.log(`[WS ${connectionId.current}] heartbeat_ack received`)
+        }
         
         switch (data.type) {
           case 'message':
@@ -243,28 +313,51 @@ export function useWebSocket({
       }
     }
 
-    ws.onclose = () => {
-      console.log('WebSocket disconnected')
+    ws.onclose = (evt) => {
+      console.log(`[WS ${connectionId.current}] onclose code=${(evt as CloseEvent).code} reason=${(evt as CloseEvent).reason} wasClean=${(evt as CloseEvent).wasClean}`)
       setIsConnected(false)
-      
+      setWsStatus('disconnected')
+
+      // Do not schedule reconnect if this close was manual (intentional)
+      if (manualCloseRef.current) {
+        console.log(`[WS ${connectionId.current}] manual close, not scheduling reconnect`)
+        return
+      }
+
       // Only attempt reconnection if this is still the current channel
       if (currentChannelRef.current === currentChannel && userRef.current) {
+        const attempts = reconnectAttemptsRef.current || 0
+        const base = 3000
+        const maxDelay = 60000
+        const delay = Math.min(base * (2 ** attempts), maxDelay) + Math.floor(Math.random() * 1000)
+        console.log(`[WS ${connectionId.current}] Scheduling reconnect in ${delay}ms (attempt ${attempts + 1})`)
+        reconnectAttemptsRef.current = attempts + 1
         reconnectTimeoutRef.current = setTimeout(() => {
           connect()
-        }, 3000)
+        }, delay)
       }
     }
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error)
+      setWsStatus('error')
     }
   }, []) // No dependencies - uses refs instead
 
   // Connect/disconnect when channelId or user changes
   useEffect(() => {
+    // Do not auto-initialize WebSocket connections unless explicitly enabled at runtime
+    if (!websocketsEnabled()) {
+      if (currentChannelRef.current) {
+        // ensure we disconnect any existing connection
+        disconnect()
+      }
+      return
+    }
+
     currentChannelRef.current = channelId
     
-    if (!channelId || !user) {
+    if (!channelId || !token) {
       disconnect()
       return
     }
@@ -283,7 +376,7 @@ export function useWebSocket({
     return () => {
       disconnect()
     }
-  }, [channelId, user?.id, connect, disconnect])
+  }, [channelId, token])
 
   // Send message
   const sendMessage = useCallback((content: string) => {
@@ -342,6 +435,7 @@ export function useWebSocket({
 
   return {
     isConnected,
+    wsStatus,
     typingUsers: Array.from(typingUsers.entries()).map(([id, name]) => ({ id, name })),
     sendMessage,
     sendTyping,
@@ -354,71 +448,188 @@ export function useWebSocket({
 // Presence hook for global online/offline tracking
 export function usePresence() {
   const wsRef = useRef<WebSocket | null>(null)
+  const startedRef = useRef<boolean>(false)
   const [isConnected, setIsConnected] = useState(false)
-  const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
+  // store online user ids
+  const [onlineUsersSet, setOnlineUsersSet] = useState<Set<string>>(new Set())
+  // optional map for usernames/status if provided by server
+  const userInfoRef = useRef<Map<string, { username?: string; status?: string; last_seen?: string; origin?: string; appliedAt?: number }>>(new Map())
+  const reconnectAttemptsRef = useRef<number>(0)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const eventHandlersRef = useRef<Set<(data: any) => void>>(new Set())
   
   const user = useAuthStore((state) => state.user)
 
   useEffect(() => {
+    // Respect runtime opt-in flag: do not start Presence unless explicitly enabled
+    if (!websocketsEnabled()) {
+      // ensure any existing presence ws is closed and cleanup scheduled reconnects
+      startedRef.current = false
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      wsRef.current?.close()
+      return
+    }
+
     if (!user) return
+    if (startedRef.current) return // already started
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.host
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/presence?user_id=${user.id}&username=${encodeURIComponent(user.username || user.display_name || '')}`
-    
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      setIsConnected(true)
-      
-      // Send heartbeat every 30 seconds
-      const heartbeatInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'heartbeat' }))
-        }
-      }, 30000)
-      
-      ws.onclose = () => {
-        clearInterval(heartbeatInterval)
-        setIsConnected(false)
+    const start = () => {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
+      if (!import.meta.env.VITE_API_URL) {
+        console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
       }
-    }
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        
-        if (data.type === 'presence_list') {
-          setOnlineUsers(new Set(data.users || []))
-        } else if (data.type === 'presence_update') {
-          setOnlineUsers((prev) => {
-            const next = new Set(prev)
-            if (data.status === 'online') {
-              next.add(data.user_id)
-            } else {
-              next.delete(data.user_id)
+      const wsBase = apiBase.replace(/^http/, 'ws')
+      const wsUrl = `${wsBase}/ws/presence?user_id=${user.id}&username=${encodeURIComponent(
+        user.username || user.display_name || ''
+      )}`
+
+      console.log('WS presence URL (FORCED):', wsUrl)
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setIsConnected(true)
+        startedRef.current = true
+        // reset reconnection attempts
+        reconnectAttemptsRef.current = 0
+        console.log('[PRESENCE] connected')
+
+        // Send heartbeat every 30 seconds
+        const heartbeatInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'heartbeat' }))
+          }
+        }, 30000)
+
+        ws.onclose = () => {
+          clearInterval(heartbeatInterval)
+          setIsConnected(false)
+          console.log('[PRESENCE] disconnected')
+        }
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('[PRESENCE] update received', data)
+
+          if (data.type === 'presence_list') {
+            // data.users can be either array of ids or array of user objects
+            const users = data.users || []
+            const ids: string[] = users.map((u: any) => (typeof u === 'object' ? String(u.user_id) : String(u)))
+            // populate userInfo map if available
+            users.forEach((u: any) => {
+              if (u && typeof u === 'object' && u.user_id) {
+                userInfoRef.current.set(String(u.user_id), { username: u.username, status: u.status })
+              }
+            })
+            setOnlineUsersSet(new Set(ids))
+          } else if (data.type === 'presence_update') {
+            const uid = String(data.user_id)
+            // Incoming presence info may include last_seen and origin. Use those plus status to avoid
+            // flipping state on duplicate or out-of-order messages. If nothing changed, ignore.
+            const incoming = {
+              username: data.username,
+              status: data.status,
+              last_seen: (data as any).last_seen,
+              origin: (data as any).origin,
             }
-            return next
-          })
+
+            const prev = userInfoRef.current.get(uid) as any
+
+            // Exact duplicate -> ignore
+            const unchanged = prev && prev.status === incoming.status && prev.last_seen === incoming.last_seen && prev.origin === incoming.origin && prev.username === incoming.username
+            if (unchanged) return
+
+            const now = Date.now()
+            // If we've applied a change recently, avoid flipping state too quickly (debounce transient updates)
+            if (prev && prev.status !== incoming.status && (now - (prev.appliedAt || 0) < 2000)) {
+              console.log('[PRESENCE] ignoring transient flip', uid, prev.status, '->', incoming.status)
+              return
+            }
+
+            // Apply update with appliedAt timestamp
+            userInfoRef.current.set(uid, { ...incoming, appliedAt: now })
+            setOnlineUsersSet((prevSet) => {
+              const next = new Set(prevSet)
+              if (incoming.status === 'online') next.add(uid)
+              else next.delete(uid)
+              return next
+            })
+          }
+
+          // Notify general event handlers (channel_created, etc.)
+          try {
+            for (const h of Array.from(eventHandlersRef.current)) {
+              try { h(data) } catch (e) { console.error('presence event handler error', e) }
+            }
+          } catch (e) {
+            console.error('Error dispatching presence event handlers', e)
+          }
+        } catch (err) {
+          console.error('Failed to parse presence message:', err)
         }
-      } catch (err) {
-        console.error('Failed to parse presence message:', err)
+      }
+
+      // attach a closure handler for the most recent ws
+      const onCloseHandler = () => {
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current)
+          reconnectTimeoutRef.current = null
+        }
+        const attempts = reconnectAttemptsRef.current || 0
+        const base = 3000
+        const maxDelay = 60000
+        const delay = Math.min(base * (2 ** attempts), maxDelay) + Math.floor(Math.random() * 1000)
+        console.log(`Presence reconnect scheduled in ${delay}ms (attempt ${attempts + 1})`)
+        reconnectAttemptsRef.current = attempts + 1
+        reconnectTimeoutRef.current = setTimeout(() => {
+          start()
+        }, delay)
+      }
+
+      if (wsRef.current) {
+        wsRef.current.onclose = () => {
+          setIsConnected(false)
+          onCloseHandler()
+        }
       }
     }
+
+    start()
 
     return () => {
-      ws.close()
+      // allow restart on next mount/user change
+      startedRef.current = false
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      wsRef.current?.close()
     }
   }, [user])
 
-  const isUserOnline = useCallback((userId: number) => {
-    return onlineUsers.has(userId)
-  }, [onlineUsers])
+  const isUserOnline = useCallback((userId: number | string) => {
+    return onlineUsersSet.has(String(userId))
+  }, [onlineUsersSet])
+
+  const onlineUsers = Array.from(onlineUsersSet).map((id) => ({
+    user_id: id,
+    username: userInfoRef.current.get(id)?.username,
+    status: userInfoRef.current.get(id)?.status || 'online',
+  }))
 
   return {
     isConnected,
-    onlineUsers: Array.from(onlineUsers),
+    onlineUsers,
     isUserOnline,
+    onEvent: (handler: (data: any) => void) => {
+      eventHandlersRef.current.add(handler)
+      return () => eventHandlersRef.current.delete(handler)
+    }
   }
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+// React import not required for JSX with the automatic runtime
 import Composer from './Composer'
 import Message from './Message'
 

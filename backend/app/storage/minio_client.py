@@ -13,15 +13,25 @@ class MinioStorage:
             secure=settings.MINIO_SECURE,
         )
         self.bucket = settings.MINIO_BUCKET
-        self._ensure_bucket()
+        # Try to ensure bucket exists but do not raise on startup failures.
+        # This prevents a hard crash if MinIO is temporarily unreachable
+        # (e.g., when running locally without MinIO or during cluster startup).
+        try:
+            self._ensure_bucket()
+        except Exception as e:
+            # Avoid raising here; log the issue and continue. The app can retry
+            # bucket actions later when storage is first used.
+            print(f"MinIO initialization warning: {e}")
     
     def _ensure_bucket(self):
         """Create bucket if it doesn't exist"""
         try:
             if not self.client.bucket_exists(self.bucket):
                 self.client.make_bucket(self.bucket)
-        except S3Error as e:
-            print(f"MinIO bucket error: {e}")
+        except Exception as e:
+            # Catch any connection/HTTP errors (urllib3, requests, etc.) in
+            # addition to MinIO's S3Error so bucket checks don't crash startup.
+            print(f"MinIO bucket warning: {e}")
     
     async def upload_file(
         self,
@@ -37,6 +47,25 @@ class MinioStorage:
                 file_path,
                 io.BytesIO(file_data),
                 len(file_data),
+                content_type=content_type,
+            )
+            return file_path
+        except S3Error as e:
+            raise Exception(f"Failed to upload file: {e}")
+
+    async def upload_file_stream(self, fileobj, size: int, filename: str, content_type: str = "application/octet-stream") -> str:
+        """Upload a file from a stream/file-like object without loading into memory.
+        fileobj: file-like object positioned at the start of the data
+        size: total number of bytes to read
+        """
+        try:
+            file_path = f"uploads/{filename}"
+            # Minio client is synchronous; we call it directly (as other helpers do)
+            self.client.put_object(
+                self.bucket,
+                file_path,
+                fileobj,
+                size,
                 content_type=content_type,
             )
             return file_path

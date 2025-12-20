@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = os.getenv("MINIO_SECRET_KEY", "minioadmin")
     MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "fearallah-files")
     MINIO_SECURE: bool = False
+
+    # Upload limits (MB)
+    MAX_UPLOAD_MB: int = 50
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1"]
