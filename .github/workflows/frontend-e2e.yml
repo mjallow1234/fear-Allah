@@ -49,14 +49,23 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd frontend
-          npm ci
+          # Prefer npm ci when a lockfile exists; otherwise fall back to npm install
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ] || [ -f yarn.lock ]; then
+            npm ci
+          else
+            npm install
+          fi
           npx playwright install --with-deps
 
       - name: Build & start frontend preview server (port 5173)
         run: |
           cd frontend
-          # Install dependencies (ensure consistent env in CI)
-          npm ci
+          # Prefer npm ci when a lockfile exists; otherwise fall back to npm install
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ] || [ -f yarn.lock ]; then
+            npm ci
+          else
+            npm install
+          fi
           # Build production static assets and serve using Vite preview (stable for CI)
           npm run build
           npx vite preview --port 5173 --strictPort --host > ../frontend.log 2>&1 &
@@ -84,8 +93,8 @@ jobs:
         with:
           name: playwright-artifacts
           path: |
-            frontend/playwright-report
-            frontend/test-results
+            frontend/playwright-report/**
+            frontend/test-results/**
             frontend/**/*.zip
 
       - name: Teardown and logs (always)
