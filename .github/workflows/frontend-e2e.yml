@@ -52,13 +52,15 @@ jobs:
           npm ci
           npx playwright install --with-deps
 
-      - name: Start frontend dev server (port 5173)
+      - name: Build & start frontend preview server (port 5173)
         run: |
           cd frontend
-          # Force the dev server to use port 5173; run in background
-          PORT=5173 VITE_PORT=5173 npm run dev > ../frontend.log 2>&1 &
-          echo "started frontend dev"
-
+          # Install dependencies (ensure consistent env in CI)
+          npm ci
+          # Build production static assets and serve using Vite preview (stable for CI)
+          npm run build
+          npx vite preview --port 5173 --strictPort --host > ../frontend.log 2>&1 &
+          echo "started frontend preview"
       - name: Wait for frontend to be reachable
         run: |
           for i in {1..30}; do
