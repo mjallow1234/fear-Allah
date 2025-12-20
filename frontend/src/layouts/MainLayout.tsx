@@ -1,5 +1,5 @@
 import { Outlet, useParams } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Sidebar from '../components/Sidebar'
 import ErrorBoundary from '../components/ErrorBoundary'
 import TopBar from '../components/TopBar'
@@ -54,16 +54,16 @@ export default function MainLayout() {
           {typeof window !== 'undefined' && (window as any).__ENABLE_WEBSOCKETS__ ? (
             <ChatSocketProvider>
               <ErrorBoundary>
-                <React.Suspense fallback={<Outlet />}>
+                <Suspense fallback={<Outlet />}>
                   <Outlet />
-                </React.Suspense>
+                </Suspense>
               </ErrorBoundary>
             </ChatSocketProvider>
           ) : (
             <ErrorBoundary>
-              <React.Suspense fallback={<Outlet />}>
+              <Suspense fallback={<Outlet />}>
                 <Outlet />
-              </React.Suspense>
+              </Suspense>
             </ErrorBoundary>
           )}
         </main>
