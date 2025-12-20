@@ -1,0 +1,98 @@
+name: Frontend E2E — U3.2 Channel Metadata
+
+on:
+  push: {}
+  pull_request: {}
+
+jobs:
+  frontend-e2e:
+    name: Frontend E2.2 — U3.2 Channel Metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install backend Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Start backend API (uvicorn)
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./backend_test.db
+        run: |
+          cd backend
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 18002 > ../backend.log 2>&1 &
+          echo "started backend"
+
+      - name: Wait for backend /health
+        run: |
+          for i in {1..30}; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18002/health || true)
+            echo "backend health=$status"
+            if [ "$status" = "200" ]; then echo "Backend ready"; exit 0; fi
+            sleep 1
+          done
+          echo "Backend failed to start"; tail -n 200 backend.log || true; exit 1
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Start frontend dev server (port 5173)
+        run: |
+          cd frontend
+          # Force the dev server to use port 5173; run in background
+          PORT=5173 VITE_PORT=5173 npm run dev > ../frontend.log 2>&1 &
+          echo "started frontend dev"
+
+      - name: Wait for frontend to be reachable
+        run: |
+          for i in {1..30}; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5173/ || true)
+            echo "frontend status=$status"
+            if [ "$status" = "200" ]; then echo "Frontend ready"; exit 0; fi
+            sleep 1
+          done
+          echo "Frontend failed to start"; tail -n 200 frontend.log || true; exit 1
+
+      - name: Run Playwright U3.2 E2E test
+        run: |
+          cd frontend
+          # Run only the U3.2 test to keep CI fast and focused
+          npx playwright test tests/e2e/channel-metadata.spec.ts --workers=1 --retries=0 --reporter=list,html --trace=on
+        # allow the step to fail normally so artifacts can be uploaded in the next step
+
+      - name: Upload Playwright artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+            frontend/**/*.zip
+
+      - name: Teardown and logs (always)
+        if: always()
+        run: |
+          echo "--- backend log (tail) ---"
+          tail -n 200 backend.log || true
+          echo "--- frontend log (tail) ---"
+          tail -n 200 frontend.log || true
+          # Kill processes that may still be running
+          pkill -f "uvicorn" || true
+          pkill -f "vite" || true
