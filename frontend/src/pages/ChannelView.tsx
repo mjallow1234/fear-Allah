@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../services/api'
+import { fetchChannelMessages } from '../services/channels'
+import Message from '../components/Chat/Message'
 
 export default function ChannelView() {
   const { channelId } = useParams<{ channelId: string }>()
   const [channelName, setChannelName] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  const [messages, setMessages] = useState<any[] | null>(null)
+  const [loadingMessages, setLoadingMessages] = useState(false)
+  const [messagesError, setMessagesError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!channelId) return
@@ -14,6 +20,31 @@ export default function ChannelView() {
       .then((res) => setChannelName(res.data.display_name || res.data.name || `Channel ${channelId}`))
       .catch(() => setChannelName(`Channel ${channelId}`))
       .finally(() => setLoading(false))
+  }, [channelId])
+
+  useEffect(() => {
+    if (!channelId) {
+      setMessages(null)
+      return
+    }
+    let cancelled = false
+    setLoadingMessages(true)
+    setMessagesError(null)
+    fetchChannelMessages(Number(channelId))
+      .then((list) => {
+        if (cancelled) return
+        setMessages(list)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Failed to load messages', err)
+        setMessagesError('Failed to load messages')
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoadingMessages(false)
+      })
+    return () => { cancelled = true }
   }, [channelId])
 
   if (!channelId) {
@@ -33,9 +64,23 @@ export default function ChannelView() {
         <h1 className="text-2xl font-semibold">{loading ? 'Loading…' : (channelName || 'Channel')}</h1>
       </div>
 
-      <div className="mt-8 text-center text-gray-500">
-        <p className="text-lg font-medium">Chat loading will appear here</p>
-        <p className="mt-2 text-sm">Channel messages will load once chat is enabled.</p>
+      <div className="mt-4">
+        <h3 className="font-semibold mb-2">Messages</h3>
+
+        {loadingMessages && <div>Loading messages…</div>}
+        {messagesError && <div className="text-red-500">{messagesError}</div>}
+
+        {!loadingMessages && !messagesError && messages && messages.length === 0 && (
+          <div className="text-gray-500">No messages yet</div>
+        )}
+
+        {!loadingMessages && !messagesError && messages && messages.length > 0 && (
+          <div className="messages space-y-2">
+            {messages.map((m:any) => (
+              <Message key={m.id} message={{ author: m.author_username, content: m.content, created_at: m.created_at }} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
