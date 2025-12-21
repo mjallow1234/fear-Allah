@@ -61,6 +61,8 @@ jobs:
           docker compose up -d backend api-proxy
 
       - name: Wait for backend health
+        id: wait_for_backend_health
+        continue-on-error: true
         run: |
           echo "Waiting for backend health..."
           for i in $(seq 1 60); do
@@ -72,6 +74,31 @@ jobs:
             sleep 2
           done
           echo "Backend did not become healthy in time"
+          exit 1
+
+      - name: Collect healthcheck debug artifacts
+        if: steps.wait_for_backend_health.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          mkdir -p e2e-healthcheck-debug
+          docker compose ps > e2e-healthcheck-debug/compose-ps.txt || true
+          docker compose logs backend > e2e-healthcheck-debug/backend.log || true
+          docker compose logs api-proxy > e2e-healthcheck-debug/api-proxy.log || true
+          docker compose logs redis > e2e-healthcheck-debug/redis.log || true
+          backend_id=$(docker compose ps -q backend || true)
+          if [ -n "$backend_id" ]; then docker inspect --format '{{json .State.Health}}' "$backend_id" > e2e-healthcheck-debug/backend-health.json || true; fi
+
+      - name: Upload healthcheck debug artifact
+        if: steps.wait_for_backend_health.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-healthcheck-debug
+          path: e2e-healthcheck-debug
+
+      - name: Fail on backend health check
+        if: steps.wait_for_backend_health.outcome == 'failure'
+        run: |
+          echo "Failing job due to backend health check failure"
           exit 1
 
       - name: Install frontend deps
