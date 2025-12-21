@@ -21,7 +21,7 @@ RUN sed 's/ --hash=[^ ]*//g' requirements.txt > req_nohash.txt && \
     pip install --no-cache-dir -r req_nohash.txt alembic
 
 # Copy migration script
-COPY backend/scripts /app/scripts
+COPY scripts /app/scripts
 RUN chmod +x /app/scripts/*.sh
 
 # Copy application code
