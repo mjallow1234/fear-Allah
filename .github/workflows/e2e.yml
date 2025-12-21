@@ -34,11 +34,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Check for lockfile
+        id: check-lock
+        run: |
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ] || [ -f yarn.lock ]; then
+            echo "has_lock=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_lock=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js (with cache)
+        if: steps.check-lock.outputs.has_lock == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'npm'
+
+      - name: Set up Node.js (no cache)
+        if: steps.check-lock.outputs.has_lock != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
       - name: Docker Compose up (backend + api-proxy)
         run: |
