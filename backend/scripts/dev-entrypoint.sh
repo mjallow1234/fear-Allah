@@ -24,7 +24,7 @@ until curl -sS "http://$MINIO_HOST:$MINIO_PORT/minio/health/ready" >/dev/null 2>
 done
 
 echo "Running migrations"
-/app/scripts/run_migrations.sh
+bash /app/scripts/run_migrations.sh
 
 echo "Starting uvicorn"
 # Allow disabling the auto-reload watcher when running inside containers to avoid
