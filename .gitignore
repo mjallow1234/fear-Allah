@@ -1,5 +1,7 @@
 venv/
 .venv/
+Activate.ps1/
+backend/Activate.ps1/
 __pycache__/
 *.pyc
 config.json
