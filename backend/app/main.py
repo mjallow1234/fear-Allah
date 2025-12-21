@@ -105,12 +105,14 @@ app = FastAPI(
 )
 
 # CORS
+# Configure CORS to match Mattermost-style behavior for uploads and API access
+# Allow GET/HEAD as well so preflights for authenticated GET requests succeed
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # Include routers
@@ -124,7 +126,14 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
+# Orders & Tasks
+from app.api import orders, tasks
+app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
+app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 
+# Sales (event-based, not workflows)
+from app.api import sales
+app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "fear-Allah API"}

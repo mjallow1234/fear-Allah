@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  backend:
+    volumes:
+      - ./backend:/app:cached
+    environment:
+      PYTHONUNBUFFERED: 1
+      ENABLE_RELOAD: 0
+    command: /app/scripts/dev-entrypoint.sh
+    # backend is accessed by other containers using the internal network (no host port published)
+
+  frontend:
+    image: node:20
+    volumes:
+      - ./frontend:/app:cached
+    working_dir: /app
+    ports:
+      - "3000:5173"
+    environment:
+      - VITE_API_URL=http://backend:8000
+    command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0"
+
+  api-proxy:
+    image: nginx:alpine
+    volumes:
+      - ./deploy/api-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "18002:80"
+    depends_on:
+      - backend

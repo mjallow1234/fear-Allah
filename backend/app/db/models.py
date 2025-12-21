@@ -3,7 +3,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
-from app.db.enums import UserStatus, UserRole, ChannelType, NotificationType
+from app.db.enums import UserStatus, UserRole, ChannelType, NotificationType, OrderStatus, TaskStatus, OrderType, SaleChannel
 
 
 class User(Base):
@@ -97,6 +97,7 @@ class ChannelMember(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     last_read_at = Column(DateTime(timezone=True))
+    last_viewed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -198,3 +199,65 @@ class AuditLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Relationships
     user = relationship("User")
+
+# ------------------ Orders & Tasks ------------------
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_type = Column(SAEnum(OrderType, name="ordertype", create_type=False), nullable=False)
+    status = Column(SAEnum(OrderStatus, name="orderstatus", create_type=False), nullable=False, default=OrderStatus.submitted.value)
+    meta = Column(Text)
+    items = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    tasks = relationship("Task", back_populates="order", order_by="Task.id")
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+    step_key = Column(String(100), nullable=False)
+    title = Column(String(200), nullable=False)
+    assigned_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(SAEnum(TaskStatus, name="taskstatus", create_type=False), nullable=False, default=TaskStatus.pending.value)
+    required = Column(Boolean, default=True)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    version = Column(Integer, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    order = relationship("Order", back_populates="tasks")
+
+
+# ------------------ Inventory & Sales (new) ------------------
+class Inventory(Base):
+    __tablename__ = "inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, nullable=False, unique=True, index=True)
+    total_stock = Column(Integer, default=0, nullable=False)
+    total_sold = Column(Integer, default=0, nullable=False)
+    version = Column(Integer, default=1)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Sale(Base):
+    __tablename__ = "sales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Integer, nullable=False)
+    total_amount = Column(Integer, nullable=False)
+    sold_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    sale_channel = Column(SAEnum(SaleChannel, name="salechannel", create_type=False), nullable=False)
+    related_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    idempotency_key = Column(String(255), nullable=True, unique=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    sold_by = relationship("User")

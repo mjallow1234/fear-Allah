@@ -1,8 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
-import ChannelView from './pages/ChannelView'
+import ChannelView from './pages/ChannelViewSimple'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 
@@ -15,6 +16,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route
         path="/"
         element={
@@ -28,6 +30,7 @@ function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
       </Route>
+      <Route path="*" element={<h1 style={{ padding: 40 }}>404 — Page not found</h1>} />
     </Routes>
   )
 }

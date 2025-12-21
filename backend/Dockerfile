@@ -5,6 +5,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -20,8 +21,8 @@ RUN sed 's/ --hash=[^ ]*//g' requirements.txt > req_nohash.txt && \
     pip install --no-cache-dir -r req_nohash.txt alembic
 
 # Copy migration script
-COPY scripts/run_migrations.sh /app/scripts/run_migrations.sh
-RUN chmod +x /app/scripts/run_migrations.sh
+COPY scripts /app/scripts
+RUN chmod +x /app/scripts/*.sh
 
 # Copy application code
 COPY --chown=appuser:appgroup . /app

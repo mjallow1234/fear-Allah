@@ -38,11 +38,22 @@ class ConnectionManager:
         self.user_info: Dict[int, dict] = {}
         # Global presence subscribers
         self.presence_subscribers: Set[WebSocket] = set()
+        # Cache last broadcasted presence per user to avoid duplicate/no-op broadcasts
+        self._last_presence: Dict[int, dict] = {}
+        # Pending offline tasks: user_id -> asyncio.Task for delayed offline
+        self._pending_offline_tasks: Dict[int, asyncio.Task] = {}
     
     async def connect(self, websocket: WebSocket, channel_id: int, user_id: int, username: str = ""):
         """Connect a user to a channel."""
         await websocket.accept()
         
+        # Cancel any pending offline task for this user (they reconnected quickly)
+        pending = self._pending_offline_tasks.get(user_id)
+        if pending and not pending.done():
+            pending.cancel()
+            logger.info('Cancelled pending offline for user %s due to reconnect', user_id)
+            self._pending_offline_tasks.pop(user_id, None)
+
         # Add to channel connections
         if channel_id not in self.channel_connections:
             self.channel_connections[channel_id] = set()
@@ -90,8 +101,25 @@ class ConnectionManager:
             self.user_connections[user_id].discard(websocket)
             if not self.user_connections[user_id]:
                 del self.user_connections[user_id]
-                # User fully offline
-                asyncio.create_task(self._set_user_offline(user_id))
+                # User fully offline -> schedule delayed offline task to avoid flapping
+                delay = 3  # seconds
+                async def _delayed():
+                    try:
+                        logger.info('Scheduling offline for user %s in %s seconds', user_id, delay)
+                        await asyncio.sleep(delay)
+                        # If user reconnected in the meantime, skip
+                        if user_id in self.user_connections:
+                            logger.info('User %s reconnected during offline delay; skipping offline', user_id)
+                            return
+                        await self._set_user_offline(user_id)
+                    except asyncio.CancelledError:
+                        logger.info('Cancelled scheduled offline for user %s', user_id)
+                        return
+                    finally:
+                        self._pending_offline_tasks.pop(user_id, None)
+
+                task = asyncio.create_task(_delayed())
+                self._pending_offline_tasks[user_id] = task
     
     async def _set_user_offline(self, user_id: int):
         """Set user offline in Redis and broadcast."""
@@ -111,7 +139,8 @@ class ConnectionManager:
             return
         
         disconnected = []
-        for ws, uid in self.channel_connections[channel_id]:
+        # iterate over a copy to avoid 'Set changed size during iteration' when sockets disconnect
+        for ws, uid in list(self.channel_connections[channel_id]):
             if exclude_user and uid == exclude_user:
                 continue
             try:
@@ -127,8 +156,7 @@ class ConnectionManager:
         """Send message to specific user."""
         if user_id not in self.user_connections:
             return
-        
-        for ws in self.user_connections[user_id]:
+        for ws in list(self.user_connections[user_id]):
             try:
                 await ws.send_json(message)
             except Exception:
@@ -136,8 +164,21 @@ class ConnectionManager:
     
     async def broadcast_presence(self, message: dict):
         """Broadcast presence update to all subscribers."""
+        # Deduplicate identical presence updates to avoid client flapping
+        user_id = message.get('user_id')
+        if user_id is not None:
+            last = self._last_presence.get(user_id)
+            # Consider fields that should be compared
+            compare_keys = ('status', 'username', 'last_seen', 'origin')
+            if last and all(last.get(k) == message.get(k) for k in compare_keys):
+                # Skip broadcasting identical/no-op update
+                logger.debug('Skipping duplicate presence broadcast for user %s', user_id)
+                return
+            # Update cached last presence
+            self._last_presence[user_id] = {k: message.get(k) for k in compare_keys}
+
         disconnected = []
-        for ws in self.presence_subscribers:
+        for ws in list(self.presence_subscribers):
             try:
                 await ws.send_json(message)
             except Exception:
@@ -278,6 +319,13 @@ async def websocket_chat(
     - reaction_remove: Remove reaction from message
     - file_upload: File was uploaded
     """
+    # Log raw token received (for debugging)
+    raw_token = websocket.query_params.get("token")
+    logger.info(f"WS token received: {raw_token}")
+    # Also print to stdout so container logs capture it even if logging
+    # configuration routes module logs elsewhere during dev runs.
+    print(f"WS TOKEN RECEIVED: {raw_token}")
+
     # Validate and decode token to get user identity
     if not token:
         await websocket.close(code=4403)
@@ -294,6 +342,8 @@ async def websocket_chat(
         await websocket.close(code=4403)
         return
 
+    logger.info(f"WS connect attempt: channel={channel_id}, user={user_id}")
+
     # Verify channel membership before connecting
     try:
         async with async_session() as session:
@@ -304,19 +354,58 @@ async def websocket_chat(
             ))
             member = result.scalar_one_or_none()
             if member is None:
-                await websocket.close(code=4403)
-                return
+                # In development mode, auto-join the channel for convenience
+                from app.core.config import settings
+                if settings.DEBUG:
+                    from app.db.models import ChannelMember as ChannelMemberModel
+                    cm = ChannelMemberModel(user_id=user_id, channel_id=channel_id)
+                    session.add(cm)
+                    await session.commit()
+                    # refresh member variable to reflect created membership
+                    member = cm
+                else:
+                    await websocket.close(code=4403)
+                    return
     except Exception:
         # On DB errors, deny connect for safety
         await websocket.close(code=4403)
         return
 
     await manager.connect(websocket, channel_id, user_id, username)
+    logger.info(f"WS connect accepted: channel={channel_id}, user={user_id}")
+    print(f"WS CONNECT ACCEPTED: channel={channel_id}, user={user_id}")
+    logger.warning("WS LOOP ENTERED")
     
     try:
         while True:
-            data = await websocket.receive_text()
-            event = json.loads(data)
+            logger.warning("WS LOOP TICK")
+            # Print for immediate observability in container logs
+            print("WS LOOP TICK")
+            # Receive text from client. Do not assume the payload is valid JSON
+            # or that a message will be sent immediately — handle empty or
+            # malformed payloads gracefully instead of letting the handler
+            # crash and close the socket.
+            try:
+                data = await websocket.receive_text()
+            except WebSocketDisconnect:
+                # Bubble disconnect to outer handler
+                raise
+            except Exception as exc:
+                # Log and continue waiting for the next message
+                logger.warning(f"Error receiving websocket data (ignored): {exc}")
+                continue
+
+            # Ignore empty messages
+            if not data:
+                continue
+
+            try:
+                event = json.loads(data)
+            except Exception:
+                logger.warning("Received non-JSON or malformed message on WS, ignoring")
+                # Optionally, could send an error frame back. For now, ignore.
+                continue
+
             event_type = event.get("type", "message")
             
             async with async_session() as session:
@@ -371,6 +460,36 @@ async def websocket_chat(
                         
                         # Audit log
                         await log_audit(session, user_id, "message_send", "message", msg.id)
+
+                        # Emit unread updates to each member except sender
+                        try:
+                            from app.db.models import ChannelMember
+                            from app.services.unread import get_unread_count
+                            members_res = await session.execute(select(ChannelMember).where(ChannelMember.channel_id == channel_id))
+                            members = members_res.scalars().all()
+                            for m in members:
+                                if m.user_id == user_id:
+                                    continue
+                                unread = await get_unread_count(session, channel_id, m.user_id)
+                                await manager.send_to_user(m.user_id, {
+                                    "type": "unread_update",
+                                    "channel_id": channel_id,
+                                    "unread_count": unread,
+                                })
+                        except Exception:
+                            # Best-effort: do not fail the WS loop on unread errors
+                            pass
+
+                elif event_type == "heartbeat":
+                    # Keepalive ping from client — acknowledge to keep the
+                    # connection alive and refresh any server-side TTLs as
+                    # appropriate.
+                    try:
+                        await websocket.send_json({"type": "heartbeat_ack"})
+                    except Exception:
+                        # If sending fails, ignore and continue; disconnects
+                        # will be handled by WebSocketDisconnect.
+                        pass
                 
                 elif event_type == "typing_start":
                     # Set typing in Redis
@@ -466,8 +585,12 @@ async def websocket_chat(
                             await log_audit(session, user_id, "reaction_remove", "message", message_id,
                                           json.dumps({"emoji": emoji}))
     
+            # If we ever exit the loop normally this is unexpected
+            logger.error("WS LOOP EXITED — THIS SHOULD NEVER HAPPEN")
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, channel_id, user_id)
+        logger.info(f"WS disconnected: channel={channel_id}, user={user_id}")
         await manager.broadcast_to_channel(channel_id, {
             "type": "user_left",
             "user_id": user_id,
@@ -475,6 +598,8 @@ async def websocket_chat(
             "channel_id": channel_id,
             "timestamp": datetime.utcnow().isoformat(),
         })
+    finally:
+        logger.error("WS HANDLER FINALLY BLOCK HIT")
 
 
 @router.websocket("/presence")

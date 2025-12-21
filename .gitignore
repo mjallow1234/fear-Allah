@@ -1,5 +1,8 @@
+# Python virtual environments
 venv/
 .venv/
+env/
+backend/Activate.ps1/
 __pycache__/
 *.pyc
 config.json
@@ -8,3 +11,9 @@ config-*.json
 *.crt
 *.key
 /.env
+*.log
+__pycache__/**
+frontend/node_modules/
+node_modules/
+frontend/dist/
+tmp-artifacts-*
