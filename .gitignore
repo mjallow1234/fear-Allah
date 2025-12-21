@@ -1,6 +1,7 @@
+# Python virtual environments
 venv/
 .venv/
-Activate.ps1/
+env/
 backend/Activate.ps1/
 __pycache__/
 *.pyc

@@ -1,0 +1,75 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - button "T Select Team" [ref=e6] [cursor=pointer]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: T
+        - generic [ref=e9]: Select Team
+      - img [ref=e10]
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e14]: Channels
+        - button "Only admins can create channels" [disabled] [ref=e15]:
+          - img [ref=e16]
+      - generic [ref=e17]:
+        - img [ref=e18]
+        - generic [ref=e21]: No channels yet
+      - generic [ref=e22]:
+        - generic [ref=e23]: Direct Messages
+        - button "New Direct Message" [ref=e24] [cursor=pointer]:
+          - img [ref=e25]
+      - generic [ref=e26]:
+        - img [ref=e27]
+        - generic [ref=e29]: No DMs yet
+      - generic [ref=e31]: Online — 0
+      - generic [ref=e32]:
+        - img [ref=e33]
+        - generic [ref=e35]: Offline
+    - generic [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]: U
+        - img [ref=e39]
+      - generic [ref=e42]: offline
+      - link [active] [ref=e43] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e44]
+      - link [ref=e47] [cursor=pointer]:
+        - /url: /profile
+        - img [ref=e48]
+  - generic [ref=e51]:
+    - generic [ref=e52]:
+      - generic [ref=e53]:
+        - img [ref=e54]
+        - generic [ref=e57]: Channel
+      - generic [ref=e58]:
+        - button "Search Ctrl+K" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+          - generic [ref=e63]: Search
+          - generic [ref=e64]: Ctrl+K
+        - button "Notifications" [ref=e66] [cursor=pointer]:
+          - img [ref=e67]
+    - main [ref=e70]:
+      - generic [ref=e71]:
+        - heading "Settings" [level=1] [ref=e72]
+        - generic [ref=e73]:
+          - generic [ref=e74]:
+            - heading "Appearance" [level=2] [ref=e75]
+            - generic [ref=e76]:
+              - generic [ref=e77]:
+                - generic [ref=e78]: Dark Mode
+                - checkbox "Dark Mode" [checked] [ref=e79]
+              - generic [ref=e80]:
+                - generic [ref=e81]: Compact Mode
+                - checkbox "Compact Mode" [ref=e82]
+          - generic [ref=e83]:
+            - heading "Notifications" [level=2] [ref=e84]
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - generic [ref=e87]: Enable Notifications
+                - checkbox "Enable Notifications" [checked] [ref=e88]
+              - generic [ref=e89]:
+                - generic [ref=e90]: Sound
+                - checkbox "Sound" [checked] [ref=e91]
+```
