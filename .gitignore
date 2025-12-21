@@ -11,3 +11,5 @@ config-*.json
 *.crt
 *.key
 /.env
+*.log
+__pycache__/**
