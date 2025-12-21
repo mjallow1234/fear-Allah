@@ -94,9 +94,9 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
   // C) Wait for Sidebar using role-based or text-based selector
   let sidebar = page.getByRole('navigation')
   if (await sidebar.count() === 0) {
-    // Fallback: ensure the 'Channels' section header is visible
-    await expect(page.getByText('Channels')).toBeVisible({ timeout: 15000 })
-    sidebar = page.getByText('Channels')
+    // Fallback: ensure the 'Channels' section header is visible (use exact match to avoid matching 'No channels yet')
+    await expect(page.getByText('Channels', { exact: true }).first()).toBeVisible({ timeout: 15000 })
+    sidebar = page.getByText('Channels', { exact: true }).first()
   } else {
     await expect(sidebar).toBeVisible({ timeout: 15000 })
   }
