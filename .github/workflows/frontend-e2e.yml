@@ -47,6 +47,9 @@ jobs:
           echo "Backend failed to start"; tail -n 200 backend.log || true; exit 1
 
       - name: Install frontend dependencies
+        env:
+          VITE_API_URL: 'http://127.0.0.1:18002'
+          VITE_WS_URL: 'ws://127.0.0.1:18002'
         run: |
           cd frontend
           # Prefer npm ci when a lockfile exists; otherwise fall back to npm install
@@ -58,6 +61,9 @@ jobs:
           npx playwright install --with-deps
 
       - name: Build & start frontend preview server (port 5173)
+        env:
+          VITE_API_URL: 'http://127.0.0.1:18002'
+          VITE_WS_URL: 'ws://127.0.0.1:18002'
         run: |
           cd frontend
           # Prefer npm ci when a lockfile exists; otherwise fall back to npm install
