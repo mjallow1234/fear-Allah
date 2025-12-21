@@ -123,7 +123,8 @@ jobs:
         working-directory: ./frontend
         run: |
           # Run full suite on Chromium headless; ensure stability spec runs
-          npx playwright test --project=chromium --reporter=list
+          # Explicitly point to the root Playwright config so projects are loaded when running from ./frontend
+          npx playwright test --config=../playwright.config.js --project=chromium --reporter=list
         env:
           # make sure tests use the local backend URL
           VITE_API_URL: ${{ env.VITE_API_URL }}
