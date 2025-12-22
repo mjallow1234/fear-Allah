@@ -8,8 +8,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = '007_add_chat_models'
-down_revision: Union[str, Sequence[str], None] = '006_normalize_enum_lowercase'
+revision: str = '007'
+down_revision: Union[str, Sequence[str], None] = '006'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
