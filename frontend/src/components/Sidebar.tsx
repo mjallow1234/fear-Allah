@@ -116,7 +116,13 @@ export default function Sidebar() {
     if (!token) return
     try {
       const response = await api.get('/api/channels/direct/list')
-      setDmChannels(response.data)
+      // Normalize to array to prevent .map() crashes if API returns unexpected shape
+      const dmData = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.dm_channels)
+          ? response.data.dm_channels
+          : []
+      setDmChannels(dmData)
     } catch (error) {
       console.error('Failed to fetch DM channels:', error)
     }
@@ -280,7 +286,7 @@ export default function Sidebar() {
             <span>No DMs yet</span>
           </div>
         ) : (
-          dmChannels.map((dm) => (
+          Array.isArray(dmChannels) && dmChannels.map((dm) => (
             <Link
               key={dm.id}
               to={`/channels/${dm.id}`}
