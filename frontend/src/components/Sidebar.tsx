@@ -85,11 +85,16 @@ export default function Sidebar() {
     if (!token) return
     try {
       const response = await api.get('/api/teams/')
-      const teamsData = response.data
-      setTeams(teamsData)
+      // Normalize to array to prevent .map() crashes if API returns unexpected shape
+      const fetchedTeams = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.teams)
+          ? response.data.teams
+          : []
+      setTeams(fetchedTeams)
       // Auto-select first team if none selected
-      if (teamsData.length > 0 && !selectedTeam) {
-        setSelectedTeam(teamsData[0])
+      if (fetchedTeams.length > 0 && !selectedTeam) {
+        setSelectedTeam(fetchedTeams[0])
       }
     } catch (error) {
       console.error('Failed to fetch teams:', error)
@@ -204,7 +209,7 @@ export default function Sidebar() {
         {/* Team dropdown */}
         {showTeamMenu && (
           <div className="absolute top-12 left-0 right-0 bg-[#111214] border border-[#1f2023] rounded-b shadow-lg z-50 max-h-64 overflow-y-auto">
-            {teams.map((team) => (
+            {Array.isArray(teams) && teams.map((team) => (
               <button
                 key={team.id}
                 onClick={() => handleSelectTeam(team)}
