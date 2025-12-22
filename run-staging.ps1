@@ -5,6 +5,8 @@ $env:APP_ENV="staging"
 $env:AUTOMATIONS_ENABLED="false"
 $env:WS_ENABLED="false"
 $env:PYTHONPATH="backend"
+# Database (staging-local)
+$env:DATABASE_URL="postgresql://fearallah:fearallah@localhost:5432/fear_allah"
 
 # Seed database (idempotent)
 Write-Host "Seeding staging database..." -ForegroundColor Yellow
