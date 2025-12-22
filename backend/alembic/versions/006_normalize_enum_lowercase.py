@@ -8,8 +8,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = '006_normalize_enum_lowercase'
-down_revision = '005_add_system_admin_enum'
+revision = '006'
+down_revision = '005'
 branch_labels = None
 depends_on = None
 
@@ -19,26 +19,32 @@ def upgrade() -> None:
     # userstatus enum
     op.execute("""
     DO $$ BEGIN
-        ALTER TYPE userstatus ADD VALUE IF NOT EXISTS 'online';
-        ALTER TYPE userstatus ADD VALUE IF NOT EXISTS 'offline';
-        ALTER TYPE userstatus ADD VALUE IF NOT EXISTS 'away';
+        IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userstatus') THEN
+            ALTER TYPE userstatus ADD VALUE IF NOT EXISTS 'online';
+            ALTER TYPE userstatus ADD VALUE IF NOT EXISTS 'offline';
+            ALTER TYPE userstatus ADD VALUE IF NOT EXISTS 'away';
+        END IF;
     EXCEPTION WHEN duplicate_object THEN null; END; $$;
     """)
     # channeltype enum
     op.execute("""
     DO $$ BEGIN
-        ALTER TYPE channeltype ADD VALUE IF NOT EXISTS 'direct';
-        ALTER TYPE channeltype ADD VALUE IF NOT EXISTS 'public';
-        ALTER TYPE channeltype ADD VALUE IF NOT EXISTS 'private';
+        IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'channeltype') THEN
+            ALTER TYPE channeltype ADD VALUE IF NOT EXISTS 'direct';
+            ALTER TYPE channeltype ADD VALUE IF NOT EXISTS 'public';
+            ALTER TYPE channeltype ADD VALUE IF NOT EXISTS 'private';
+        END IF;
     EXCEPTION WHEN duplicate_object THEN null; END; $$;
     """)
     # userrole enum
     op.execute("""
     DO $$ BEGIN
-        ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'member';
-        ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'team_admin';
-        ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'system_admin';
-        ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'guest';
+        IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+            ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'member';
+            ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'team_admin';
+            ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'system_admin';
+            ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'guest';
+        END IF;
     EXCEPTION WHEN duplicate_object THEN null; END; $$;
     """)
 

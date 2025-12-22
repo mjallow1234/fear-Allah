@@ -13,9 +13,12 @@ from app.core.security import get_password_hash
 async def seed_default_data():
     """Seed default team, channels, and admin user if they don't exist"""
     async with async_session() as db:
-        # Check if admin user exists using raw SQL to avoid enum value coercion issues
+        # Check if admin user exists by email OR username (avoid collision)
         from sqlalchemy import text
-        result = await db.execute(text("SELECT id, email FROM users WHERE email = :email"), {"email": "admin@fearallah.com"})
+        result = await db.execute(
+            text("SELECT id, email FROM users WHERE email = :email OR username = :username"),
+            {"email": "admin@fearallah.com", "username": "admin"}
+        )
         row = result.first()
         admin = None
         if row:

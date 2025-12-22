@@ -6,6 +6,7 @@ APP_ENV=staging python backend/scripts/seed_staging.py
 import asyncio
 from datetime import datetime, timedelta
 from typing import List
+from sqlalchemy import text
 
 from app.core.config import settings, logger
 from app.db.database import async_session
@@ -14,7 +15,10 @@ from app.core.security import get_password_hash
 
 
 async def get_or_create_user(session, username: str, email: str, password: str, display_name: str = None):
-    q = await session.execute("SELECT id FROM users WHERE email = :email", {"email": email})
+    q = await session.execute(
+        text("SELECT id FROM users WHERE email = :email"),
+        {"email": email}
+    )
     row = q.first()
     if row:
         return await session.get(User, row[0])
@@ -25,7 +29,10 @@ async def get_or_create_user(session, username: str, email: str, password: str, 
 
 
 async def get_or_create_channel(session, name: str, display_name: str = None):
-    q = await session.execute("SELECT id FROM channels WHERE name = :name", {"name": name})
+    q = await session.execute(
+        text("SELECT id FROM channels WHERE name = :name"),
+        {"name": name}
+    )
     row = q.first()
     if row:
         return await session.get(Channel, row[0])
@@ -37,7 +44,10 @@ async def get_or_create_channel(session, name: str, display_name: str = None):
 
 async def create_messages(session, channel: Channel, authors: List[User], total: int = 120):
     # Idempotent: find existing count, only add missing messages
-    q = await session.execute("SELECT COUNT(id) FROM messages WHERE channel_id = :cid AND parent_id IS NULL", {"cid": channel.id})
+    q = await session.execute(
+        text("SELECT COUNT(id) FROM messages WHERE channel_id = :cid AND parent_id IS NULL"),
+        {"cid": channel.id}
+    )
     existing = q.scalar_one()
     if existing >= total:
         logger.info('Channel %s already has %s messages, skipping', channel.name, existing)
@@ -74,7 +84,10 @@ async def run():
         # Add memberships
         for ch in channels:
             for u in users:
-                q = await session.execute("SELECT id FROM channel_members WHERE user_id = :uid AND channel_id = :cid", {"uid": u.id, "cid": ch.id})
+                q = await session.execute(
+                    text("SELECT id FROM channel_members WHERE user_id = :uid AND channel_id = :cid"),
+                    {"uid": u.id, "cid": ch.id}
+                )
                 if not q.first():
                     cm = ChannelMember(user_id=u.id, channel_id=ch.id)
                     session.add(cm)
