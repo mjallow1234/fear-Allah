@@ -16,6 +16,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Create enum types used by models
+    userstatus_enum = sa.Enum('online', 'away', 'dnd', 'offline', name='userstatus')
+    userstatus_enum.create(op.get_bind(), checkfirst=True)
+    channeltype_enum = sa.Enum('public', 'private', 'direct', name='channeltype')
+    channeltype_enum.create(op.get_bind(), checkfirst=True)
+    userrole_enum = sa.Enum('system_admin', 'team_admin', 'member', 'guest', name='userrole')
+    userrole_enum.create(op.get_bind(), checkfirst=True)
+
     # Users table
     op.create_table(
         'users',
