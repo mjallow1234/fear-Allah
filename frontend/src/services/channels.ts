@@ -37,9 +37,12 @@ export async function fetchChannelById(channelId: number): Promise<ChannelDetail
   return res.data as ChannelDetail
 }
 
-export async function fetchChannelMessages(channelId: number, limit = 50): Promise<any[]> {
-  const res = await api.get(`/api/channels/${channelId}/messages?limit=${limit}`)
-  return res.data.messages ?? []
+export async function fetchChannelMessages(channelId: number, before?: number | null, limit = 50): Promise<{ messages: any[]; has_more: boolean }> {
+  const params = new URLSearchParams()
+  params.append('limit', String(limit))
+  if (before) params.append('before', String(before))
+  const res = await api.get(`/api/channels/${channelId}/messages?${params.toString()}`)
+  return { messages: res.data.messages ?? [], has_more: Boolean(res.data.has_more) }
 }
 
 // For tests or development: allow clearing cache
