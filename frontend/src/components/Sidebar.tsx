@@ -102,7 +102,13 @@ export default function Sidebar() {
     try {
       // Use trailing slash to match backend route exactly and avoid 405
       const response = await api.get('/api/channels/')
-      setChannels(response.data.channels || response.data)
+      // Normalize to array to prevent .map() crashes if API returns unexpected shape
+      const fetchedChannels = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.channels)
+          ? response.data.channels
+          : []
+      setChannels(fetchedChannels)
     } catch (error) {
       console.error('Failed to fetch channels:', error)
     }
@@ -251,7 +257,7 @@ export default function Sidebar() {
             <span>No channels yet</span>
           </div>
         ) : (
-          channels.map((channel) => (
+          Array.isArray(channels) && channels.map((channel) => (
             <Link
               key={channel.id}
               to={`/channels/${channel.id}`}
