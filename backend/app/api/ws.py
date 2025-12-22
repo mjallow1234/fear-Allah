@@ -319,12 +319,18 @@ async def websocket_chat(
     - reaction_remove: Remove reaction from message
     - file_upload: File was uploaded
     """
+    # If WebSockets are disabled via feature flag, refuse the connection
+    from app.core.config import settings
+    if not settings.WS_ENABLED:
+        logger.info('WS connection refused: WS_ENABLED is False')
+        await websocket.close(code=4403)
+        return
+
     # Log raw token received (for debugging)
     raw_token = websocket.query_params.get("token")
-    logger.info(f"WS token received: {raw_token}")
-    # Also print to stdout so container logs capture it even if logging
-    # configuration routes module logs elsewhere during dev runs.
-    print(f"WS TOKEN RECEIVED: {raw_token}")
+    logger.info("WS token received: %s", raw_token)
+    # Avoid printing to stdout directly; use structured logging
+    logger.debug("WS TOKEN RECEIVED: %s", raw_token)
 
     # Validate and decode token to get user identity
     if not token:
@@ -342,7 +348,7 @@ async def websocket_chat(
         await websocket.close(code=4403)
         return
 
-    logger.info(f"WS connect attempt: channel={channel_id}, user={user_id}")
+    logger.info("WS connect attempt: channel=%s, user=%s", channel_id, user_id)
 
     # Verify channel membership before connecting
     try:
@@ -372,8 +378,8 @@ async def websocket_chat(
         return
 
     await manager.connect(websocket, channel_id, user_id, username)
-    logger.info(f"WS connect accepted: channel={channel_id}, user={user_id}")
-    print(f"WS CONNECT ACCEPTED: channel={channel_id}, user={user_id}")
+    logger.info("WS connect accepted: channel=%s, user=%s", channel_id, user_id)
+    logger.debug("WS CONNECT ACCEPTED: channel=%s, user=%s", channel_id, user_id)
     logger.warning("WS LOOP ENTERED")
     
     try:
@@ -392,7 +398,7 @@ async def websocket_chat(
                 raise
             except Exception as exc:
                 # Log and continue waiting for the next message
-                logger.warning(f"Error receiving websocket data (ignored): {exc}")
+                logger.warning("Error receiving websocket data (ignored): %s", exc)
                 continue
 
             # Ignore empty messages

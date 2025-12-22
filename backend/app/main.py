@@ -36,9 +36,11 @@ async def seed_default_data():
             db.add(admin)
             await db.commit()
             await db.refresh(admin)
-            print(f"Created admin user: admin@fearallah.com / admin123")
+            from app.core.config import logger
+            logger.info("Created admin user: admin@fearallah.com / admin123")
         else:
-            print(f"Admin user already exists: {admin.email}")
+            from app.core.config import logger
+            logger.info(f"Admin user already exists: {admin.email}")
         
         # Check if default team exists
         result = await db.execute(select(Team).where(Team.name == 'default'))
@@ -64,9 +66,11 @@ async def seed_default_data():
             for channel in default_channels:
                 db.add(channel)
             await db.commit()
-            print(f"Created default team '{team.name}' with {len(default_channels)} channels")
+            from app.core.config import logger
+            logger.info(f"Created default team '{team.name}' with {len(default_channels)} channels")
         else:
-            print(f"Default team already exists: {team.name}")
+            from app.core.config import logger
+            logger.info(f"Default team already exists: {team.name}")
 
 
 @asynccontextmanager
@@ -125,6 +129,10 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["Not
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
+
+# Health / readiness endpoints (Tier 2.3)
+from app.api import health
+app.include_router(health.router, prefix="", tags=["Health"])
 
 # Orders & Tasks
 from app.api import orders, tasks
