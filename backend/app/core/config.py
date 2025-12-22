@@ -60,22 +60,25 @@ settings = Settings()
 
 # Configure structured logging once per-process using environment-aware defaults
 import logging
+
 level_name = (settings.LOG_LEVEL or '').upper() or (
     'DEBUG' if settings.APP_ENV == 'development' else ('INFO' if settings.APP_ENV == 'staging' else 'WARNING')
 )
 numeric_level = getattr(logging, level_name, logging.INFO)
+
+# Use a format WITHOUT %(env)s for global basicConfig to avoid breaking third-party loggers
 logging.basicConfig(
     level=numeric_level,
-    format='%(asctime)s %(levelname)s %(name)s [%(env)s] %(message)s'
+    format='%(asctime)s %(levelname)s %(name)s %(message)s'
 )
-# Add environ filter to include APP_ENV in records
-class EnvFilter(logging.Filter):
-    def filter(self, record):
-        record.env = settings.APP_ENV
-        return True
 
+# Create our app logger with a custom formatter that includes env
 logger = logging.getLogger('fear-allah')
-logger.addFilter(EnvFilter())
+logger.handlers.clear()
+_handler = logging.StreamHandler()
+_handler.setFormatter(logging.Formatter(f'%(asctime)s %(levelname)s %(name)s [{settings.APP_ENV}] %(message)s'))
+logger.addHandler(_handler)
+logger.propagate = False  # Don't double-log through root
 
 # Safety enforcement: do not allow accidental automations in non-production
 if settings.APP_ENV != 'production':
