@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '006_normalize_enum_lowercase'
-down_revision = '005_add_system_admin_enum'
+down_revision = '005'
 branch_labels = None
 depends_on = None
 
