@@ -40,8 +40,49 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1"]
+
+    # Environment + feature flags
+    APP_ENV: str = os.getenv("APP_ENV", "development")  # development | staging | production
+    API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:18002")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+    # Feature flags (safe defaults)
+    WS_ENABLED: bool = False
+    AUTOMATIONS_ENABLED: bool = False
+
+    # Logging
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "info")
     
     class Config:
         env_file = ".env"
 
 settings = Settings()
+
+# Configure structured logging once per-process using environment-aware defaults
+import logging
+level_name = (settings.LOG_LEVEL or '').upper() or (
+    'DEBUG' if settings.APP_ENV == 'development' else ('INFO' if settings.APP_ENV == 'staging' else 'WARNING')
+)
+numeric_level = getattr(logging, level_name, logging.INFO)
+logging.basicConfig(
+    level=numeric_level,
+    format='%(asctime)s %(levelname)s %(name)s [%(env)s] %(message)s'
+)
+# Add environ filter to include APP_ENV in records
+class EnvFilter(logging.Filter):
+    def filter(self, record):
+        record.env = settings.APP_ENV
+        return True
+
+logger = logging.getLogger('fear-allah')
+logger.addFilter(EnvFilter())
+
+# Safety enforcement: do not allow accidental automations in non-production
+if settings.APP_ENV != 'production':
+    # Force-disable automations in non-production to be extra safe
+    settings.AUTOMATIONS_ENABLED = False
+
+# Production must explicitly opt-in for dangerous capabilities
+if settings.APP_ENV == 'production':
+    assert settings.WS_ENABLED is True, "WS must be enabled explicitly in production"
+    assert settings.AUTOMATIONS_ENABLED is True, "Automations must be enabled explicitly in production"
