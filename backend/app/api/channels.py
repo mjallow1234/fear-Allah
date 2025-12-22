@@ -375,18 +375,18 @@ async def join_channel(
 
 
 @router.get("/{channel_id}/messages")
-async def get_channel_messages_v33(
+async def get_channel_messages_v34(
     channel_id: int,
     limit: int = 50,
-    before_id: Optional[int] = None,  # parsed for future use
+    before: Optional[int] = None,  # message ID cursor
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """U3.3: Read-only message list for a channel.
+    """U3.4: Read-only message list with cursor (before) pagination.
 
     - Enforce membership: user must be a member of the channel
-    - Returns messages for the channel ordered by created_at ASC
-    - Accepts `limit` (default 50) and `before_id` (parsed but not applied yet)
+    - Accepts `limit` (default 50, max 100) and `before` (message id cursor)
+    - Returns messages ordered ascending by created_at and `has_more` flag
     """
     # Validate channel exists
     query = select(Channel).where(Channel.id == channel_id)
@@ -401,22 +401,43 @@ async def get_channel_messages_v33(
     if not membership:
         raise HTTPException(status_code=403, detail="User not a member of this channel")
 
-    # Fetch top-level messages (no parent) for the channel, chronological order
+    # Normalize limit and prepare cursor
+    limit = min(max(1, limit), 100)
     from app.db.models import Message
     from sqlalchemy.orm import selectinload
+    from sqlalchemy import desc
 
-    query = (
+    cursor_time = None
+    if before is not None:
+        # Look up the message to get its created_at
+        m_q = select(Message).where(Message.id == before)
+        m_r = await db.execute(m_q)
+        m_obj = m_r.scalar_one_or_none()
+        if m_obj:
+            cursor_time = m_obj.created_at
+
+    # Fetch messages in descending order (newest first) with limit+1 to determine has_more
+    base_q = (
         select(Message)
         .options(selectinload(Message.author), selectinload(Message.reactions))
         .where(Message.channel_id == channel_id, Message.is_deleted == False, Message.parent_id.is_(None))
-        .order_by(Message.created_at)
-        .limit(limit)
     )
-    result = await db.execute(query)
-    messages = result.scalars().all()
+
+    if cursor_time is not None:
+        base_q = base_q.where(Message.created_at < cursor_time)
+
+    base_q = base_q.order_by(desc(Message.created_at)).limit(limit + 1)
+
+    result = await db.execute(base_q)
+    rows = result.scalars().all()
+
+    has_more = len(rows) > limit
+    # keep only 'limit' newest from the fetched set and reverse to chronological order
+    rows = rows[:limit]
+    rows.reverse()
 
     # Get reply counts for each message (avoid N+1)
-    message_ids = [m.id for m in messages]
+    message_ids = [m.id for m in rows]
     reply_counts = {}
     if message_ids:
         from sqlalchemy import func
@@ -431,9 +452,9 @@ async def get_channel_messages_v33(
     # Transform responses using existing helper to ensure consistent shape
     from app.api.messages import transform_message_to_response
 
-    msgs = [transform_message_to_response(m, reply_count=reply_counts.get(m.id, 0)) for m in messages]
+    msgs = [transform_message_to_response(m, reply_count=reply_counts.get(m.id, 0)) for m in rows]
 
-    return {"channel_id": channel_id, "messages": msgs}
+    return {"channel_id": channel_id, "messages": msgs, "has_more": has_more}
 
 
 @router.post("/{channel_id}/leave")

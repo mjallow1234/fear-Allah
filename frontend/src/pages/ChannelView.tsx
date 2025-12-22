@@ -12,6 +12,8 @@ export default function ChannelView() {
   const [messages, setMessages] = useState<any[] | null>(null)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [messagesError, setMessagesError] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState<boolean>(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
 
   useEffect(() => {
     if (!channelId) return
@@ -25,15 +27,17 @@ export default function ChannelView() {
   useEffect(() => {
     if (!channelId) {
       setMessages(null)
+      setHasMore(false)
       return
     }
     let cancelled = false
     setLoadingMessages(true)
     setMessagesError(null)
     fetchChannelMessages(Number(channelId))
-      .then((list) => {
+      .then(({ messages: list, has_more }) => {
         if (cancelled) return
         setMessages(list)
+        setHasMore(has_more)
       })
       .catch((err) => {
         if (cancelled) return
@@ -46,6 +50,24 @@ export default function ChannelView() {
       })
     return () => { cancelled = true }
   }, [channelId])
+
+  async function loadOlder() {
+    if (!messages || messages.length === 0) return
+    setLoadingOlder(true)
+    setMessagesError(null)
+    try {
+      const oldest = messages[0]
+      const beforeId = oldest.id
+      const res = await fetchChannelMessages(Number(channelId), beforeId)
+      setMessages(prev => (prev ? [...res.messages, ...prev] : res.messages))
+      setHasMore(res.has_more)
+    } catch (err) {
+      console.error('Failed to load older messages', err)
+      setMessagesError('Failed to load messages')
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
 
   if (!channelId) {
     return (
@@ -75,10 +97,19 @@ export default function ChannelView() {
         )}
 
         {!loadingMessages && !messagesError && messages && messages.length > 0 && (
-          <div className="messages space-y-2">
-            {messages.map((m:any) => (
-              <Message key={m.id} message={{ author: m.author_username, content: m.content, created_at: m.created_at }} />
-            ))}
+          <div>
+            {hasMore && (
+              <div className="mb-2 text-center">
+                <button className="px-3 py-1 bg-gray-200 rounded" onClick={loadOlder} disabled={loadingOlder}>
+                  {loadingOlder ? 'Loading…' : 'Load older messages'}
+                </button>
+              </div>
+            )}
+            <div className="messages space-y-2">
+              {messages.map((m:any) => (
+                <Message key={m.id} message={{ author: m.author_username, content: m.content, created_at: m.created_at }} />
+              ))}
+            </div>
           </div>
         )}
       </div>
