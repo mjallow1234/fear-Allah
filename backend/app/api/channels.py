@@ -374,6 +374,68 @@ async def join_channel(
     return {"message": "Successfully joined channel"}
 
 
+@router.get("/{channel_id}/messages")
+async def get_channel_messages_v33(
+    channel_id: int,
+    limit: int = 50,
+    before_id: Optional[int] = None,  # parsed for future use
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """U3.3: Read-only message list for a channel.
+
+    - Enforce membership: user must be a member of the channel
+    - Returns messages for the channel ordered by created_at ASC
+    - Accepts `limit` (default 50) and `before_id` (parsed but not applied yet)
+    """
+    # Validate channel exists
+    query = select(Channel).where(Channel.id == channel_id)
+    result = await db.execute(query)
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Enforce membership
+    from app.db.crud import get_channel_member
+    membership = await get_channel_member(db, channel_id, current_user["user_id"])
+    if not membership:
+        raise HTTPException(status_code=403, detail="User not a member of this channel")
+
+    # Fetch top-level messages (no parent) for the channel, chronological order
+    from app.db.models import Message
+    from sqlalchemy.orm import selectinload
+
+    query = (
+        select(Message)
+        .options(selectinload(Message.author), selectinload(Message.reactions))
+        .where(Message.channel_id == channel_id, Message.is_deleted == False, Message.parent_id.is_(None))
+        .order_by(Message.created_at)
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    messages = result.scalars().all()
+
+    # Get reply counts for each message (avoid N+1)
+    message_ids = [m.id for m in messages]
+    reply_counts = {}
+    if message_ids:
+        from sqlalchemy import func
+        reply_query = (
+            select(Message.parent_id, func.count(Message.id))
+            .where(Message.parent_id.in_(message_ids), Message.is_deleted == False)
+            .group_by(Message.parent_id)
+        )
+        reply_result = await db.execute(reply_query)
+        reply_counts = dict(reply_result.all())
+
+    # Transform responses using existing helper to ensure consistent shape
+    from app.api.messages import transform_message_to_response
+
+    msgs = [transform_message_to_response(m, reply_count=reply_counts.get(m.id, 0)) for m in messages]
+
+    return {"channel_id": channel_id, "messages": msgs}
+
+
 @router.post("/{channel_id}/leave")
 async def leave_channel(
     channel_id: int,
