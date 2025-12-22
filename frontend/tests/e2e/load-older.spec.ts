@@ -1,3 +1,4 @@
+// test(e2e): verify loading older messages (U3.4)
 import { test, expect } from '@playwright/test'
 
 test('load older messages (U3.4)', async ({ page, request }) => {
