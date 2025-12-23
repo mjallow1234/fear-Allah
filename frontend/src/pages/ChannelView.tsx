@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../services/api'
 import { fetchChannelMessages } from '../services/channels'
@@ -25,6 +25,9 @@ export default function ChannelView() {
   
   // Track if we should scroll to bottom (only for new messages, not older)
   const shouldScrollToBottom = useRef(true)
+  
+  // Store scroll position before loading older messages
+  const scrollRestoreInfo = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
   
   // Thread panel state
   const [selectedThread, setSelectedThread] = useState<any | null>(null)
@@ -72,13 +75,33 @@ export default function ChannelView() {
     }
   }, [messages])
 
+  // Restore scroll position synchronously after DOM updates when loading older messages
+  useLayoutEffect(() => {
+    if (scrollRestoreInfo.current && messagesContainerRef.current) {
+      const container = messagesContainerRef.current
+      const { scrollHeight: oldScrollHeight, scrollTop: oldScrollTop } = scrollRestoreInfo.current
+      const newScrollHeight = container.scrollHeight
+      // Restore position: new content added at top pushes everything down
+      container.scrollTop = newScrollHeight - oldScrollHeight + oldScrollTop
+      // Clear the restore info
+      scrollRestoreInfo.current = null
+      // NOTE: Do NOT re-enable shouldScrollToBottom here - 
+      // the useEffect above runs AFTER this and would scroll to bottom!
+      // shouldScrollToBottom stays false until user sends a new message
+    }
+  }, [messages])
+
   async function loadOlder() {
     if (!messages || messages.length === 0) return
     
     // Capture scroll position before loading
     const container = messagesContainerRef.current
-    const previousScrollHeight = container?.scrollHeight || 0
-    const previousScrollTop = container?.scrollTop || 0
+    if (container) {
+      scrollRestoreInfo.current = {
+        scrollHeight: container.scrollHeight,
+        scrollTop: container.scrollTop
+      }
+    }
     
     // Don't scroll to bottom when loading older messages
     shouldScrollToBottom.current = false
@@ -91,19 +114,11 @@ export default function ChannelView() {
       const res = await fetchChannelMessages(Number(channelId), beforeId)
       setMessages(prev => (prev ? [...res.messages, ...prev] : res.messages))
       setHasMore(res.has_more)
-      
-      // Restore scroll position after DOM updates
-      requestAnimationFrame(() => {
-        if (container) {
-          const newScrollHeight = container.scrollHeight
-          container.scrollTop = newScrollHeight - previousScrollHeight + previousScrollTop
-        }
-        // Re-enable scroll to bottom for new messages
-        shouldScrollToBottom.current = true
-      })
+      // Scroll restoration happens in useLayoutEffect above
     } catch (err) {
       console.error('Failed to load older messages', err)
       setMessagesError('Failed to load messages')
+      scrollRestoreInfo.current = null
       shouldScrollToBottom.current = true
     } finally {
       setLoadingOlder(false)
@@ -114,6 +129,9 @@ export default function ChannelView() {
     e.preventDefault()
     if (!newMessage.trim() || !channelId || sending) return
 
+    // Enable scroll to bottom for new messages
+    shouldScrollToBottom.current = true
+    
     setSending(true)
     try {
       const response = await api.post('/api/messages/', {
