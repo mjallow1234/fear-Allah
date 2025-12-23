@@ -20,6 +20,10 @@ export default function ChannelView() {
   const [newMessage, setNewMessage] = useState('')
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  
+  // Track if we should scroll to bottom (only for new messages, not older)
+  const shouldScrollToBottom = useRef(true)
 
   useEffect(() => {
     if (!channelId) return
@@ -57,13 +61,24 @@ export default function ChannelView() {
     return () => { cancelled = true }
   }, [channelId])
 
-  // Scroll to bottom when new messages arrive
+  // Scroll to bottom only when shouldScrollToBottom is true (new messages, not older)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (shouldScrollToBottom.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
   async function loadOlder() {
     if (!messages || messages.length === 0) return
+    
+    // Capture scroll position before loading
+    const container = messagesContainerRef.current
+    const previousScrollHeight = container?.scrollHeight || 0
+    const previousScrollTop = container?.scrollTop || 0
+    
+    // Don't scroll to bottom when loading older messages
+    shouldScrollToBottom.current = false
+    
     setLoadingOlder(true)
     setMessagesError(null)
     try {
@@ -72,9 +87,20 @@ export default function ChannelView() {
       const res = await fetchChannelMessages(Number(channelId), beforeId)
       setMessages(prev => (prev ? [...res.messages, ...prev] : res.messages))
       setHasMore(res.has_more)
+      
+      // Restore scroll position after DOM updates
+      requestAnimationFrame(() => {
+        if (container) {
+          const newScrollHeight = container.scrollHeight
+          container.scrollTop = newScrollHeight - previousScrollHeight + previousScrollTop
+        }
+        // Re-enable scroll to bottom for new messages
+        shouldScrollToBottom.current = true
+      })
     } catch (err) {
       console.error('Failed to load older messages', err)
       setMessagesError('Failed to load messages')
+      shouldScrollToBottom.current = true
     } finally {
       setLoadingOlder(false)
     }
@@ -121,7 +147,7 @@ export default function ChannelView() {
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
         {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
         {messagesError && <div className="text-red-500">{messagesError}</div>}
 
