@@ -197,6 +197,32 @@ async def create_message(
         # Don't fail the request if broadcast fails
         print(f"Failed to broadcast message or emit unread updates: {e}")
     
+    # Socket.IO emit for Phase 4.1 real-time (additive to existing WebSocket)
+    try:
+        from app.realtime.socket import emit_message_new, emit_thread_reply
+        
+        message_payload = {
+            "id": message.id,
+            "content": message.content,
+            "channel_id": request.channel_id,
+            "author_id": current_user["user_id"],
+            "author_username": username,
+            "parent_id": request.parent_id,
+            "created_at": message.created_at.isoformat(),
+            "is_edited": False,
+            "reactions": [],
+        }
+        
+        if request.parent_id:
+            # Thread reply
+            await emit_thread_reply(request.channel_id, request.parent_id, message_payload)
+        else:
+            # New message
+            await emit_message_new(request.channel_id, message_payload)
+    except Exception as e:
+        # Don't fail REST if Socket.IO emit fails
+        logger.warning(f"Socket.IO emit failed: {e}")
+    
     return transform_message_to_response(message)
 
 

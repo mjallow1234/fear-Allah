@@ -9,6 +9,9 @@ from app.db.models import Team, Channel, ChannelType, User, UserRole
 from app.core.config import settings
 from app.core.security import get_password_hash
 
+# Socket.IO for real-time (Phase 4.1)
+from app.realtime import socket_app
+
 
 async def seed_default_data():
     """Seed default team, channels, and admin user if they don't exist"""
@@ -158,3 +161,7 @@ async def health_check():
 @app.get("/api/health")
 async def api_health_check():
     return {"status": "ok", "service": "fear-Allah API"}
+
+# Mount Socket.IO at /socket.io (Phase 4.1)
+# This keeps REST routes untouched and adds real-time via Socket.IO
+app.mount("/socket.io", socket_app)
