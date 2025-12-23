@@ -3,7 +3,7 @@ import { useAuthStore } from './stores/authStore'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
-import ChannelView from './pages/ChannelViewSimple'
+import ChannelView from './pages/ChannelView'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 
@@ -25,7 +25,7 @@ function App() {
           </PrivateRoute>
         }
       >
-        <Route index element={<Navigate to="/channels/general" />} />
+        <Route index element={<ChannelView />} />
         <Route path="channels/:channelId" element={<ChannelView />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
