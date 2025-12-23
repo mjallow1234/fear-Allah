@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import api from '../services/api'
 import { fetchChannelMessages } from '../services/channels'
 import Message from '../components/Chat/Message'
+import ThreadPanel from '../components/ThreadPanel'
 import { Send } from 'lucide-react'
 
 export default function ChannelView() {
@@ -24,6 +25,9 @@ export default function ChannelView() {
   
   // Track if we should scroll to bottom (only for new messages, not older)
   const shouldScrollToBottom = useRef(true)
+  
+  // Thread panel state
+  const [selectedThread, setSelectedThread] = useState<any | null>(null)
 
   useEffect(() => {
     if (!channelId) return
@@ -140,65 +144,80 @@ export default function ChannelView() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-700">
-        <h1 className="text-xl font-semibold">{loading ? 'Loading…' : (channelName || 'Channel')}</h1>
-      </div>
+    <div className="flex h-full">
+      {/* Main channel content */}
+      <div className="flex flex-col flex-1">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-700">
+          <h1 className="text-xl font-semibold">{loading ? 'Loading…' : (channelName || 'Channel')}</h1>
+        </div>
 
-      {/* Messages area */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
-        {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
-        {messagesError && <div className="text-red-500">{messagesError}</div>}
+        {/* Messages area */}
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
+          {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
+          {messagesError && <div className="text-red-500">{messagesError}</div>}
 
-        {!loadingMessages && !messagesError && messages && messages.length === 0 && (
-          <div className="text-gray-500 text-center py-8">No messages yet. Start the conversation!</div>
-        )}
+          {!loadingMessages && !messagesError && messages && messages.length === 0 && (
+            <div className="text-gray-500 text-center py-8">No messages yet. Start the conversation!</div>
+          )}
 
-        {!loadingMessages && !messagesError && messages && messages.length > 0 && (
-          <div>
-            {hasMore && (
-              <div className="mb-4 text-center">
-                <button 
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" 
-                  onClick={loadOlder} 
-                  disabled={loadingOlder}
-                >
-                  {loadingOlder ? 'Loading…' : 'Load older messages'}
-                </button>
+          {!loadingMessages && !messagesError && messages && messages.length > 0 && (
+            <div>
+              {hasMore && (
+                <div className="mb-4 text-center">
+                  <button 
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" 
+                    onClick={loadOlder} 
+                    disabled={loadingOlder}
+                  >
+                    {loadingOlder ? 'Loading…' : 'Load older messages'}
+                  </button>
+                </div>
+              )}
+              <div className="messages space-y-3">
+                {messages.filter(m => !m.parent_id).map((m: any) => (
+                  <Message 
+                    key={m.id} 
+                    message={{ ...m, author_username: m.author_username }} 
+                    onClick={setSelectedThread}
+                  />
+                ))}
               </div>
-            )}
-            <div className="messages space-y-3">
-              {messages.map((m:any) => (
-                <Message key={m.id} message={{ author: m.author_username, content: m.content, created_at: m.created_at }} />
-              ))}
+              <div ref={messagesEndRef} />
             </div>
-            <div ref={messagesEndRef} />
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Message input */}
+        <div className="p-4 border-t border-gray-700">
+          <form onSubmit={handleSendMessage} className="flex gap-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={sending}
+            />
+            <button
+              type="submit"
+              disabled={!newMessage.trim() || sending}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Send size={18} />
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+          </form>
+        </div>
       </div>
 
-      {/* Message input */}
-      <div className="p-4 border-t border-gray-700">
-        <form onSubmit={handleSendMessage} className="flex gap-2">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={sending}
-          />
-          <button
-            type="submit"
-            disabled={!newMessage.trim() || sending}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
-          >
-            <Send size={18} />
-            {sending ? 'Sending…' : 'Send'}
-          </button>
-        </form>
-      </div>
+      {/* Thread panel */}
+      {selectedThread && (
+        <ThreadPanel 
+          parentMessage={selectedThread} 
+          onClose={() => setSelectedThread(null)} 
+        />
+      )}
     </div>
   )
 }
