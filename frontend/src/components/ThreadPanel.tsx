@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Send } from 'lucide-react'
 import api from '../services/api'
 import Message from './Chat/Message'
+import { onSocketEvent } from '../realtime'
 
 interface ThreadPanelProps {
   parentMessage: any
@@ -31,6 +32,32 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
       .finally(() => {
         setLoading(false)
       })
+  }, [parentMessage.id])
+
+  // Subscribe to real-time thread replies
+  useEffect(() => {
+    const unsubscribe = onSocketEvent<{
+      id: number
+      content: string
+      parent_id: number
+      channel_id: number
+      author_id: number
+      author_username: string
+      created_at: string
+      is_edited: boolean
+      reactions: any[]
+    }>('thread:reply', (data) => {
+      // Only handle replies to this thread
+      if (data.parent_id !== parentMessage.id) return
+      
+      // Don't add duplicate replies
+      setReplies(prev => {
+        if (prev.some(r => r.id === data.id)) return prev
+        return [...prev, data]
+      })
+    })
+    
+    return () => unsubscribe()
   }, [parentMessage.id])
 
   // Scroll to bottom when new replies arrive

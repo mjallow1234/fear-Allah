@@ -3,6 +3,7 @@ import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import clsx from 'clsx'
+import { onSocketEvent } from '../realtime'
 
 interface Notification {
   id: number
@@ -17,7 +18,7 @@ interface Notification {
   created_at: string
 }
 
-// Custom event for real-time notifications
+// Custom event for real-time notifications (keep for backward compatibility)
 const NOTIFICATION_EVENT = 'new-notification'
 
 // Function to dispatch new notification event (called from WebSocket handlers)
@@ -46,12 +47,22 @@ export default function NotificationBell() {
 
   useEffect(() => {
     fetchNotifications()
-    // Poll for new notifications every 30 seconds
+    // Poll for new notifications every 30 seconds (fallback when socket disconnected)
     const interval = setInterval(fetchNotifications, 30000)
     return () => clearInterval(interval)
   }, [fetchNotifications])
 
-  // Listen for real-time notifications
+  // Listen for real-time notifications via Socket.IO
+  useEffect(() => {
+    const unsubscribe = onSocketEvent<Notification>('notification:new', (notification) => {
+      setNotifications(prev => [notification, ...prev.slice(0, 9)]) // Keep max 10
+      setUnreadCount(prev => prev + 1)
+    })
+    
+    return () => unsubscribe()
+  }, [])
+
+  // Listen for legacy custom event notifications (backward compatibility)
   useEffect(() => {
     const handleNewNotification = (event: CustomEvent<Notification>) => {
       const notification = event.detail

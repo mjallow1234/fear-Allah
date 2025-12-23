@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { connectSocket, disconnectSocket } from '../realtime'
 
 interface User {
   id: number
@@ -14,6 +15,8 @@ interface AuthState {
   user: User | null
   token: string | null
   isAuthenticated: boolean
+  _hasHydrated: boolean
+  setHasHydrated: (hydrated: boolean) => void
   login: (token: string, user: User) => void
   logout: () => void
   updateUser: (user: Partial<User>) => void
@@ -25,18 +28,26 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       isAuthenticated: false,
-      login: (token, user) =>
+      _hasHydrated: false,
+      setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
+      login: (token, user) => {
         set({
           token,
           user,
           isAuthenticated: true,
-        }),
-      logout: () =>
+        })
+        // Connect Socket.IO after login
+        setTimeout(() => connectSocket(), 0)
+      },
+      logout: () => {
+        // Disconnect Socket.IO before clearing auth state
+        disconnectSocket()
         set({
           token: null,
           user: null,
           isAuthenticated: false,
-        }),
+        })
+      },
       updateUser: (userData) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...userData } : null,
@@ -44,6 +55,19 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
+      partialize: (state) => ({
+        user: state.user,
+        token: state.token,
+        isAuthenticated: state.isAuthenticated,
+      }),
+      onRehydrateStorage: () => (state) => {
+        // Called after store is rehydrated from localStorage
+        useAuthStore.getState().setHasHydrated(true)
+        // If user is already authenticated (page refresh), connect socket
+        if (state?.isAuthenticated && state?.token) {
+          setTimeout(() => connectSocket(), 100)
+        }
+      },
     }
   )
 )

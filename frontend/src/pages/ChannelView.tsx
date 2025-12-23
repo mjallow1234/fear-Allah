@@ -5,6 +5,7 @@ import { fetchChannelMessages } from '../services/channels'
 import Message from '../components/Chat/Message'
 import ThreadPanel from '../components/ThreadPanel'
 import { Send } from 'lucide-react'
+import { joinChannel, leaveChannel, onSocketEvent } from '../realtime'
 
 export default function ChannelView() {
   const { channelId } = useParams<{ channelId: string }>()
@@ -74,6 +75,68 @@ export default function ChannelView() {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages])
+
+  // Socket.IO: Join channel room and subscribe to real-time events
+  useEffect(() => {
+    if (!channelId) return
+    
+    const numChannelId = Number(channelId)
+    
+    // Join the channel room for real-time updates
+    joinChannel(numChannelId)
+    
+    // Subscribe to new messages
+    const unsubscribeMessage = onSocketEvent<{
+      id: number
+      content: string
+      channel_id: number
+      author_id: number
+      author_username: string
+      parent_id: number | null
+      created_at: string
+      is_edited: boolean
+      reactions: any[]
+    }>('message:new', (data) => {
+      // Only handle messages for this channel
+      if (data.channel_id !== numChannelId) return
+      
+      // Don't add duplicate messages (might have added optimistically)
+      setMessages(prev => {
+        if (!prev) return [data]
+        if (prev.some(m => m.id === data.id)) return prev
+        // Scroll to bottom for new real-time messages
+        shouldScrollToBottom.current = true
+        return [...prev, data]
+      })
+    })
+    
+    // Subscribe to thread replies (update reply count)
+    const unsubscribeThread = onSocketEvent<{
+      id: number
+      parent_id: number
+      channel_id: number
+    }>('thread:reply', (data) => {
+      if (data.channel_id !== numChannelId) return
+      
+      // Update parent message's thread count
+      setMessages(prev => {
+        if (!prev) return prev
+        return prev.map(m => {
+          if (m.id === data.parent_id) {
+            return { ...m, thread_count: (m.thread_count || 0) + 1 }
+          }
+          return m
+        })
+      })
+    })
+    
+    return () => {
+      // Leave channel and unsubscribe on cleanup
+      leaveChannel(numChannelId)
+      unsubscribeMessage()
+      unsubscribeThread()
+    }
+  }, [channelId])
 
   // Restore scroll position synchronously after DOM updates when loading older messages
   useLayoutEffect(() => {
