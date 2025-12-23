@@ -112,14 +112,16 @@ app = FastAPI(
 )
 
 # CORS
-# Allow local dev frontend and the ngrok staging origin
+# Allow local dev frontend, LAN access for team testing, and ngrok staging
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://192.168.100.2:5173",  # LAN access
         "https://gita-unrowdy-disconnectedly.ngrok-free.dev",
     ],
+    allow_origin_regex=r"http://192\.168\.\d+\.\d+:5173",  # Allow any 192.168.x.x LAN
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
