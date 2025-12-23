@@ -112,14 +112,17 @@ app = FastAPI(
 )
 
 # CORS
-# Configure CORS to match Mattermost-style behavior for uploads and API access
-# Allow GET/HEAD as well so preflights for authenticated GET requests succeed
+# Allow local dev frontend and the ngrok staging origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://gita-unrowdy-disconnectedly.ngrok-free.dev",
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include routers
