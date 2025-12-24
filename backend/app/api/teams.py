@@ -34,6 +34,7 @@ class TeamMemberResponse(BaseModel):
     team_id: int
     role: str
     username: Optional[str] = None
+    display_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -150,7 +151,20 @@ async def list_team_members(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(TeamMember).where(TeamMember.team_id == team_id)
+    from sqlalchemy.orm import selectinload
+    query = select(TeamMember).options(selectinload(TeamMember.user)).where(TeamMember.team_id == team_id)
     result = await db.execute(query)
     members = result.scalars().all()
-    return members
+    
+    # Return members with user info
+    return [
+        {
+            "id": m.id,
+            "user_id": m.user_id,
+            "team_id": m.team_id,
+            "role": m.role,
+            "username": m.user.username if m.user else None,
+            "display_name": m.user.display_name if m.user else None,
+        }
+        for m in members
+    ]

@@ -1,5 +1,5 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, create_engine
 from alembic import context
 import os
 import sys
@@ -15,6 +15,9 @@ config = context.config
 # Override with environment variable if set
 database_url = os.getenv("DATABASE_URL")
 if database_url:
+    # Ensure we use sync driver (psycopg2), not async
+    if "+asyncpg" in database_url:
+        database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
     config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:

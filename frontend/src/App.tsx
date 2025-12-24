@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
+import { connectSocket, subscribeToPresence } from './realtime'
+import { subscribeToReadReceipts } from './realtime/readReceipts'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
@@ -13,6 +16,25 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const token = useAuthStore((state) => state.token)
+
+  // Connect Socket.IO when authenticated
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      console.log('[App] User authenticated, connecting Socket.IO...')
+      connectSocket()
+      subscribeToPresence()
+      
+      // Subscribe to read receipts
+      const unsubscribeReceipts = subscribeToReadReceipts()
+      
+      return () => {
+        unsubscribeReceipts()
+      }
+    }
+  }, [isAuthenticated, token])
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

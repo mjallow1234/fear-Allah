@@ -1,17 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { usePresence } from '../services/useWebSocket'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-
-function websocketsEnabled() {
-  try {
-    if (typeof window === 'undefined') return false
-    return !!(window as any).__ENABLE_WEBSOCKETS__
-  } catch (e) {
-    return false
-  }
-}
 import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import { usePresenceStore } from '../stores/presenceStore'
 import api from '../services/api'
 import clsx from 'clsx'
 import NewDMModal from './NewDMModal'
@@ -53,32 +44,18 @@ export default function Sidebar() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [showTeamMenu, setShowTeamMenu] = useState(false)
-  // Presence hook manages its own connection and reconnection logic.
-  // Only initialize presence when runtime flag explicitly allows WebSockets.
-  const presence = websocketsEnabled() ? usePresence() : null
+  
+  // New Socket.IO presence from store
+  const onlineUserIds = usePresenceStore((state) => state.onlineUserIds)
+  const isUserOnline = (userId: number | undefined | null) => userId ? onlineUserIds.has(userId) : false
 
-  // Listen for server-side events (e.g., channel_created)
-  useEffect(() => {
-    if (!presence || !('onEvent' in presence)) return
-    const unsub = (presence as any).onEvent((data: any) => {
-      if (data?.type === 'channel_created' && data.channel) {
-        setChannels((prev) => {
-          if (prev.some((c) => c.id === data.channel.id)) return prev
-          return [...prev, data.channel]
-        })
-      }
-    })
-    return () => unsub()
-  }, [presence])
-  // small safety: guard access to presence in render paths
-  const onlineUsersCount = presence?.onlineUsers ? presence.onlineUsers.filter(u => u.user_id !== String(user?.id)).length : 0
-  const onlineUsers = presence?.onlineUsers ?? []
-  const isCurrentUserOnline = (id?: number | null) => presence ? presence.isUserOnline(id ?? '') : false
+  // Team members for online display (user_id from API, not id)
+  const [teamMembers, setTeamMembers] = useState<{ user_id: number; username: string; display_name?: string }[]>([])
+  
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([])
 
   const [showNewDMModal, setShowNewDMModal] = useState(false)
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false)
-  // local WS refs removed: presence hook manages its own socket
 
   // Fetch teams
   const fetchTeams = useCallback(async () => {
@@ -156,9 +133,6 @@ export default function Sidebar() {
     fetchTeams()
     fetchChannels()
     fetchDMChannels()
-    return () => {
-      // no local presence cleanup required — `usePresence` manages its own lifecycle
-    }
   }, [fetchChannels, fetchDMChannels, fetchTeams])
 
   // Fetch channels when team changes
@@ -168,20 +142,25 @@ export default function Sidebar() {
     }
   }, [selectedTeam, fetchChannels])
 
+  // Fetch team members for presence display
+  const fetchTeamMembers = useCallback(async () => {
+    if (!token || !selectedTeam) return
+    try {
+      const response = await api.get(`/api/teams/${selectedTeam.id}/members`)
+      const members = Array.isArray(response.data) ? response.data : []
+      setTeamMembers(members)
+    } catch (error) {
+      console.error('Failed to fetch team members:', error)
+    }
+  }, [token, selectedTeam])
+
+  useEffect(() => {
+    fetchTeamMembers()
+  }, [fetchTeamMembers])
+
   const handleSelectTeam = (team: Team) => {
     setSelectedTeam(team)
     setShowTeamMenu(false)
-  }
-
-  const getStatusColor = (status: 'online' | 'away' | 'offline') => {
-    switch (status) {
-      case 'online':
-        return 'text-green-500'
-      case 'away':
-        return 'text-yellow-500'
-      default:
-        return 'text-gray-500'
-    }
   }
 
   return (
@@ -318,25 +297,23 @@ export default function Sidebar() {
         {/* Online Users (presence) */}
         <div className="px-2 mt-6 mb-2">
           <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
-            Online — {onlineUsersCount}
+            Online — {teamMembers.filter(m => m.user_id !== user?.id && isUserOnline(m.user_id)).length}
           </span>
         </div>
-        {onlineUsersCount === 0 ? (
+        {teamMembers.filter(m => m.user_id !== user?.id && isUserOnline(m.user_id)).length === 0 ? (
           <div className="flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm">
-            <MessageSquare size={16} />
-            <span>Offline</span>
+            <Circle size={16} className="text-gray-500" />
+            <span>No one else online</span>
           </div>
         ) : (
-          onlineUsers
-            .filter(u => u.user_id !== String(user?.id))
-            .map((onlineUser) => {
-              const uid = onlineUser.user_id
-              const displayName = onlineUser.username || `User ${uid}`
-              const status = onlineUser.status || 'offline'
+          teamMembers
+            .filter(m => m.user_id !== user?.id && isUserOnline(m.user_id))
+            .map((member) => {
+              const displayName = member.display_name || member.username
               return (
                 <button
-                  key={uid}
-                  onClick={() => startDM(String(uid))}
+                  key={member.user_id}
+                  onClick={() => startDM(String(member.user_id))}
                   className="w-full flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm hover:bg-[#35373c] rounded transition-colors text-left"
                   title="Click to start a DM"
                 >
@@ -346,7 +323,7 @@ export default function Sidebar() {
                     </div>
                     <Circle
                       size={10}
-                      className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', getStatusColor(status as any))}
+                      className="absolute -bottom-0.5 -right-0.5 fill-current text-green-500"
                     />
                   </div>
                   <span className="truncate">{displayName}</span>
@@ -364,14 +341,14 @@ export default function Sidebar() {
           </div>
           <Circle
             size={10}
-            className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', getStatusColor(isCurrentUserOnline(user?.id) ? 'online' : 'offline'))}
+            className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', isUserOnline(user?.id) ? 'text-green-500' : 'text-gray-500')}
           />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-white truncate">
             {user?.display_name || user?.username}
           </div>
-          <div className="text-xs text-[#949ba4] truncate capitalize">{isCurrentUserOnline(user?.id) ? 'online' : 'offline'}</div>
+          <div className="text-xs text-[#949ba4] truncate capitalize">{isUserOnline(user?.id) ? 'online' : 'offline'}</div>
         </div>
         <Link
           to="/settings"

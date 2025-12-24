@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import async_session
-from app.db.models import User
+from app.db.models import User, TeamMember
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,12 +73,19 @@ async def authenticate_socket(auth: dict = None, environ: dict = None) -> Tuple[
                 logger.warning(f"Socket connection rejected: User {user_id} is inactive")
                 return False, None
             
+            # Get user's team_id (first team membership)
+            team_result = await db.execute(
+                select(TeamMember.team_id).where(TeamMember.user_id == user_id).limit(1)
+            )
+            team_row = team_result.first()
+            team_id = team_row[0] if team_row else None
+            
             user_data = {
                 "user_id": user_id,
                 "username": user.username,
                 "display_name": user.display_name,
-                "team_id": user.team_id,
                 "role": user.role,
+                "team_id": team_id,
             }
             
             logger.info(f"Socket authenticated for user {user.username} (ID: {user_id})")

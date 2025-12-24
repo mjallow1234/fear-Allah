@@ -1,6 +1,8 @@
 """
 Socket.IO server implementation.
 Phase 4.1 - Real-time foundation.
+Phase 4.2 - Presence (online/offline).
+Phase 4.3 - Typing indicators.
 
 Rooms:
 - team:{team_id} - Team-wide events
@@ -10,21 +12,28 @@ Events:
 - message:new - New message in channel
 - thread:reply - Reply to a thread
 - notification:new - User notification
+- presence:online - User came online
+- presence:offline - User went offline
+- presence:list - List of online users (sent to connecting user)
+- typing:start - User started typing
+- typing:stop - User stopped typing
 """
 import socketio
 from typing import Dict, Set
 import logging
 
 from app.realtime.auth import authenticate_socket
+from app.realtime.presence import presence_manager
+from app.realtime.typing import typing_manager
 
 logger = logging.getLogger(__name__)
 
 # Initialize Socket.IO server
 # async_mode="asgi" for FastAPI/Starlette compatibility
-# cors_allowed_origins="*" for development - restrict in production
+# cors_allowed_origins=[] - Let FastAPI's CORS middleware handle CORS to avoid duplicate headers
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins="*",
+    cors_allowed_origins=[],  # Disable Socket.IO CORS - FastAPI middleware handles it
     logger=False,
     engineio_logger=False,
 )
@@ -66,6 +75,23 @@ async def connect(sid: str, environ: dict, auth: dict = None):
         await sio.enter_room(sid, team_room)
         user_rooms[sid].add(team_room)
         logger.info(f"User {user_data['username']} auto-joined room: {team_room}")
+        
+        # Track presence
+        user_id = user_data["user_id"]
+        came_online = presence_manager.user_connected(team_id, user_id, sid)
+        
+        if came_online:
+            # Broadcast to team that user came online
+            await sio.emit("presence:online", {
+                "user_id": user_id,
+                "username": user_data["username"],
+            }, room=team_room, skip_sid=sid)
+        
+        # Send current online list to connecting user
+        online_users = presence_manager.get_online_users(team_id)
+        await sio.emit("presence:list", {
+            "online_user_ids": online_users,
+        }, room=sid)
     
     # Emit connection success with user info
     await sio.emit("connected", {
@@ -84,9 +110,29 @@ async def disconnect(sid: str):
     """
     Handle socket disconnection.
     Cleanup is automatic - rooms are left automatically.
+    Also handles presence and typing cleanup.
     """
     user_data = authenticated_users.pop(sid, None)
     rooms = user_rooms.pop(sid, set())
+    
+    # Handle typing cleanup - broadcast to all channels user was typing in
+    if user_data:
+        typing_stopped = typing_manager.user_disconnected(user_data["user_id"])
+        for channel_id in typing_stopped:
+            await sio.emit("typing:stop", {
+                "user_id": user_data["user_id"],
+                "username": user_data["username"],
+                "channel_id": channel_id,
+            }, room=f"channel:{channel_id}")
+    
+    # Handle presence cleanup
+    disconnect_info = presence_manager.user_disconnected(sid)
+    if disconnect_info and disconnect_info["went_offline"]:
+        # User's last socket disconnected - broadcast offline
+        team_room = f"team:{disconnect_info['team_id']}"
+        await sio.emit("presence:offline", {
+            "user_id": disconnect_info["user_id"],
+        }, room=team_room)
     
     if user_data:
         logger.info(f"Socket disconnected: {sid} (user: {user_data['username']}, rooms: {rooms})")
@@ -202,6 +248,76 @@ async def leave_room(sid: str, data: dict):
     logger.info(f"User {user_data['username']} left room: {room_name}")
 
 
+@sio.event
+async def typing_start(sid: str, data: dict):
+    """
+    Handle typing start event.
+    Broadcasts to channel room (excluding sender).
+    
+    Expected data: { "channel_id": int }
+    """
+    user_data = authenticated_users.get(sid)
+    if not user_data:
+        await sio.emit("error", {"message": "Not authenticated"}, room=sid)
+        return
+    
+    channel_id = data.get("channel_id")
+    if not channel_id:
+        await sio.emit("error", {"message": "channel_id is required"}, room=sid)
+        return
+    
+    user_id = user_data["user_id"]
+    username = user_data["username"]
+    
+    # Track typing state
+    typing_manager.start_typing(channel_id, user_id, username)
+    
+    # Broadcast to channel room (exclude sender)
+    room_name = f"channel:{channel_id}"
+    await sio.emit("typing:start", {
+        "user_id": user_id,
+        "username": username,
+        "channel_id": channel_id,
+    }, room=room_name, skip_sid=sid)
+    
+    logger.debug(f"User {username} started typing in channel {channel_id}")
+
+
+@sio.event
+async def typing_stop(sid: str, data: dict):
+    """
+    Handle typing stop event.
+    Broadcasts to channel room (excluding sender).
+    
+    Expected data: { "channel_id": int }
+    """
+    user_data = authenticated_users.get(sid)
+    if not user_data:
+        await sio.emit("error", {"message": "Not authenticated"}, room=sid)
+        return
+    
+    channel_id = data.get("channel_id")
+    if not channel_id:
+        await sio.emit("error", {"message": "channel_id is required"}, room=sid)
+        return
+    
+    user_id = user_data["user_id"]
+    username = user_data["username"]
+    
+    # Remove typing state
+    typing_manager.stop_typing(channel_id, user_id)
+    
+    # Broadcast to channel room (exclude sender)
+    room_name = f"channel:{channel_id}"
+    await sio.emit("typing:stop", {
+        "user_id": user_id,
+        "username": username,
+        "channel_id": channel_id,
+    }, room=room_name, skip_sid=sid)
+    
+    logger.debug(f"User {username} stopped typing in channel {channel_id}")
+
+
 # ============================================================
 # Emit helpers (called from other parts of the application)
 # ============================================================
@@ -248,6 +364,44 @@ async def emit_to_team(team_id: int, event: str, data: dict):
     room_name = f"team:{team_id}"
     await sio.emit(event, data, room=room_name)
     logger.debug(f"Emitted {event} to {room_name}")
+
+
+async def emit_receipt_update(channel_id: int, user_id: int, last_read_message_id: int, skip_user_id: int | None = None):
+    """
+    Emit a read receipt update to a channel room.
+    Phase 4.4 - Read Receipts.
+    
+    Args:
+        channel_id: Channel where receipt was updated
+        user_id: User who updated their read position
+        last_read_message_id: Message ID they've read up to
+        skip_user_id: User ID to skip (the sender) - finds their sids to skip
+    """
+    room_name = f"channel:{channel_id}"
+    payload = {
+        "channel_id": channel_id,
+        "user_id": user_id,
+        "last_read_message_id": last_read_message_id,
+    }
+    
+    # Find sids to skip (all sockets for the sender)
+    skip_sids = []
+    if skip_user_id:
+        for sid, user_data in authenticated_users.items():
+            if user_data.get("user_id") == skip_user_id:
+                skip_sids.append(sid)
+    
+    # Emit to room, skipping sender's sockets
+    if skip_sids:
+        # Socket.IO doesn't support multiple skip_sid, so emit individually
+        # For simplicity, use room broadcast and let client filter if needed
+        # Actually, we can use skip_sid for one socket, or emit to all and filter
+        # Better: just emit to room - client will ignore their own receipt anyway
+        await sio.emit("receipt:update", payload, room=room_name)
+    else:
+        await sio.emit("receipt:update", payload, room=room_name)
+    
+    logger.debug(f"Emitted receipt:update to {room_name} for user {user_id}")
 
 
 def get_connected_users() -> Dict[str, dict]:

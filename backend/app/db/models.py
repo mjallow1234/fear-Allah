@@ -105,6 +105,29 @@ class ChannelMember(Base):
     channel = relationship("Channel", back_populates="members")
 
 
+class ChannelRead(Base):
+    """
+    Track last read message per user per channel.
+    Phase 4.4 - Read Receipts.
+    One row per user per channel - efficient, no per-message writes.
+    """
+    __tablename__ = "channel_reads"
+    __table_args__ = (
+        Index("ix_channel_reads_channel_message", "channel_id", "last_read_message_id"),
+    )
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
+    last_read_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    channel = relationship("Channel")
+    message = relationship("Message")
+
+
 class Message(Base):
     __tablename__ = "messages"
     
@@ -261,3 +284,65 @@ class Sale(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     sold_by = relationship("User")
+
+
+# ------------------ Permissions & Roles (Phase 5.2) ------------------
+from sqlalchemy import UniqueConstraint
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    scope = Column(String, nullable=False)  # system | channel
+
+    permissions = relationship(
+        "RolePermission",
+        back_populates="role",
+        cascade="all, delete-orphan",
+    )
+
+
+class PermissionModel(Base):
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+
+    role_id = Column(Integer, ForeignKey("roles.id"), primary_key=True)
+    permission_id = Column(Integer, ForeignKey("permissions.id"), primary_key=True)
+
+    role = relationship("Role", back_populates="permissions")
+    permission = relationship("PermissionModel")
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), primary_key=True)
+
+    role = relationship("Role")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "role_id", name="uq_user_role"),
+    )
+
+
+class ChannelRoleAssignment(Base):
+    __tablename__ = "channel_roles"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    channel_id = Column(Integer, ForeignKey("channels.id"), primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), primary_key=True)
+
+    role = relationship("Role")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "channel_id", "role_id", name="uq_channel_role"),
+    )

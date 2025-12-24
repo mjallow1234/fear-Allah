@@ -1,9 +1,9 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
-// Use backend URL directly since Vite proxy is disabled for LAN access
-// For LAN users, they should access backend on the same host as frontend but port 8000
-const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
+// Use backend URL directly - always use current hostname for LAN access
+// Do NOT use VITE_API_URL to avoid stale ngrok URLs
+const API_BASE_URL = `http://${window.location.hostname}:8000`
 
 const api = axios.create({
   baseURL: API_BASE_URL,

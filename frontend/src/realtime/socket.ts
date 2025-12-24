@@ -14,6 +14,15 @@ let socket: Socket | null = null
 // Connection state
 let isConnecting = false
 
+// Pending channel joins (to retry after connection)
+const pendingJoins = new Set<number>()
+
+// Event handlers registered before connection
+const pendingHandlers: Map<string, Set<(data: any) => void>> = new Map()
+
+// Master event listeners (one per event type, dispatches to all handlers)
+const masterListeners: Map<string, (data: any) => void> = new Map()
+
 /**
  * Get the Socket.IO server URL (LAN-safe)
  */
@@ -45,29 +54,58 @@ export function connectSocket(): Socket | null {
     return socket
   }
   
+  // Disconnect old socket if exists but not connected
+  if (socket) {
+    socket.disconnect()
+    socket = null
+  }
+  
   isConnecting = true
   
   const url = getSocketUrl()
   console.log('[Socket.IO] Connecting to', url)
   
   socket = io(url, {
-    path: '/socket.io/socket.io',
+    // Backend mounts socket_app at /socket.io, with internal path socket.io
+    // Full path becomes /socket.io/socket.io/
+    path: '/socket.io/socket.io/',
     auth: { token },
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],  // Start with polling for reliability
   })
   
   socket.on('connect', () => {
     console.log('[Socket.IO] Connected, sid:', socket?.id)
     isConnecting = false
+    
+    // Process pending channel joins
+    pendingJoins.forEach(channelId => {
+      console.log('[Socket.IO] Joining pending channel:', channelId)
+      socket?.emit('join_channel', { channel_id: channelId })
+    })
+    
+    // Register master listeners for any pending handlers
+    pendingHandlers.forEach((handlers, event) => {
+      if (handlers.size > 0 && !masterListeners.has(event)) {
+        const masterListener = (data: any) => {
+          pendingHandlers.get(event)?.forEach(h => h(data))
+        }
+        masterListeners.set(event, masterListener)
+        socket?.on(event, masterListener)
+      }
+    })
   })
   
   socket.on('connected', (data) => {
     console.log('[Socket.IO] Server confirmed connection:', data)
+  })
+  
+  socket.on('channel:joined', (data) => {
+    console.log('[Socket.IO] Joined channel room:', data)
   })
   
   socket.on('disconnect', (reason) => {
@@ -98,6 +136,9 @@ export function disconnectSocket(): void {
     socket = null
   }
   isConnecting = false
+  pendingJoins.clear()
+  pendingHandlers.clear()
+  masterListeners.clear()
 }
 
 /**
@@ -117,12 +158,17 @@ export function isSocketConnected(): boolean {
 
 /**
  * Join a channel room to receive channel-specific events.
+ * If not connected yet, queues the join for when connection is established.
  */
 export function joinChannel(channelId: number): void {
+  // Always track the channel for reconnection scenarios
+  pendingJoins.add(channelId)
+  
   if (!socket?.connected) {
-    console.warn('[Socket.IO] Cannot join channel, not connected')
+    console.log('[Socket.IO] Queued channel join (not connected yet):', channelId)
     return
   }
+  
   console.log('[Socket.IO] Joining channel:', channelId)
   socket.emit('join_channel', { channel_id: channelId })
 }
@@ -131,29 +177,45 @@ export function joinChannel(channelId: number): void {
  * Leave a channel room.
  */
 export function leaveChannel(channelId: number): void {
+  pendingJoins.delete(channelId)
+  
   if (!socket?.connected) {
     return
   }
+  
   console.log('[Socket.IO] Leaving channel:', channelId)
   socket.emit('leave_channel', { channel_id: channelId })
 }
 
 /**
  * Subscribe to an event.
+ * Uses a single master listener per event type to avoid duplicate handlers.
  * Returns unsubscribe function.
  */
 export function onSocketEvent<T = any>(
   event: string, 
   handler: (data: T) => void
 ): () => void {
-  if (!socket) {
-    console.warn('[Socket.IO] Cannot subscribe, socket not initialized')
-    return () => {}
+  // Add handler to the set
+  if (!pendingHandlers.has(event)) {
+    pendingHandlers.set(event, new Set())
+  }
+  pendingHandlers.get(event)!.add(handler)
+  
+  // If socket exists and we don't have a master listener yet, create one
+  if (socket && !masterListeners.has(event)) {
+    const masterListener = (data: any) => {
+      pendingHandlers.get(event)?.forEach(h => h(data))
+    }
+    masterListeners.set(event, masterListener)
+    socket.on(event, masterListener)
   }
   
-  socket.on(event, handler)
+  // Return unsubscribe function
   return () => {
-    socket?.off(event, handler)
+    pendingHandlers.get(event)?.delete(handler)
+    // Note: we keep the master listener active even if no handlers remain
+    // This simplifies the logic and avoids edge cases
   }
 }
 

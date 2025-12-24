@@ -1,15 +1,27 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../services/api'
 import { fetchChannelMessages } from '../services/channels'
 import Message from '../components/Chat/Message'
 import ThreadPanel from '../components/ThreadPanel'
-import { Send } from 'lucide-react'
+import { Send, Users } from 'lucide-react'
 import { joinChannel, leaveChannel, onSocketEvent } from '../realtime'
+import { useAuthStore } from '../stores/authStore'
+import { usePresenceStore } from '../stores/presenceStore'
+import { useTypingStore, formatTypingIndicator } from '../stores/typingStore'
+import { useReadReceiptStore, formatSeenBy } from '../stores/readReceiptStore'
+import { emitTypingStart, emitTypingStop, subscribeToTyping } from '../realtime/typing'
+import { fetchChannelReads, markChannelRead, clearPendingMarkRead } from '../realtime/readReceipts'
 
 export default function ChannelView() {
   const { channelId } = useParams<{ channelId: string }>()
+  const currentUser = useAuthStore((state) => state.user)
+  const onlineUserIds = usePresenceStore((state) => state.onlineUserIds)
+  const { addTypingUser, removeTypingUser, getTypingUsers, clearChannel } = useTypingStore()
+  const { getUsersWhoReadMessage } = useReadReceiptStore()
   const [channelName, setChannelName] = useState<string | null>(null)
+  const [channelMembers, setChannelMembers] = useState<{ id: number; user_id?: number; username?: string }[]>([])
+  const [memberUsernames, setMemberUsernames] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(false)
 
   const [messages, setMessages] = useState<any[] | null>(null)
@@ -17,6 +29,8 @@ export default function ChannelView() {
   const [messagesError, setMessagesError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState<boolean>(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // Track seen message IDs to prevent duplicates when simultaneous socket handlers fire
+  const seenMessageIdsRef = useRef<Set<number>>(new Set())
 
   // Message input state
   const [newMessage, setNewMessage] = useState('')
@@ -33,13 +47,56 @@ export default function ChannelView() {
   // Thread panel state
   const [selectedThread, setSelectedThread] = useState<any | null>(null)
 
+  // Mark channel as read when at bottom with messages
+  const markAsReadIfAtBottom = useCallback(() => {
+    if (!channelId || !messages || messages.length === 0) return
+    
+    const container = messagesContainerRef.current
+    if (!container) return
+    
+    // Check if scrolled to bottom (within 100px threshold)
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+    
+    if (isAtBottom) {
+      // Find the last message ID
+      const topLevelMessages = messages.filter(m => !m.parent_id)
+      if (topLevelMessages.length > 0) {
+        const lastMessage = topLevelMessages[topLevelMessages.length - 1]
+        markChannelRead(Number(channelId), lastMessage.id)
+      }
+    }
+  }, [channelId, messages])
+
   useEffect(() => {
     if (!channelId) return
     setLoading(true)
     api.get(`/api/channels/${channelId}`)
-      .then((res) => setChannelName(res.data.display_name || res.data.name || `Channel ${channelId}`))
+      .then((res) => {
+        setChannelName(res.data.display_name || res.data.name || `Channel ${channelId}`)
+      })
       .catch(() => setChannelName(`Channel ${channelId}`))
       .finally(() => setLoading(false))
+    
+    // Fetch channel members for presence count and usernames
+    api.get(`/api/channels/${channelId}/members`)
+      .then((res) => {
+        const members = Array.isArray(res.data) ? res.data : []
+        setChannelMembers(members)
+        
+        // Build username map for read receipts
+        const usernameMap: Record<number, string> = {}
+        for (const m of members) {
+          const userId = m.user_id || m.id
+          if (userId && m.username) {
+            usernameMap[userId] = m.username
+          }
+        }
+        setMemberUsernames(usernameMap)
+      })
+      .catch(() => setChannelMembers([]))
+    
+    // Fetch initial read receipts for this channel
+    fetchChannelReads(Number(channelId))
   }, [channelId])
 
   useEffect(() => {
@@ -56,6 +113,8 @@ export default function ChannelView() {
         if (cancelled) return
         setMessages(list)
         setHasMore(has_more)
+        // Initialize seenMessageIdsRef with existing messages to avoid duplicates
+        seenMessageIdsRef.current = new Set((list || []).map((m: any) => m.id))
       })
       .catch((err) => {
         if (cancelled) return
@@ -73,14 +132,47 @@ export default function ChannelView() {
   useEffect(() => {
     if (shouldScrollToBottom.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      // Mark as read when scrolling to bottom with new messages
+      markAsReadIfAtBottom()
     }
-  }, [messages])
+  }, [messages, markAsReadIfAtBottom])
+
+  // Mark as read on scroll
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    
+    const handleScroll = () => {
+      markAsReadIfAtBottom()
+    }
+    
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [markAsReadIfAtBottom])
+
+  // Mark as read when channel gains focus
+  useEffect(() => {
+    const handleFocus = () => {
+      markAsReadIfAtBottom()
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [markAsReadIfAtBottom])
+
+  // Cleanup pending mark-read when leaving channel
+  useEffect(() => {
+    return () => {
+      clearPendingMarkRead()
+    }
+  }, [channelId])
 
   // Socket.IO: Join channel room and subscribe to real-time events
   useEffect(() => {
     if (!channelId) return
     
     const numChannelId = Number(channelId)
+    const currentUserId = currentUser?.id
     
     // Join the channel room for real-time updates
     joinChannel(numChannelId)
@@ -97,27 +189,44 @@ export default function ChannelView() {
       is_edited: boolean
       reactions: any[]
     }>('message:new', (data) => {
-      // Only handle messages for this channel
+      // Only handle messages for this channel (top-level only, not thread replies)
       if (data.channel_id !== numChannelId) return
+      if (data.parent_id) return  // Thread replies are handled separately
       
-      // Don't add duplicate messages (might have added optimistically)
+      // Skip messages from current user - they're added via REST response
+      if (data.author_id === currentUserId) {
+        console.log('[Socket.IO] Skipping own message (added via REST):', data.id)
+        return
+      }
+      
+      // Prevent duplicates using seenMessageIdsRef (guards against concurrent handlers)
+      if (seenMessageIdsRef.current.has(data.id)) {
+        console.log('[Socket.IO] Duplicate message ignored by seen set:', data.id)
+        return
+      }
+      seenMessageIdsRef.current.add(data.id)
+
+      // Add message from other users
       setMessages(prev => {
         if (!prev) return [data]
+        // Double-check for duplicates
         if (prev.some(m => m.id === data.id)) return prev
         // Scroll to bottom for new real-time messages
         shouldScrollToBottom.current = true
+        console.log('[Socket.IO] Adding message from other user:', data.id)
         return [...prev, data]
       })
     })
-    
+
     // Subscribe to thread replies (update reply count)
     const unsubscribeThread = onSocketEvent<{
       id: number
       parent_id: number
       channel_id: number
     }>('thread:reply', (data) => {
+      console.log('[ChannelView] Received thread:reply', data)
       if (data.channel_id !== numChannelId) return
-      
+
       // Update parent message's thread count
       setMessages(prev => {
         if (!prev) return prev
@@ -136,7 +245,31 @@ export default function ChannelView() {
       unsubscribeMessage()
       unsubscribeThread()
     }
-  }, [channelId])
+  }, [channelId, currentUser?.id])
+
+  // Subscribe to typing events
+  useEffect(() => {
+    if (!channelId) return
+    
+    const numChannelId = Number(channelId)
+    
+    // Clear any stale typing state for this channel
+    clearChannel(numChannelId)
+    
+    // Subscribe to typing events
+    const unsubscribe = subscribeToTyping(
+      numChannelId,
+      (userId, username) => addTypingUser(numChannelId, userId, username),
+      (userId, _username) => removeTypingUser(numChannelId, userId)
+    )
+    
+    return () => {
+      unsubscribe()
+      clearChannel(numChannelId)
+      // Stop typing if we were typing in this channel
+      emitTypingStop(numChannelId)
+    }
+  }, [channelId, addTypingUser, removeTypingUser, clearChannel])
 
   // Restore scroll position synchronously after DOM updates when loading older messages
   useLayoutEffect(() => {
@@ -195,6 +328,9 @@ export default function ChannelView() {
     // Enable scroll to bottom for new messages
     shouldScrollToBottom.current = true
     
+    // Stop typing indicator when sending
+    emitTypingStop(Number(channelId))
+    
     setSending(true)
     try {
       const response = await api.post('/api/messages/', {
@@ -204,6 +340,8 @@ export default function ChannelView() {
       // Optimistically append the new message
       const sentMessage = response.data
       setMessages(prev => prev ? [...prev, sentMessage] : [sentMessage])
+      // Mark as seen to avoid duplicate from socket emit
+      if (sentMessage?.id) seenMessageIdsRef.current.add(sentMessage.id)
       setNewMessage('')
     } catch (err) {
       console.error('Failed to send message', err)
@@ -229,8 +367,16 @@ export default function ChannelView() {
       {/* Main channel content */}
       <div className="flex flex-col flex-1">
         {/* Header */}
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
           <h1 className="text-xl font-semibold">{loading ? 'Loading…' : (channelName || 'Channel')}</h1>
+          {channelMembers.length > 0 && (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Users size={16} />
+              <span>
+                {channelMembers.filter(m => onlineUserIds.has(m.id)).length} online / {channelMembers.length} members
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Messages area */}
@@ -264,6 +410,40 @@ export default function ChannelView() {
                   />
                 ))}
               </div>
+              
+              {/* Seen by indicator - only show on messages sent by current user */}
+              {(() => {
+                const topLevelMessages = messages.filter(m => !m.parent_id)
+                if (topLevelMessages.length === 0) return null
+                
+                const lastMessage = topLevelMessages[topLevelMessages.length - 1]
+                
+                // Only show "Seen by" on messages the current user sent
+                if (lastMessage.author_id !== currentUser?.id) return null
+                
+                const readByUserIds = getUsersWhoReadMessage(
+                  Number(channelId),
+                  lastMessage.id,
+                  currentUser?.id
+                )
+                
+                if (readByUserIds.length === 0) return null
+                
+                // Convert user IDs to usernames
+                const usernames = readByUserIds
+                  .map(uid => memberUsernames[uid])
+                  .filter(Boolean)
+                
+                const seenText = formatSeenBy(usernames)
+                if (!seenText) return null
+                
+                return (
+                  <div className="text-xs text-gray-500 text-right mt-1 pr-2">
+                    {seenText}
+                  </div>
+                )
+              })()}
+              
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -271,11 +451,30 @@ export default function ChannelView() {
 
         {/* Message input */}
         <div className="p-4 border-t border-gray-700">
+          {/* Typing indicator */}
+          {(() => {
+            const typingUsers = getTypingUsers(Number(channelId))
+            const text = formatTypingIndicator(typingUsers)
+            if (!text) return null
+            return (
+              <div className="text-sm text-gray-400 mb-2 animate-pulse">
+                {text}
+              </div>
+            )
+          })()}
           <form onSubmit={handleSendMessage} className="flex gap-2">
             <input
               type="text"
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={(e) => {
+                setNewMessage(e.target.value)
+                // Emit typing if there's content
+                if (e.target.value.trim() && channelId) {
+                  emitTypingStart(Number(channelId))
+                } else if (channelId) {
+                  emitTypingStop(Number(channelId))
+                }
+              }}
               placeholder="Type a message..."
               className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={sending}

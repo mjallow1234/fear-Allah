@@ -1,6 +1,7 @@
 /**
  * Real-time module exports.
  * Phase 4.1 - Socket.IO foundation.
+ * Phase 4.2 - Presence.
  */
 export {
   connectSocket,
@@ -11,3 +12,8 @@ export {
   leaveChannel,
   onSocketEvent,
 } from './socket'
+
+export {
+  subscribeToPresence,
+  resetPresenceSubscription,
+} from './presence'

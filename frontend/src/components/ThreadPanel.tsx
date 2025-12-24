@@ -3,6 +3,8 @@ import { X, Send } from 'lucide-react'
 import api from '../services/api'
 import Message from './Chat/Message'
 import { onSocketEvent } from '../realtime'
+import { useAuthStore } from '../stores/authStore'
+import { useReadReceiptStore, formatSeenBy } from '../stores/readReceiptStore'
 
 interface ThreadPanelProps {
   parentMessage: any
@@ -15,7 +17,11 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
   const [error, setError] = useState<string | null>(null)
   const [newReply, setNewReply] = useState('')
   const [sending, setSending] = useState(false)
+  const [memberUsernames, setMemberUsernames] = useState<Record<number, string>>({})
   const repliesEndRef = useRef<HTMLDivElement>(null)
+  const currentUser = useAuthStore((s) => s.user)
+  const seenReplyIdsRef = useRef<Set<number>>(new Set())
+  const { getUsersWhoReadMessage } = useReadReceiptStore()
 
   // Fetch thread replies
   useEffect(() => {
@@ -24,6 +30,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
     api.get(`/api/messages/${parentMessage.id}/replies`)
       .then(res => {
         setReplies(res.data || [])
+        seenReplyIdsRef.current = new Set((res.data || []).map((r: any) => r.id))
       })
       .catch(err => {
         console.error('Failed to load thread', err)
@@ -34,8 +41,30 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
       })
   }, [parentMessage.id])
 
+  // Fetch channel members for usernames (for "Seen by" display)
+  useEffect(() => {
+    if (!parentMessage.channel_id) return
+    
+    api.get(`/api/channels/${parentMessage.channel_id}/members`)
+      .then(res => {
+        const members = Array.isArray(res.data) ? res.data : []
+        const usernameMap: Record<number, string> = {}
+        for (const m of members) {
+          const userId = m.user_id || m.id
+          if (userId && m.username) {
+            usernameMap[userId] = m.username
+          }
+        }
+        setMemberUsernames(usernameMap)
+      })
+      .catch(() => {})
+  }, [parentMessage.channel_id])
+
   // Subscribe to real-time thread replies
   useEffect(() => {
+    const currentUserId = currentUser?.id
+    console.log('[ThreadPanel] Setting up thread:reply listener for parent:', parentMessage.id, 'currentUserId:', currentUserId)
+    
     const unsubscribe = onSocketEvent<{
       id: number
       content: string
@@ -47,23 +76,36 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
       is_edited: boolean
       reactions: any[]
     }>('thread:reply', (data) => {
+      console.log('[ThreadPanel] Received thread:reply event:', data)
+
       // Only handle replies to this thread
-      if (data.parent_id !== parentMessage.id) return
-      
-      // Don't add duplicate replies
+      if (data.parent_id !== parentMessage.id) {
+        console.log('[ThreadPanel] Ignoring reply for different thread:', data.parent_id, '!==', parentMessage.id)
+        return
+      }
+
+      // Skip own replies (sender already added via REST)
+      if (data.author_id === currentUserId) {
+        console.log('[Socket.IO] Skipping own thread reply', data.id)
+        return
+      }
+
+      // Prevent duplicates using seenReplyIdsRef
+      if (seenReplyIdsRef.current.has(data.id)) {
+        console.log('[ThreadPanel] Duplicate reply ignored by seen set:', data.id)
+        return
+      }
+      seenReplyIdsRef.current.add(data.id)
+
+      // Add reply from other user
       setReplies(prev => {
         if (prev.some(r => r.id === data.id)) return prev
         return [...prev, data]
       })
     })
-    
-    return () => unsubscribe()
-  }, [parentMessage.id])
 
-  // Scroll to bottom when new replies arrive
-  useEffect(() => {
-    repliesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [replies])
+    return () => unsubscribe()
+  }, [parentMessage.id, currentUser?.id])
 
   async function handleSendReply(e: React.FormEvent) {
     e.preventDefault()
@@ -76,6 +118,8 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
       })
       const sentReply = response.data
       setReplies(prev => [...prev, sentReply])
+      // Mark as seen to avoid duplicate when socket emits
+      if (sentReply?.id) seenReplyIdsRef.current.add(sentReply.id)
       setNewReply('')
     } catch (err) {
       console.error('Failed to send reply', err)
@@ -127,6 +171,35 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
             {replies.map((reply) => (
               <Message key={reply.id} message={reply} />
             ))}
+            
+            {/* Seen by indicator for thread - only show on last reply if sent by current user */}
+            {(() => {
+              // Only show "Seen by" if the last reply was sent by current user
+              const lastReply = replies[replies.length - 1]
+              if (!lastReply || lastReply.author_id !== currentUser?.id) return null
+              
+              // Get users who have read at least the parent message
+              const readByUserIds = getUsersWhoReadMessage(
+                parentMessage.channel_id,
+                parentMessage.id,
+                currentUser?.id
+              )
+              
+              if (readByUserIds.length === 0) return null
+              
+              const usernames = readByUserIds
+                .map(uid => memberUsernames[uid])
+                .filter(Boolean)
+              
+              const seenText = formatSeenBy(usernames)
+              if (!seenText) return null
+              
+              return (
+                <div className="text-xs text-gray-500 text-right mt-2">
+                  {seenText}
+                </div>
+              )
+            })()}
           </div>
         )}
         <div ref={repliesEndRef} />

@@ -12,6 +12,8 @@ from app.core.security import get_current_user, require_admin
 from app.api.ws import manager as ws_manager
 from app.storage.minio_client import get_minio_storage
 from app.core.config import settings
+from app.permissions.constants import Permission
+from app.permissions.dependencies import require_permission
 
 router = APIRouter()
 
@@ -298,12 +300,24 @@ async def get_channel(
     return channel
 
 
+class MarkReadRequest(BaseModel):
+    """Request body for marking a channel as read."""
+    last_read_message_id: Optional[int] = None  # Phase 4.4 - message-based read receipts
+
+
 @router.post("/{channel_id}/read")
 async def mark_channel_read(
     channel_id: int,
+    request: Optional[MarkReadRequest] = None,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Mark a channel as read.
+    
+    Phase 4.4: If last_read_message_id is provided, uses efficient message-based tracking.
+    Otherwise falls back to timestamp-based tracking.
+    """
     # Validate channel exists
     query = select(Channel).where(Channel.id == channel_id)
     result = await db.execute(query)
@@ -313,12 +327,71 @@ async def mark_channel_read(
 
     # Validate membership
     from app.db.crud import get_channel_member
-
     membership = await get_channel_member(db, channel_id, current_user["user_id"])
     if not membership:
         raise HTTPException(status_code=403, detail="User not a member of this channel")
 
-    # Update last_read_at (authoritative unread boundary)
+    user_id = current_user["user_id"]
+    
+    # Phase 4.4: Message-based read receipts
+    if request and request.last_read_message_id:
+        from app.db.models import ChannelRead, Message
+        
+        # Verify message exists and belongs to this channel
+        msg_query = select(Message).where(
+            Message.id == request.last_read_message_id,
+            Message.channel_id == channel_id
+        )
+        msg_result = await db.execute(msg_query)
+        msg = msg_result.scalar_one_or_none()
+        if not msg:
+            raise HTTPException(status_code=404, detail="Message not found in this channel")
+        
+        # Upsert channel read
+        read_query = select(ChannelRead).where(
+            ChannelRead.user_id == user_id,
+            ChannelRead.channel_id == channel_id
+        )
+        read_result = await db.execute(read_query)
+        channel_read = read_result.scalar_one_or_none()
+        
+        should_emit = False
+        
+        if channel_read:
+            # Only update if new message_id is greater
+            if channel_read.last_read_message_id is None or request.last_read_message_id > channel_read.last_read_message_id:
+                channel_read.last_read_message_id = request.last_read_message_id
+                db.add(channel_read)
+                should_emit = True
+        else:
+            # Create new record
+            channel_read = ChannelRead(
+                user_id=user_id,
+                channel_id=channel_id,
+                last_read_message_id=request.last_read_message_id
+            )
+            db.add(channel_read)
+            should_emit = True
+        
+        await db.commit()
+        
+        # Emit receipt:update via Socket.IO
+        if should_emit:
+            try:
+                from app.realtime.socket import emit_receipt_update
+                await emit_receipt_update(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    last_read_message_id=request.last_read_message_id,
+                    skip_user_id=user_id
+                )
+            except Exception:
+                import logging
+                logging.exception("Failed to emit receipt:update")
+        
+        return {"ok": True}
+
+    # Legacy: Timestamp-based tracking
     from datetime import datetime
     membership.last_read_at = datetime.utcnow()
     db.add(membership)
@@ -340,6 +413,44 @@ async def mark_channel_read(
         "channel_id": channel_id,
         "last_read_at": membership.last_read_at.isoformat() + "Z"
     }
+
+
+class ChannelReadResponse(BaseModel):
+    """Response for channel read receipt."""
+    user_id: int
+    last_read_message_id: Optional[int]
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/{channel_id}/reads", response_model=List[ChannelReadResponse])
+async def get_channel_reads(
+    channel_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all read receipts for a channel.
+    Phase 4.4 - Returns list of {user_id, last_read_message_id} for computing "Seen by X".
+    """
+    # Validate channel exists
+    query = select(Channel).where(Channel.id == channel_id)
+    result = await db.execute(query)
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    # Get all read receipts for this channel
+    from app.db.models import ChannelRead
+    reads_query = select(ChannelRead).where(ChannelRead.channel_id == channel_id)
+    reads_result = await db.execute(reads_query)
+    reads = reads_result.scalars().all()
+    
+    return [
+        {"user_id": r.user_id, "last_read_message_id": r.last_read_message_id}
+        for r in reads
+    ]
 
 
 @router.post("/{channel_id}/join")
@@ -788,7 +899,18 @@ async def list_channel_members(
     return members
 
 
-@router.post("/{channel_id}/members", response_model=ChannelMemberResponse)
+@router.post(
+    "/{channel_id}/members",
+    response_model=ChannelMemberResponse,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.INVITE_MEMBER,
+                channel_param="channel_id",
+            )
+        )
+    ],
+)
 async def add_channel_member(
     channel_id: int,
     request: AddMemberRequest,
@@ -853,7 +975,17 @@ async def add_channel_member(
     )
 
 
-@router.delete("/{channel_id}/members/{user_id}")
+@router.delete(
+    "/{channel_id}/members/{user_id}",
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.KICK_MEMBER,
+                channel_param="channel_id",
+            )
+        )
+    ],
+)
 async def remove_channel_member(
     channel_id: int,
     user_id: int,

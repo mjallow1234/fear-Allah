@@ -12,6 +12,8 @@ from collections import defaultdict
 from app.db.database import get_db
 from app.db.models import Message, Channel, User, MessageReaction, AuditLog
 from app.core.security import get_current_user, check_user_can_post
+from app.permissions.constants import Permission
+from app.permissions.dependencies import require_permission
 
 router = APIRouter()
 
@@ -215,9 +217,11 @@ async def create_message(
         
         if request.parent_id:
             # Thread reply
+            logger.info(f"Emitting thread:reply to channel {request.channel_id} parent {request.parent_id} payload_id {message.id}")
             await emit_thread_reply(request.channel_id, request.parent_id, message_payload)
         else:
             # New message
+            logger.info(f"Emitting message:new to channel {request.channel_id} payload_id {message.id}")
             await emit_message_new(request.channel_id, message_payload)
     except Exception as e:
         # Don't fail REST if Socket.IO emit fails
@@ -344,6 +348,27 @@ async def create_reply(
     )
     result = await db.execute(query)
     reply = result.scalar_one()
+
+    # Socket.IO emit for real-time thread reply
+    try:
+        from app.realtime.socket import emit_thread_reply
+        
+        username = reply.author.username if reply.author else f"user_{current_user['user_id']}"
+        reply_payload = {
+            "id": reply.id,
+            "content": reply.content,
+            "channel_id": reply.channel_id,
+            "author_id": current_user["user_id"],
+            "author_username": username,
+            "parent_id": message_id,
+            "created_at": reply.created_at.isoformat(),
+            "is_edited": False,
+            "reactions": [],
+        }
+        logger.info(f"Emitting thread:reply for reply {reply.id} to parent {message_id} in channel {reply.channel_id}")
+        await emit_thread_reply(reply.channel_id, message_id, reply_payload)
+    except Exception as e:
+        logger.warning(f"Socket.IO emit failed for thread reply: {e}")
     
     return transform_message_to_response(reply)
 
