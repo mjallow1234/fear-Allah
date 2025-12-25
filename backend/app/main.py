@@ -124,7 +124,8 @@ app.add_middleware(
         "http://192.168.100.2:5173",  # LAN access
         "https://gita-unrowdy-disconnectedly.ngrok-free.dev",
     ],
-    allow_origin_regex=r"http://192\.168\.\d+\.\d+:5173",  # Allow any 192.168.x.x LAN
+    # Allow any 192.168.x.x on port 5173 and allow localhost on any dev port (127.0.0.1:PORT)
+    allow_origin_regex=r"(http://192\.168\.\d+\.\d+:5173|http://127\.0\.0\.1:\d+)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
