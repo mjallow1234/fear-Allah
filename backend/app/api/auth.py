@@ -108,6 +108,10 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(user)
     
+    # DEV-only: auto-onboard new user to all demo channels
+    from app.permissions.demo_onboarding import maybe_onboard_demo_user
+    await maybe_onboard_demo_user(user.id, db)
+    
     access_token = create_access_token(data={"sub": str(user.id), "username": user.username})
     
     return TokenResponse(

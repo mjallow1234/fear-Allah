@@ -84,6 +84,9 @@ async def lifespan(app: FastAPI):
     # Startup
     await create_tables()
     await seed_default_data()
+    # Seed demo RBAC channel roles (dev-only)
+    from app.permissions.demo_seeder import run_demo_seeder
+    await run_demo_seeder()
     # Start Redis pub/sub listener for cross-pod broadcasts (Phase 9)
     try:
         from app.core.redis import redis_client
@@ -154,6 +157,10 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 # Sales (event-based, not workflows)
 from app.api import sales
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
+
+# Automation Engine (Phase 6.1)
+from app.api import automation
+app.include_router(automation.router, prefix="/api", tags=["Automation"])
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "fear-Allah API"}

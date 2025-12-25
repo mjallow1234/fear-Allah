@@ -1,0 +1,4 @@
+NAME                    IMAGE                                      COMMAND                  SERVICE    CREATED         STATUS                   PORTS
+fear-allah-minio-1      minio/minio:RELEASE.2025-09-07T16-13-09Z   "/usr/bin/docker-ent…"   minio      2 minutes ago   Up 2 minutes (healthy)   9000/tcp
+fear-allah-postgres-1   postgres:15                                "docker-entrypoint.s…"   postgres   2 minutes ago   Up 2 minutes (healthy)   5432/tcp
+fear-allah-redis-1      redis:7                                    "docker-entrypoint.s…"   redis      2 minutes ago   Up 2 minutes (healthy)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp

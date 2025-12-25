@@ -54,3 +54,41 @@ class SaleChannel(str, enum.Enum):
     agent = "AGENT"
     store = "STORE"
     direct = "DIRECT"
+
+
+# ------------------ Automation Engine (Phase 6.1) ------------------
+
+class AutomationTaskType(str, enum.Enum):
+    """Types of automation tasks"""
+    restock = "RESTOCK"
+    retail = "RETAIL"
+    wholesale = "WHOLESALE"
+    sale = "SALE"
+    custom = "CUSTOM"
+
+
+class AutomationTaskStatus(str, enum.Enum):
+    """Status of an automation task"""
+    pending = "PENDING"
+    in_progress = "IN_PROGRESS"
+    completed = "COMPLETED"
+    cancelled = "CANCELLED"
+
+
+class AssignmentStatus(str, enum.Enum):
+    """Status of a task assignment"""
+    pending = "PENDING"
+    in_progress = "IN_PROGRESS"
+    done = "DONE"
+    skipped = "SKIPPED"
+
+
+class TaskEventType(str, enum.Enum):
+    """Types of task events for audit log"""
+    created = "CREATED"
+    assigned = "ASSIGNED"
+    step_started = "STEP_STARTED"
+    step_completed = "STEP_COMPLETED"
+    reassigned = "REASSIGNED"
+    cancelled = "CANCELLED"
+    closed = "CLOSED"

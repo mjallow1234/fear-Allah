@@ -1,0 +1,6 @@
+services:
+  redis:
+    ports:
+      - "6380:6379"
+  api-proxy:
+    ports: []

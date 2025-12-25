@@ -3,7 +3,11 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
-from app.db.enums import UserStatus, UserRole, ChannelType, NotificationType, OrderStatus, TaskStatus, OrderType, SaleChannel
+from app.db.enums import (
+    UserStatus, UserRole, ChannelType, NotificationType, 
+    OrderStatus, TaskStatus, OrderType, SaleChannel,
+    AutomationTaskType, AutomationTaskStatus, AssignmentStatus, TaskEventType
+)
 
 
 class User(Base):
@@ -346,3 +350,84 @@ class ChannelRoleAssignment(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "channel_id", "role_id", name="uq_channel_role"),
     )
+
+
+# ------------------ Automation Engine (Phase 6.1) ------------------
+
+class AutomationTask(Base):
+    """
+    Generic task for workflow automation.
+    Can be standalone or linked to an order.
+    """
+    __tablename__ = "automation_tasks"
+    __table_args__ = (
+        Index("ix_automation_tasks_status", "status"),
+        Index("ix_automation_tasks_type", "task_type"),
+        Index("ix_automation_tasks_created_by", "created_by_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_type = Column(SAEnum(AutomationTaskType, name="automationtasktype", create_type=False), nullable=False)
+    status = Column(SAEnum(AutomationTaskStatus, name="automationtaskstatus", create_type=False), nullable=False, default=AutomationTaskStatus.pending.value)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    related_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    task_metadata = Column(Text, nullable=True)  # JSON for extensibility (named task_metadata to avoid SQLAlchemy reserved name)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    related_order = relationship("Order")
+    assignments = relationship("TaskAssignment", back_populates="task", cascade="all, delete-orphan")
+    events = relationship("TaskEvent", back_populates="task", cascade="all, delete-orphan", order_by="TaskEvent.created_at")
+
+
+class TaskAssignment(Base):
+    """
+    Assignment of a user to a task with a specific role.
+    Multiple users can be assigned to the same task.
+    """
+    __tablename__ = "task_assignments"
+    __table_args__ = (
+        Index("ix_task_assignments_task_id", "task_id"),
+        Index("ix_task_assignments_user_id", "user_id"),
+        UniqueConstraint("task_id", "user_id", name="uq_task_user_assignment"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("automation_tasks.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role_hint = Column(String(100), nullable=True)  # e.g., "foreman", "delivery", "agent"
+    status = Column(SAEnum(AssignmentStatus, name="assignmentstatus", create_type=False), nullable=False, default=AssignmentStatus.pending.value)
+    notes = Column(Text, nullable=True)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    task = relationship("AutomationTask", back_populates="assignments")
+    user = relationship("User")
+
+
+class TaskEvent(Base):
+    """
+    Audit log for task lifecycle events.
+    Tracks who did what and when.
+    """
+    __tablename__ = "task_events"
+    __table_args__ = (
+        Index("ix_task_events_task_id", "task_id"),
+        Index("ix_task_events_created_at", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("automation_tasks.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Nullable for system events
+    event_type = Column(SAEnum(TaskEventType, name="taskeventtype", create_type=False), nullable=False)
+    event_metadata = Column(Text, nullable=True)  # JSON for event-specific data (named event_metadata to avoid SQLAlchemy reserved name)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    task = relationship("AutomationTask", back_populates="events")
+    user = relationship("User")
