@@ -4,8 +4,12 @@ from sqlalchemy import select, update
 from app.db.models import Order, Task
 from app.db.enums import OrderType, OrderStatus, TaskStatus
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+# Check if automations are enabled (Phase 6.2)
+AUTOMATIONS_ENABLED = os.environ.get("AUTOMATIONS_ENABLED", "true").lower() == "true"
 
 # Workflow definitions
 WORKFLOWS = {
@@ -38,7 +42,7 @@ async def emit_event(event_name: str, payload: dict):
     logger.info("Event emitted: %s %s", event_name, payload)
 
 
-async def create_order(session: AsyncSession, order_type: str, items: str = None, metadata: str = None):
+async def create_order(session: AsyncSession, order_type: str, items: str = None, metadata: str = None, created_by_id: int = None):
     """Create order and associated tasks. First task becomes ACTIVE."""
     if order_type not in WORKFLOWS:
         raise ValueError("Invalid order_type")
@@ -64,6 +68,15 @@ async def create_order(session: AsyncSession, order_type: str, items: str = None
 
     # Emit order.submitted
     await emit_event('order.submitted', {"order_id": order.id, "status": order.status})
+    
+    # Trigger automation (Phase 6.2)
+    if AUTOMATIONS_ENABLED and created_by_id:
+        try:
+            from app.automation.order_triggers import OrderAutomationTriggers
+            await OrderAutomationTriggers.on_order_created(session, order, created_by_id)
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to trigger order automation: {e}")
+    
     return order
 
 
@@ -178,6 +191,7 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
     o_q = select(Order).where(Order.id == task.order_id)
     o_res = await session.execute(o_q)
     order = o_res.scalar_one()
+    old_status = order.status
     new_status, changed = await recompute_order_status(session, order)
 
     # Flush and commit so we emit events after commit
@@ -192,5 +206,15 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
         if new_status == 'COMPLETED':
             await emit_event('order.completed', {"order_id": order.id, "status": order.status})
         await emit_event('order.status_changed', {"order_id": order.id, "status": order.status})
+        
+        # Trigger automation on status change (Phase 6.2)
+        if AUTOMATIONS_ENABLED:
+            try:
+                from app.automation.order_triggers import OrderAutomationTriggers
+                await OrderAutomationTriggers.on_order_status_changed(
+                    session, order, old_status, new_status, user_id
+                )
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to trigger status change automation: {e}")
 
     return task, next_task, order
