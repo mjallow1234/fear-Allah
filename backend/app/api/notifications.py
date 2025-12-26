@@ -22,6 +22,12 @@ class NotificationResponse(BaseModel):
     message_id: Optional[int]
     sender_id: Optional[int]
     sender_username: Optional[str] = None
+    # Automation context (Phase 6.4)
+    task_id: Optional[int] = None
+    order_id: Optional[int] = None
+    inventory_id: Optional[int] = None
+    sale_id: Optional[int] = None
+    extra_data: Optional[str] = None
     is_read: bool
     created_at: datetime
 
@@ -65,6 +71,11 @@ async def list_notifications(
             message_id=n.message_id,
             sender_id=n.sender_id,
             sender_username=n.sender.username if n.sender else None,
+            task_id=n.task_id,
+            order_id=n.order_id,
+            inventory_id=n.inventory_id,
+            sale_id=n.sale_id,
+            extra_data=n.extra_data,
             is_read=n.is_read,
             created_at=n.created_at
         ))

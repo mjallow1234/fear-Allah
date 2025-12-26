@@ -1,6 +1,7 @@
 """
 Automation Engine Service Layer (Phase 6.1)
 Core business logic for task-based workflow automation.
+Phase 6.4 - Integrated notification hooks.
 """
 import json
 from datetime import datetime
@@ -237,6 +238,13 @@ class AutomationService:
         
         logger.info(f"[Automation] User {user_id} assigned to task {task_id} (role={role_hint})")
         
+        # Phase 6.4: Send notification to assignee
+        try:
+            from app.automation.notification_hooks import on_task_assigned
+            await on_task_assigned(db, task, user_id, assigned_by_id)
+        except Exception as e:
+            logger.error(f"[Automation] Failed to send assignment notification: {e}")
+        
         return assignment
     
     @staticmethod
@@ -371,6 +379,14 @@ class AutomationService:
             await db.commit()
             
             logger.info(f"[Automation] Task {task_id} auto-closed: all assignments completed")
+            
+            # Phase 6.4: Send auto-close notification
+            try:
+                from app.automation.notification_hooks import on_task_auto_closed
+                await on_task_auto_closed(db, task, "all assignments completed")
+            except Exception as e:
+                logger.error(f"[Automation] Failed to send auto-close notification: {e}")
+            
             return True
         
         return False

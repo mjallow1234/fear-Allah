@@ -196,6 +196,18 @@ async def restock_inventory(
         'performed_by': performed_by_id,
     })
     
+    # Phase 6.4: Trigger restock notification via automation hook
+    try:
+        from app.automation.sales_triggers import SalesAutomationTriggers
+        await SalesAutomationTriggers.on_inventory_restocked(
+            db=session,
+            inventory_item=inventory,
+            quantity_added=quantity,
+            performed_by_id=performed_by_id,
+        )
+    except Exception as e:
+        logger.warning(f"[Inventory] Failed to trigger restock notification: {e}")
+    
     logger.info(f"[Inventory] Restocked: product_id={product_id}, +{quantity}, new_stock={inventory.total_stock}")
     
     return inventory
@@ -273,6 +285,18 @@ async def adjust_inventory(
         'new_stock': inventory.total_stock,
         'performed_by': performed_by_id,
     })
+    
+    # Phase 6.4: Check for low stock and trigger notification
+    if inventory.total_stock <= inventory.low_stock_threshold:
+        try:
+            from app.automation.sales_triggers import SalesAutomationTriggers
+            await SalesAutomationTriggers.on_low_stock(
+                db=session,
+                inventory_item=inventory,
+                triggered_by_user_id=performed_by_id,
+            )
+        except Exception as e:
+            logger.warning(f"[Inventory] Failed to trigger low stock notification: {e}")
     
     logger.info(f"[Inventory] Adjusted: product_id={product_id}, {adjustment:+d}, reason={reason}")
     

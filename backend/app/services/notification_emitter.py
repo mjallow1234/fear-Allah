@@ -1,0 +1,328 @@
+"""
+Phase 6.4 - Notification Engine Emitter
+Real-time notification delivery via Socket.IO
+"""
+import json
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Notification
+from app.db.enums import NotificationType
+
+
+async def emit_notification_to_user(user_id: int, notification: Notification):
+    """
+    Emit a notification to a specific user via Socket.IO
+    """
+    from app.realtime.socket import emit_notification
+    
+    notification_data = {
+        "id": notification.id,
+        "type": notification.type.value if hasattr(notification.type, 'value') else notification.type,
+        "title": notification.title,
+        "content": notification.content,
+        "channel_id": notification.channel_id,
+        "message_id": notification.message_id,
+        "sender_id": notification.sender_id,
+        "task_id": notification.task_id,
+        "order_id": notification.order_id,
+        "inventory_id": notification.inventory_id,
+        "sale_id": notification.sale_id,
+        "extra_data": notification.extra_data,
+        "is_read": notification.is_read,
+        "created_at": notification.created_at.isoformat() if notification.created_at else None,
+    }
+    
+    await emit_notification(user_id, notification_data)
+
+
+async def emit_notification_read(user_id: int, notification_id: int):
+    """
+    Emit notification:read event when a notification is marked as read
+    """
+    from app.realtime.socket import sio, authenticated_users
+    
+    # Find all sids for this user
+    for sid, user_data in authenticated_users.items():
+        if user_data.get("user_id") == user_id:
+            await sio.emit("notification:read", {
+                "notification_id": notification_id,
+            }, room=sid)
+
+
+async def emit_all_notifications_read(user_id: int):
+    """
+    Emit notification:all_read event when all notifications are marked as read
+    """
+    from app.realtime.socket import sio, authenticated_users
+    
+    # Find all sids for this user
+    for sid, user_data in authenticated_users.items():
+        if user_data.get("user_id") == user_id:
+            await sio.emit("notification:all_read", {}, room=sid)
+
+
+async def emit_notification_count_update(user_id: int, unread_count: int):
+    """
+    Emit updated notification count to user
+    """
+    from app.realtime.socket import sio, authenticated_users
+    
+    # Find all sids for this user
+    for sid, user_data in authenticated_users.items():
+        if user_data.get("user_id") == user_id:
+            await sio.emit("notification:count", {
+                "unread": unread_count,
+            }, room=sid)
+
+
+# ============================================================
+# High-level notification + emit helpers
+# ============================================================
+
+async def create_and_emit_notification(
+    db: AsyncSession,
+    user_id: int,
+    notification_type: NotificationType,
+    title: str,
+    content: Optional[str] = None,
+    **kwargs
+) -> Notification:
+    """
+    Create a notification and emit it via Socket.IO in one call
+    """
+    from app.services.notifications import NotificationService
+    
+    service = NotificationService(db)
+    notification = await service.create_notification(
+        user_id=user_id,
+        notification_type=notification_type,
+        title=title,
+        content=content,
+        **kwargs,
+    )
+    
+    await emit_notification_to_user(user_id, notification)
+    return notification
+
+
+async def create_and_emit_to_multiple(
+    db: AsyncSession,
+    user_ids: List[int],
+    notification_type: NotificationType,
+    title: str,
+    content: Optional[str] = None,
+    **kwargs
+) -> List[Notification]:
+    """
+    Create notifications for multiple users and emit via Socket.IO
+    """
+    from app.services.notifications import NotificationService
+    
+    notifications = []
+    service = NotificationService(db)
+    
+    for user_id in user_ids:
+        notification = await service.create_notification(
+            user_id=user_id,
+            notification_type=notification_type,
+            title=title,
+            content=content,
+            **kwargs,
+        )
+        notifications.append(notification)
+        await emit_notification_to_user(user_id, notification)
+    
+    return notifications
+
+
+# ============================================================
+# Automation-specific notification emitters
+# ============================================================
+
+async def notify_and_emit_task_assigned(
+    db: AsyncSession,
+    task_id: int,
+    assignee_id: int,
+    task_title: str,
+    assigner_name: Optional[str] = None,
+) -> Notification:
+    """Create and emit task assigned notification"""
+    content = f"You have been assigned a new task: {task_title}"
+    if assigner_name:
+        content = f"{assigner_name} assigned you a task: {task_title}"
+    
+    return await create_and_emit_notification(
+        db,
+        user_id=assignee_id,
+        notification_type=NotificationType.task_assigned,
+        title="Task Assigned",
+        content=content,
+        task_id=task_id,
+    )
+
+
+async def notify_and_emit_task_completed(
+    db: AsyncSession,
+    task_id: int,
+    notify_user_id: int,
+    task_title: str,
+    completed_by: Optional[str] = None,
+) -> Notification:
+    """Create and emit task completed notification"""
+    content = f"Task completed: {task_title}"
+    if completed_by:
+        content = f"{completed_by} completed the task: {task_title}"
+    
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.task_completed,
+        title="Task Completed",
+        content=content,
+        task_id=task_id,
+    )
+
+
+async def notify_and_emit_task_auto_closed(
+    db: AsyncSession,
+    task_id: int,
+    notify_user_id: int,
+    task_title: str,
+    reason: str = "auto-closed due to inactivity",
+) -> Notification:
+    """Create and emit task auto-closed notification"""
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.task_auto_closed,
+        title="Task Auto-Closed",
+        content=f"Task '{task_title}' was {reason}",
+        task_id=task_id,
+    )
+
+
+async def notify_and_emit_order_created(
+    db: AsyncSession,
+    order_id: int,
+    notify_user_id: int,
+    order_number: str,
+    customer_name: Optional[str] = None,
+) -> Notification:
+    """Create and emit order created notification"""
+    content = f"New order #{order_number}"
+    if customer_name:
+        content += f" from {customer_name}"
+    
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.order_created,
+        title="New Order",
+        content=content,
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_order_completed(
+    db: AsyncSession,
+    order_id: int,
+    notify_user_id: int,
+    order_number: str,
+) -> Notification:
+    """Create and emit order completed notification"""
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.order_completed,
+        title="Order Completed",
+        content=f"Order #{order_number} has been completed",
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_low_stock(
+    db: AsyncSession,
+    inventory_id: int,
+    notify_user_id: int,
+    product_name: str,
+    current_quantity: int,
+    reorder_level: int,
+) -> Notification:
+    """Create and emit low stock notification"""
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.low_stock,
+        title="Low Stock Alert",
+        content=f"{product_name} is low on stock ({current_quantity} units, reorder level: {reorder_level})",
+        inventory_id=inventory_id,
+        metadata={
+            "current_quantity": current_quantity,
+            "reorder_level": reorder_level,
+        },
+    )
+
+
+async def notify_and_emit_inventory_restocked(
+    db: AsyncSession,
+    inventory_id: int,
+    notify_user_id: int,
+    product_name: str,
+    quantity_added: int,
+    new_quantity: int,
+) -> Notification:
+    """Create and emit inventory restocked notification"""
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.inventory_restocked,
+        title="Inventory Restocked",
+        content=f"{product_name} restocked: +{quantity_added} units (now {new_quantity})",
+        inventory_id=inventory_id,
+        metadata={
+            "quantity_added": quantity_added,
+            "new_quantity": new_quantity,
+        },
+    )
+
+
+async def notify_and_emit_sale_recorded(
+    db: AsyncSession,
+    sale_id: int,
+    notify_user_id: int,
+    total_amount: float,
+    product_name: Optional[str] = None,
+) -> Notification:
+    """Create and emit sale recorded notification"""
+    content = f"Sale recorded: ${total_amount:.2f}"
+    if product_name:
+        content = f"Sale recorded for {product_name}: ${total_amount:.2f}"
+    
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.sale_recorded,
+        title="Sale Recorded",
+        content=content,
+        sale_id=sale_id,
+    )
+
+
+async def notify_and_emit_system(
+    db: AsyncSession,
+    notify_user_id: int,
+    title: str,
+    content: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Notification:
+    """Create and emit a generic system notification"""
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.system,
+        title=title,
+        content=content,
+        metadata=metadata,
+    )

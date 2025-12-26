@@ -22,10 +22,21 @@ class ChannelType(str, enum.Enum):
 
 
 class NotificationType(str, enum.Enum):
+    # Chat notifications
     mention = "mention"
     reply = "reply"
     dm = "dm"
     reaction = "reaction"
+    # Automation notifications (Phase 6.4)
+    task_assigned = "task_assigned"
+    task_completed = "task_completed"
+    task_auto_closed = "task_auto_closed"
+    order_created = "order_created"
+    order_completed = "order_completed"
+    low_stock = "low_stock"
+    inventory_restocked = "inventory_restocked"
+    sale_recorded = "sale_recorded"
+    system = "system"
 
 
 class OrderStatus(str, enum.Enum):

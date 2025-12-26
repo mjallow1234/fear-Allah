@@ -200,6 +200,12 @@ class Notification(Base):
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=True)
     message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Automation context (Phase 6.4)
+    task_id = Column(Integer, ForeignKey("automation_tasks.id"), nullable=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    inventory_id = Column(Integer, ForeignKey("inventory.id"), nullable=True)
+    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=True)
+    extra_data = Column(Text, nullable=True)  # JSON for extra context (named extra_data to avoid SQLAlchemy reserved name)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -208,6 +214,10 @@ class Notification(Base):
     sender = relationship("User", foreign_keys=[sender_id])
     channel = relationship("Channel")
     message = relationship("Message")
+    automation_task = relationship("AutomationTask")
+    order = relationship("Order")
+    inventory = relationship("Inventory")
+    sale = relationship("Sale")
 
 
 class AuditLog(Base):

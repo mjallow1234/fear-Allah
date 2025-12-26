@@ -1,6 +1,7 @@
 """
 Sales Automation Triggers (Phase 6.3)
 Hooks for triggering automation tasks based on sales and inventory events.
+Phase 6.4 - Integrated notification hooks.
 """
 import os
 import logging
@@ -38,6 +39,20 @@ class SalesAutomationTriggers:
         """
         if not SALES_AUTOMATION_ENABLED:
             return
+        
+        # Phase 6.4: Send sale notification
+        try:
+            from app.automation.notification_hooks import on_sale_recorded
+            await on_sale_recorded(
+                db=db,
+                sale_id=sale.id,
+                total_amount=sale.total_amount,
+                product_name=None,  # Could be fetched from inventory
+                agent_id=sale.sold_by_user_id,
+                notify_admins=True,
+            )
+        except Exception as e:
+            logger.error(f"[SalesAutomation] Failed to send sale notification: {e}")
         
         # For now, just log. Future: create delivery confirmation task, etc.
         logger.info(f"[SalesAutomation] Sale {sale.id} recorded, channel={sale.sale_channel}")
@@ -140,6 +155,20 @@ class SalesAutomationTriggers:
                 f"[SalesAutomation] Created low stock task {task.id} for product {inventory_item.product_id}"
             )
             
+            # Phase 6.4: Send low stock notification
+            try:
+                from app.automation.notification_hooks import on_low_stock_alert
+                await on_low_stock_alert(
+                    db=db,
+                    inventory_id=inventory_item.id,
+                    product_name=inventory_item.product_name or f"Product {inventory_item.product_id}",
+                    current_quantity=inventory_item.total_stock,
+                    reorder_level=inventory_item.low_stock_threshold,
+                    notify_admins=True,
+                )
+            except Exception as notif_err:
+                logger.error(f"[SalesAutomation] Failed to send low stock notification: {notif_err}")
+            
         except Exception as e:
             logger.error(f"[SalesAutomation] Failed to create low stock task: {e}")
     
@@ -162,6 +191,21 @@ class SalesAutomationTriggers:
         """
         if not SALES_AUTOMATION_ENABLED:
             return
+        
+        # Phase 6.4: Send restock notification
+        try:
+            from app.automation.notification_hooks import on_inventory_restocked
+            await on_inventory_restocked(
+                db=db,
+                inventory_id=inventory_item.id,
+                product_name=inventory_item.product_name or f"Product {inventory_item.product_id}",
+                quantity_added=quantity_added,
+                new_quantity=inventory_item.total_stock,
+                restocked_by_id=performed_by_id,
+                notify_admins=True,
+            )
+        except Exception as notif_err:
+            logger.error(f"[SalesAutomation] Failed to send restock notification: {notif_err}")
         
         # Check if stock is now above threshold
         if inventory_item.total_stock > inventory_item.low_stock_threshold:

@@ -159,6 +159,13 @@ class OrderAutomationTriggers:
             created_by_id=created_by_id,
         )
         
+        # Phase 6.4: Send order created notification
+        try:
+            from app.automation.notification_hooks import on_order_created
+            await on_order_created(db, order, notify_admins=True)
+        except Exception as e:
+            logger.error(f"[OrderAutomation] Failed to send order notification: {e}")
+        
         return task
     
     @staticmethod
@@ -310,6 +317,13 @@ class OrderAutomationTriggers:
                 user_id=user_id,
             )
             logger.info(f"[OrderAutomation] Task {task.id} closed (order completed)")
+        
+        # Phase 6.4: Send order completed notification
+        try:
+            from app.automation.notification_hooks import on_order_completed
+            await on_order_completed(db, order)
+        except Exception as e:
+            logger.error(f"[OrderAutomation] Failed to send order completed notification: {e}")
     
     @staticmethod
     async def handle_order_cancelled(
