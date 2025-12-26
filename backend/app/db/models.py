@@ -260,20 +260,32 @@ class Task(Base):
     order = relationship("Order", back_populates="tasks")
 
 
-# ------------------ Inventory & Sales (new) ------------------
+# ------------------ Inventory & Sales (Phase 6.3) ------------------
 class Inventory(Base):
+    """Inventory item tracking stock levels per product."""
     __tablename__ = "inventory"
 
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, nullable=False, unique=True, index=True)
+    product_name = Column(String(255), nullable=True)  # Human-readable name
     total_stock = Column(Integer, default=0, nullable=False)
     total_sold = Column(Integer, default=0, nullable=False)
+    low_stock_threshold = Column(Integer, default=10, nullable=False)  # Trigger threshold
     version = Column(Integer, default=1)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Relationships
+    transactions = relationship("InventoryTransaction", back_populates="inventory_item", cascade="all, delete-orphan")
+
+    @property
+    def is_low_stock(self) -> bool:
+        """Check if stock is below threshold."""
+        return self.total_stock <= self.low_stock_threshold
+
 
 class Sale(Base):
+    """Sale record tracking individual transactions."""
     __tablename__ = "sales"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -284,10 +296,43 @@ class Sale(Base):
     sold_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     sale_channel = Column(SAEnum(SaleChannel, name="salechannel", create_type=False), nullable=False)
     related_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    location = Column(String(255), nullable=True)  # Where the sale occurred
     idempotency_key = Column(String(255), nullable=True, unique=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Relationships
     sold_by = relationship("User")
+    related_order = relationship("Order")
+    transaction = relationship("InventoryTransaction", back_populates="related_sale", uselist=False)
+
+
+class InventoryTransaction(Base):
+    """
+    Audit log for inventory changes.
+    Tracks all stock movements with reason and related entities.
+    """
+    __tablename__ = "inventory_transactions"
+    __table_args__ = (
+        Index("ix_inventory_transactions_inventory_item_id", "inventory_item_id"),
+        Index("ix_inventory_transactions_reason", "reason"),
+        Index("ix_inventory_transactions_created_at", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    inventory_item_id = Column(Integer, ForeignKey("inventory.id"), nullable=False)
+    change = Column(Integer, nullable=False)  # Negative for sale/removal, positive for restock
+    reason = Column(String(50), nullable=False)  # sale, restock, adjustment, return
+    related_sale_id = Column(Integer, ForeignKey("sales.id"), nullable=True)
+    related_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    performed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    inventory_item = relationship("Inventory", back_populates="transactions")
+    related_sale = relationship("Sale", back_populates="transaction")
+    related_order = relationship("Order")
+    performed_by = relationship("User")
 
 
 # ------------------ Permissions & Roles (Phase 5.2) ------------------

@@ -158,6 +158,10 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 from app.api import sales
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 
+# Inventory (Phase 6.3)
+from app.api import inventory
+app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+
 # Automation Engine (Phase 6.1)
 from app.api import automation
 app.include_router(automation.router, prefix="/api", tags=["Automation"])
