@@ -17,3 +17,8 @@ export {
   subscribeToPresence,
   resetPresenceSubscription,
 } from './presence'
+
+export {
+  subscribeToTasks,
+  resetTaskSubscription,
+} from './tasks'
