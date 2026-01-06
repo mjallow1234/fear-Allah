@@ -48,3 +48,9 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #2e3035;
 }
+
+/* Emoji picker overlay (ensure top-level stacking context) */
+.emoji-picker {
+  z-index: 9999;
+  pointer-events: auto;
+}

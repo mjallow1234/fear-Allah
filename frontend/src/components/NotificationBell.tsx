@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
+import { Bell, Check, CheckCheck, Trash2, Package, ShoppingCart, ClipboardList, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import clsx from 'clsx'
+import { onSocketEvent } from '../realtime'
 
 interface Notification {
   id: number
@@ -11,13 +12,15 @@ interface Notification {
   content: string | null
   channel_id: number | null
   message_id: number | null
+  task_id: number | null
+  order_id: number | null
   sender_id: number | null
   sender_username: string | null
   is_read: boolean
   created_at: string
 }
 
-// Custom event for real-time notifications
+// Custom event for real-time notifications (keep for backward compatibility)
 const NOTIFICATION_EVENT = 'new-notification'
 
 // Function to dispatch new notification event (called from WebSocket handlers)
@@ -46,12 +49,22 @@ export default function NotificationBell() {
 
   useEffect(() => {
     fetchNotifications()
-    // Poll for new notifications every 30 seconds
+    // Poll for new notifications every 30 seconds (fallback when socket disconnected)
     const interval = setInterval(fetchNotifications, 30000)
     return () => clearInterval(interval)
   }, [fetchNotifications])
 
-  // Listen for real-time notifications
+  // Listen for real-time notifications via Socket.IO
+  useEffect(() => {
+    const unsubscribe = onSocketEvent<Notification>('notification:new', (notification) => {
+      setNotifications(prev => [notification, ...prev.slice(0, 9)]) // Keep max 10
+      setUnreadCount(prev => prev + 1)
+    })
+    
+    return () => unsubscribe()
+  }, [])
+
+  // Listen for legacy custom event notifications (backward compatibility)
   useEffect(() => {
     const handleNewNotification = (event: CustomEvent<Notification>) => {
       const notification = event.detail
@@ -103,9 +116,25 @@ export default function NotificationBell() {
   }
 
   const handleNotificationClick = (notif: Notification) => {
-    if (notif.channel_id) {
-      navigate(`/channels/${notif.channel_id}`)
+    // Handle task-related notifications - navigate to task inbox
+    if (notif.task_id) {
+      // Navigate to task inbox with the task ID to highlight/open it
+      navigate(`/tasks?task=${notif.task_id}`)
     }
+    // Handle channel/message notifications
+    else if (notif.channel_id) {
+      // Navigate to channel with optional message anchor
+      if (notif.message_id) {
+        navigate(`/channels/${notif.channel_id}?message=${notif.message_id}`)
+      } else {
+        navigate(`/channels/${notif.channel_id}`)
+      }
+    }
+    // Handle order notifications - navigate to orders
+    else if (notif.order_id) {
+      navigate(`/orders?order=${notif.order_id}`)
+    }
+    
     if (!notif.is_read) {
       handleMarkRead(notif.id, { stopPropagation: () => {} } as React.MouseEvent)
     }
@@ -114,6 +143,7 @@ export default function NotificationBell() {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      // Chat notifications
       case 'mention':
         return '@'
       case 'reply':
@@ -122,6 +152,27 @@ export default function NotificationBell() {
         return '💬'
       case 'reaction':
         return '👍'
+      
+      // Automation notifications
+      case 'task_assigned':
+        return <ClipboardList size={14} />
+      case 'task_completed':
+        return <Check size={14} className="text-green-400" />
+      case 'task_auto_closed':
+        return <ClipboardList size={14} className="text-orange-400" />
+      case 'order_created':
+        return <ShoppingCart size={14} className="text-blue-400" />
+      case 'order_completed':
+        return <ShoppingCart size={14} className="text-green-400" />
+      case 'low_stock':
+        return <AlertTriangle size={14} className="text-yellow-400" />
+      case 'inventory_restocked':
+        return <RefreshCw size={14} className="text-green-400" />
+      case 'sale_recorded':
+        return <Package size={14} className="text-purple-400" />
+      case 'system':
+        return <Bell size={14} />
+      
       default:
         return '📢'
     }

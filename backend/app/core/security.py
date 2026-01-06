@@ -196,3 +196,141 @@ async def check_user_can_post(db: AsyncSession, user_id: int) -> bool:
         return False
     
     return True
+
+
+# === Rate Limiting Utilities (Phase 8.3) ===
+
+async def check_user_rate_limit(
+    request: Request,
+    db: AsyncSession,
+    user_data: dict,
+) -> dict:
+    """
+    Check user-based rate limit for authenticated routes.
+    Returns rate limit info or raises HTTPException if exceeded.
+    
+    Usage as dependency:
+        @router.get("/endpoint")
+        async def endpoint(
+            db: AsyncSession = Depends(get_db),
+            current_user: dict = Depends(get_current_user),
+            rate_info: dict = Depends(lambda r, db, u: check_user_rate_limit(r, db, u)),
+        ):
+            ...
+    """
+    from app.db.models import User
+    from app.core.rate_limiter import check_rate_limit, get_client_ip
+    from app.core.rate_limit_config import rate_limit_settings
+    
+    if not rate_limit_settings.ENABLED:
+        return {"limited": False}
+    
+    user_id = user_data["user_id"]
+    
+    # Get user to check if admin
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    is_admin = False
+    if user:
+        role_val = user.role.value if hasattr(user.role, 'value') else user.role
+        is_admin = user.is_system_admin or role_val == "system_admin"
+    
+    # Apply user-based rate limiting
+    rate_result = await check_rate_limit(
+        identifier=str(user_id),
+        identifier_type="user",
+        path=str(request.url.path),
+        is_admin=is_admin,
+    )
+    
+    if not rate_result.allowed:
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down.",
+            headers={
+                'Retry-After': str(rate_result.retry_after),
+                'X-RateLimit-Limit': str(rate_result.limit),
+                'X-RateLimit-Remaining': str(rate_result.remaining),
+                'X-RateLimit-Reset': str(rate_result.reset_after),
+            },
+        )
+    
+    return {
+        "limited": False,
+        "remaining": rate_result.remaining,
+        "limit": rate_result.limit,
+        "reset_after": rate_result.reset_after,
+    }
+
+
+def rate_limited_user():
+    """
+    Dependency factory for user-based rate limiting.
+    Apply to routes after authentication.
+    
+    Usage:
+        @router.post("/create")
+        async def create_item(
+            db: AsyncSession = Depends(get_db),
+            current_user: dict = Depends(get_current_user),
+            _rate: dict = Depends(rate_limited_user()),
+        ):
+            ...
+    """
+    async def dependency(
+        request: Request,
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+    ):
+        from app.core.rate_limiter import check_rate_limit, get_client_ip
+        from app.core.rate_limit_config import rate_limit_settings
+        
+        if not rate_limit_settings.ENABLED:
+            return {"limited": False}
+        
+        # Decode token to get user info
+        token = credentials.credentials
+        try:
+            payload = decode_token(token)
+            user_id = payload.get("sub")
+        except HTTPException:
+            # If token is invalid, fall back to IP-based
+            user_id = None
+        
+        if user_id:
+            # User-based rate limiting
+            rate_result = await check_rate_limit(
+                identifier=str(user_id),
+                identifier_type="user",
+                path=str(request.url.path),
+                is_admin=False,  # Will be checked in actual auth
+            )
+        else:
+            # IP-based fallback
+            client_ip = get_client_ip(request)
+            rate_result = await check_rate_limit(
+                identifier=client_ip,
+                identifier_type="ip",
+                path=str(request.url.path),
+                is_admin=False,
+            )
+        
+        if not rate_result.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please slow down.",
+                headers={
+                    'Retry-After': str(rate_result.retry_after),
+                    'X-RateLimit-Limit': str(rate_result.limit),
+                    'X-RateLimit-Remaining': str(rate_result.remaining),
+                    'X-RateLimit-Reset': str(rate_result.reset_after),
+                },
+            )
+        
+        return {
+            "remaining": rate_result.remaining,
+            "limit": rate_result.limit,
+        }
+    
+    return dependency

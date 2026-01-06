@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
-import { Smile, Download, MessageSquare, X, Pencil, Trash2 } from 'lucide-react'
+import { Smile, MessageSquare, X, Pencil, Trash2, Pin } from 'lucide-react'
 import type { Message, Reaction } from '../services/useWebSocket'
 import { useChatSocket } from '../contexts/ChatSocketContext'
 import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
+import { usePermissions } from '../hooks/usePermissions'
 import MarkdownContent from './MarkdownContent'
+import MessageAttachments from './MessageAttachments'
 import { notifyNewMessage, notifyMention } from '../utils/notifications'
+import { mergeMessagesById } from '../utils/mergeMessages'
 
 interface ChatPaneProps {
   channelId: string
@@ -19,6 +22,9 @@ export interface ChatPaneRef {
 interface ExtendedMessage extends Message {
   reply_count?: number
   is_edited?: boolean
+  deleted?: boolean
+  pinned?: boolean
+  attachments?: any[]
 }
 
 const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👏']
@@ -34,9 +40,11 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
   const [replyingTo, setReplyingTo] = useState<{ id: number; username: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
+  const { hasPermission, isSystemAdmin } = usePermissions()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
   const threadInputRef = useRef<HTMLInputElement>(null)
+  const currentChannelRef = useRef<string | undefined>(undefined)
   const user = useAuthStore((state) => state.user)
 
   const channelIdNum = parseInt(channelId) || 1
@@ -124,18 +132,40 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
         case 'message':
           handleMessage(data)
           break
+
+        case 'message:updated':
+          // Ensure update belongs to current channel and apply immutably
+          setMessages(prev => prev && prev.map(m => m.id === data.id ? { ...m, content: data.content, is_edited: Boolean(data.is_edited), edited_at: data.edited_at } : m))
+          break
+
+        case 'message:deleted':
+          setMessages(prev => prev && prev.map(m => m.id === data.id ? { ...m, deleted: true, content: 'This message was deleted', reactions: [] } : m))
+          break
+
+        case 'message:pinned':
+          setMessages(prev => prev && prev.map(m => m.id === data.id ? { ...m, pinned: true } : m))
+          break
+
+        case 'message:unpinned':
+          setMessages(prev => prev && prev.map(m => m.id === data.id ? { ...m, pinned: false } : m))
+          break
+
         case 'reaction_add':
           handleReaction(data.message_id, data.emoji, data.user_id, 'add')
           break
+
         case 'reaction_remove':
           handleReaction(data.message_id, data.emoji, data.user_id, 'remove')
           break
+
         case 'typing_start':
           // optionally handle typing UI
           break
+
         case 'typing_stop':
           // optionally handle typing UI
           break
+
         default:
           break
       }
@@ -167,8 +197,15 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
   useEffect(() => {
     const fetchMessages = async () => {
       setIsLoading(true)
-      // Clear messages immediately when channel changes
-      setMessages([])
+      
+      // Check if switching to a different channel
+      const isSameChannel = currentChannelRef.current === channelId
+      currentChannelRef.current = channelId
+      
+      // If switching to a different channel, clear messages first
+      if (!isSameChannel) {
+        setMessages([])
+      }
       
       try {
         const response = await api.get(`/api/messages/channel/${channelIdNum}`)
@@ -182,8 +219,10 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
           reactions: msg.reactions || [],
           reply_count: msg.reply_count || 0,
           is_edited: msg.is_edited || false,
+          attachments: msg.attachments || [],
         }))
-        setMessages(fetchedMessages)
+        // Merge with existing messages to preserve realtime-added attachments
+        setMessages(prev => mergeMessagesById(prev, fetchedMessages))
       } catch (error) {
         console.error('Failed to fetch messages:', error)
         // Show welcome message if no messages exist
@@ -351,13 +390,14 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     }
   }
 
-  // Delete message
+  // Delete message (soft-delete)
   const deleteMessage = async (messageId: number) => {
     if (!confirm('Are you sure you want to delete this message?')) return
     
     try {
       await api.delete(`/api/messages/${messageId}`)
-      setMessages((prev) => prev.filter((msg) => msg.id !== messageId))
+      // Soft-delete: mark deleted and replace content
+      setMessages((prev) => prev.map((msg) => msg.id === messageId ? { ...msg, deleted: true, content: 'This message was deleted', reactions: [] } : msg))
     } catch (error) {
       console.error('Failed to delete message:', error)
     }
@@ -416,15 +456,18 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
               {/* Message content - editable or static */}
               {editingMessage === msg.id ? (
                 <div className="mt-1">
-                  <input
-                    type="text"
+                  <textarea
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveEdit(msg.id)
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        saveEdit(msg.id)
+                      }
                       if (e.key === 'Escape') cancelEditing()
                     }}
                     className="w-full bg-[#40444b] text-[#dcddde] rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+                    rows={3}
                     autoFocus
                   />
                   <div className="flex gap-2 mt-1 text-xs">
@@ -443,29 +486,20 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
                   </div>
                 </div>
               ) : (
-                <MarkdownContent content={msg.content} className="break-words" />
+                msg.deleted ? (
+                  <div className="italic text-gray-400">This message was deleted</div>
+                ) : (
+                  <MarkdownContent content={msg.content} className="break-words" />
+                )
               )}
 
               {/* File attachments */}
-              {msg.files && msg.files.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {msg.files.map((file) => (
-                    <a
-                      key={file.id}
-                      href={file.download_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-[#00aff4] hover:underline text-sm"
-                    >
-                      <Download size={14} />
-                      {file.filename}
-                    </a>
-                  ))}
-                </div>
+              {!msg.deleted && msg.attachments && msg.attachments.length > 0 && (
+                <MessageAttachments attachments={msg.attachments as any} />
               )}
 
               {/* Reactions */}
-              {msg.reactions && msg.reactions.length > 0 && (
+              {!msg.deleted && msg.reactions && msg.reactions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {msg.reactions.map((reaction) => (
                     <button
@@ -513,8 +547,8 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
                 >
                   <MessageSquare size={16} />
                 </button>
-                {/* Edit button - only for own messages */}
-                {user && msg.user_id === user.id && (
+                {/* Edit button - for author or system admin */}
+                {user && (msg.user_id === user.id || isSystemAdmin) && (
                   <button
                     onClick={() => startEditing(msg)}
                     className="p-1 hover:bg-[#3f4147] rounded text-[#b9bbbe] hover:text-white"
@@ -523,14 +557,36 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
                     <Pencil size={16} />
                   </button>
                 )}
-                {/* Delete button - only for own messages */}
-                {user && msg.user_id === user.id && (
+                {/* Delete button - for author or system admin (soft-delete) */}
+                {user && (msg.user_id === user.id || isSystemAdmin) && (
                   <button
                     onClick={() => deleteMessage(msg.id)}
                     className="p-1 hover:bg-[#3f4147] rounded text-[#ed4245] hover:text-red-400"
                     title="Delete message"
                   >
                     <Trash2 size={16} />
+                  </button>
+                )}
+                {/* Pin/Unpin button - if user has pin permission */}
+                {hasPermission && hasPermission('message.pin') && !msg.deleted && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        if (msg.pinned) {
+                          setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, pinned: false } : m))
+                          await api.delete(`/api/messages/${msg.id}/pin`)
+                        } else {
+                          setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, pinned: true } : m))
+                          await api.post(`/api/messages/${msg.id}/pin`)
+                        }
+                      } catch (err) {
+                        console.error('Failed to toggle pin', err)
+                      }
+                    }}
+                    className="p-1 hover:bg-[#3f4147] rounded text-[#ffd166] hover:text-white"
+                    title={msg.pinned ? 'Unpin message' : 'Pin message'}
+                  >
+                    <Pin size={16} />
                   </button>
                 )}
               </div>

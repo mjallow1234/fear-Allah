@@ -10,14 +10,19 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',
     port: 5173,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:18002',
+        target: 'http://localhost:18002',
         changeOrigin: true,
       },
       '/ws': {
-        target: process.env.VITE_WS_URL || (process.env.VITE_API_URL ? process.env.VITE_API_URL.replace(/^http/, 'ws') : 'ws://localhost:18002'),
+        target: 'http://localhost:18002',
+        ws: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:18002',
         ws: true,
       },
     },

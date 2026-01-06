@@ -50,8 +50,15 @@ class Settings(BaseSettings):
     WS_ENABLED: bool = False
     AUTOMATIONS_ENABLED: bool = False
 
+    # Testing flag (set True during pytest runs)
+    TESTING: bool = False
+
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "info")
+
+    # Make.com Webhook Integration (Phase 6.5)
+    # If unset, webhook integration is disabled
+    MAKE_WEBHOOK_URL: str = os.getenv("MAKE_WEBHOOK_URL", "")
     
     class Config:
         env_file = ".env"

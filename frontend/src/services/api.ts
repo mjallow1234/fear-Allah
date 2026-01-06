@@ -1,12 +1,13 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
-const BASE_URL = (import.meta as any)?.env?.VITE_API_URL || ''
+// Use environment override when set (local dev with API proxy)
+// Fallback to current hostname on :8000 for LAN access
+const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
+
 const api = axios.create({
-  baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: API_BASE_URL,
+  withCredentials: true,
 })
 
 // Request interceptor to add auth token

@@ -1,8 +1,13 @@
 import os
+import sys
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+
+# Make sure backend package is importable when running pytest from repo root
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 # Use a shared in-memory SQLite database for tests so multiple connections see the same DB
 # Note the 'file::memory:?cache=shared' URI and uri=True in connect args below
 # Default DATABASE_URL (not used by tests that use the per-fixture engine)
@@ -19,6 +24,60 @@ TEST_DATABASE_URL = None
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture()
+async def user_token(test_session):
+    """Create a DB-backed user and return an Authorization header.
+
+    Tests can use this fixture to avoid calling the rate-limited /api/auth endpoints.
+    """
+    from app.db.models import User
+    from app.core.security import create_access_token, get_password_hash
+
+    # Create user directly in the DB to avoid hitting auth endpoints
+    user = User(
+        email="testuser@example.com",
+        username="testuser",
+        display_name="testuser",
+        hashed_password=get_password_hash("testpass123"),
+        is_active=True,
+    )
+    test_session.add(user)
+    await test_session.commit()
+    await test_session.refresh(user)
+
+    token = create_access_token({"sub": str(user.id), "username": user.username, "is_system_admin": user.is_system_admin})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def async_client_authenticated(client, test_session):
+    """Create a user and attach Authorization header to the provided test client.
+
+    Returns a tuple of (client, user_data) where client has default auth header set and
+    user_data contains user_id/token for convenience.
+    """
+    from app.db.models import User
+    from app.core.security import create_access_token, get_password_hash
+
+    user = User(
+        email="auto_user@example.com",
+        username="auto_user",
+        display_name="Auto User",
+        hashed_password=get_password_hash("autopass"),
+        is_active=True,
+    )
+    test_session.add(user)
+    await test_session.commit()
+    await test_session.refresh(user)
+
+    token = create_access_token({"sub": str(user.id), "username": user.username})
+
+    # Set default Authorization header on the client used by tests
+    client.headers.update({"Authorization": f"Bearer {token}"})
+
+    return client, {"user_id": user.id, "username": user.username, "token": token}
 
 
 @pytest.fixture(scope="session")
@@ -45,6 +104,14 @@ async def test_session(test_engine):
     )
     async with async_session() as session:
         yield session
+
+
+# Backwards compatible alias used across many tests
+@pytest.fixture
+async def db_session(test_session):
+    """Provide a database session fixture aliasing `test_session` for tests that
+    reference `db_session` directly."""
+    yield test_session
 
 
 @pytest.fixture
