@@ -16,6 +16,14 @@ from app.core.security import (
     Permission,
     get_password_hash
 )
+from app.services.audit import (
+    log_audit as audit_log_service,
+    log_audit_from_user,
+    get_audit_logs as get_audit_logs_service,
+    AuditActions,
+    AuditTargetTypes,
+)
+import json
 
 router = APIRouter()
 
@@ -67,6 +75,30 @@ class AdminStatsResponse(BaseModel):
     total_teams: int
 
 
+class AuditLogEntry(BaseModel):
+    id: int
+    user_id: Optional[int]
+    username: Optional[str]
+    action: str
+    target_type: Optional[str]
+    target_id: Optional[int]
+    description: Optional[str]
+    meta: Optional[dict]
+    ip_address: Optional[str]
+    request_id: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogResponse(BaseModel):
+    logs: List[AuditLogEntry]
+    total: int
+    skip: int
+    limit: int
+
+
 # === Admin Dashboard ===
 
 @router.get("/stats", response_model=AdminStatsResponse)
@@ -105,6 +137,116 @@ async def get_admin_stats(
         total_messages=total_messages or 0,
         total_teams=total_teams or 0
     )
+
+
+# === Audit Logs (Phase 8.2) ===
+
+@router.get("/audit", response_model=AuditLogResponse)
+async def list_audit_logs(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Max records to return"),
+    user_id: Optional[int] = Query(None, description="Filter by actor user ID"),
+    action: Optional[str] = Query(None, description="Filter by action (partial match)"),
+    target_type: Optional[str] = Query(None, description="Filter by target type"),
+    target_id: Optional[int] = Query(None, description="Filter by target ID"),
+    start_date: Optional[datetime] = Query(None, description="Start date (ISO format)"),
+    end_date: Optional[datetime] = Query(None, description="End date (ISO format)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get audit logs with optional filters.
+    Admin-only endpoint for reviewing system activity.
+    """
+    user = await require_admin(db, current_user)
+    
+    logs, total = await get_audit_logs_service(
+        db=db,
+        user_id=user_id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=skip,
+    )
+    
+    # Convert to response format
+    try:
+        log_entries = []
+        for log in logs:
+            meta_dict = None
+            if log.meta:
+                try:
+                    meta_dict = json.loads(log.meta)
+                except Exception:
+                    try:
+                        meta_dict = {"raw": str(log.meta)}
+                    except Exception:
+                        meta_dict = None
+
+            created_at = getattr(log, 'created_at', None) or datetime.utcnow()
+
+            log_entries.append(AuditLogEntry(
+                id=getattr(log, 'id', None) or 0,
+                user_id=getattr(log, 'user_id', None),
+                username=getattr(log, 'username', None),
+                action=getattr(log, 'action', '') or '',
+                target_type=getattr(log, 'target_type', None),
+                target_id=getattr(log, 'target_id', None),
+                description=getattr(log, 'description', None),
+                meta=meta_dict,
+                ip_address=getattr(log, 'ip_address', None),
+                request_id=getattr(log, 'request_id', None),
+                created_at=created_at,
+            ))
+        
+        return AuditLogResponse(
+            logs=log_entries,
+            total=total or 0,
+            skip=skip,
+            limit=limit,
+        )
+    except Exception as e:
+        api_logger.error("Failed to list audit logs", error=e)
+        return AuditLogResponse(logs=[], total=0, skip=skip, limit=limit)
+
+
+@router.get("/audit/actions")
+async def get_audit_action_types(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get list of unique action types for filter dropdown."""
+    await require_admin(db, current_user)
+    
+    result = await db.execute(
+        select(AuditLog.action)
+        .distinct()
+        .order_by(AuditLog.action)
+    )
+    actions = [row[0] for row in result.fetchall() if row[0]]
+    
+    return {"actions": actions}
+
+
+@router.get("/audit/target-types")
+async def get_audit_target_types(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get list of unique target types for filter dropdown."""
+    await require_admin(db, current_user)
+    
+    result = await db.execute(
+        select(AuditLog.target_type)
+        .distinct()
+        .order_by(AuditLog.target_type)
+    )
+    types = [row[0] for row in result.fetchall() if row[0]]
+    
+    return {"target_types": types}
 
 
 # === User Management ===
@@ -845,16 +987,24 @@ async def log_audit(
     details: Optional[dict],
     ip_address: Optional[str] = None
 ):
-    """Helper to create audit log entries"""
-    import json
+    """
+    Helper to create audit log entries.
+    Wrapper around the centralized audit service.
+    """
+    # Get username for denormalization
+    username = None
+    if user_id:
+        user = await db.get(User, user_id)
+        if user:
+            username = user.username
     
-    log = AuditLog(
-        user_id=user_id,
+    await audit_log_service(
+        db=db,
         action=action,
         target_type=target_type,
         target_id=target_id,
-        meta=json.dumps(details) if details else None,
-        ip_address=ip_address
+        meta=details,
+        user_id=user_id,
+        username=username,
+        ip_address=ip_address,
     )
-    db.add(log)
-    await db.commit()

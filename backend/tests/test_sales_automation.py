@@ -31,7 +31,7 @@ from app.services.inventory import (
 class TestSaleCreation:
     """Tests for sale creation and inventory decrement."""
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_record_sale_success(self, db_session: AsyncSession, test_user: User):
         """Test successful sale recording."""
         # Create inventory item
@@ -67,7 +67,7 @@ class TestSaleCreation:
         assert updated_inv.total_stock == 95
         assert updated_inv.total_sold == 5
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_record_sale_creates_transaction(self, db_session: AsyncSession, test_user: User):
         """Test that sale creates inventory transaction record."""
         # Create inventory item
@@ -99,7 +99,7 @@ class TestSaleCreation:
         assert transaction.reason == "sale"
         assert transaction.performed_by_id == test_user.id
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_record_sale_insufficient_stock(self, db_session: AsyncSession, test_user: User):
         """Test sale fails when insufficient stock."""
         await create_inventory_item(
@@ -118,7 +118,7 @@ class TestSaleCreation:
                 sold_by_user_id=test_user.id,
             )
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_record_sale_inventory_not_found(self, db_session: AsyncSession, test_user: User):
         """Test sale fails when inventory not found."""
         with pytest.raises(ValueError, match="Inventory record not found"):
@@ -130,7 +130,7 @@ class TestSaleCreation:
                 sold_by_user_id=test_user.id,
             )
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_record_sale_idempotency(self, db_session: AsyncSession, test_user: User):
         """Test idempotent sale recording."""
         await create_inventory_item(
@@ -170,7 +170,7 @@ class TestSaleCreation:
 class TestLowStockTrigger:
     """Tests for low stock automation trigger."""
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_low_stock_triggers_automation(self, db_session: AsyncSession, test_user: User):
         """Test that low stock triggers automation task creation."""
         # Create inventory with low threshold
@@ -205,7 +205,7 @@ class TestLowStockTrigger:
         # Note: This may be None in test if automation triggers are not fully wired
         # The test validates the flow works when enabled
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_no_trigger_above_threshold(self, db_session: AsyncSession, test_user: User):
         """Test that no automation triggers when stock stays above threshold."""
         await create_inventory_item(
@@ -234,7 +234,7 @@ class TestLowStockTrigger:
 class TestInventoryManagement:
     """Tests for inventory management operations."""
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_create_inventory_item(self, db_session: AsyncSession, test_user: User):
         """Test inventory item creation."""
         item = await create_inventory_item(
@@ -252,7 +252,7 @@ class TestInventoryManagement:
         assert item.total_stock == 50
         assert item.low_stock_threshold == 5
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_create_duplicate_product_fails(self, db_session: AsyncSession, test_user: User):
         """Test creating duplicate product_id fails."""
         await create_inventory_item(
@@ -268,7 +268,7 @@ class TestInventoryManagement:
                 created_by_id=test_user.id,
             )
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_restock_inventory(self, db_session: AsyncSession, test_user: User):
         """Test restocking inventory."""
         await create_inventory_item(
@@ -288,7 +288,7 @@ class TestInventoryManagement:
         
         assert item.total_stock == 35
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_adjust_inventory_positive(self, db_session: AsyncSession, test_user: User):
         """Test positive inventory adjustment (return)."""
         await create_inventory_item(
@@ -308,7 +308,7 @@ class TestInventoryManagement:
         
         assert item.total_stock == 25
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_adjust_inventory_negative(self, db_session: AsyncSession, test_user: User):
         """Test negative inventory adjustment (damage)."""
         await create_inventory_item(
@@ -328,7 +328,7 @@ class TestInventoryManagement:
         
         assert item.total_stock == 20
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_adjust_negative_below_zero_fails(self, db_session: AsyncSession, test_user: User):
         """Test adjustment that would go below zero fails."""
         await create_inventory_item(
@@ -346,7 +346,7 @@ class TestInventoryManagement:
                 performed_by_id=test_user.id,
             )
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_list_low_stock_items(self, db_session: AsyncSession, test_user: User):
         """Test listing low stock items only."""
         # Create items with different stock levels
@@ -367,7 +367,7 @@ class TestInventoryManagement:
 class TestSalesReporting:
     """Tests for sales reporting and agent performance."""
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_get_sales_summary(self, db_session: AsyncSession, test_user: User):
         """Test sales summary aggregation."""
         # Create inventory and sales
@@ -382,7 +382,7 @@ class TestSalesReporting:
         assert summary['total_quantity'] >= 8
         assert summary['total_amount'] >= 800
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_get_agent_performance(self, db_session: AsyncSession, test_user: User):
         """Test agent performance report."""
         await create_inventory_item(db_session, product_id=4002, initial_stock=100, created_by_id=test_user.id)
@@ -396,7 +396,7 @@ class TestSalesReporting:
         user_ids = [p['user_id'] for p in performance]
         assert test_user.id in user_ids
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_classify_sale_commission_eligible(self, db_session: AsyncSession, test_user: User):
         """Test commission classification for eligible sale."""
         await create_inventory_item(db_session, product_id=4003, initial_stock=100, created_by_id=test_user.id)
@@ -415,7 +415,7 @@ class TestSalesReporting:
         assert result['commission_eligible'] is True
         assert result['exclusion_reason'] is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_classify_sale_wrong_channel(self, db_session: AsyncSession, test_user: User):
         """Test commission classification for wrong channel."""
         await create_inventory_item(db_session, product_id=4004, initial_stock=100, created_by_id=test_user.id)
@@ -434,7 +434,7 @@ class TestSalesReporting:
         assert result['commission_eligible'] is False
         assert result['exclusion_reason'] == 'channel_not_eligible'
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_classify_sale_below_threshold(self, db_session: AsyncSession, test_user: User):
         """Test commission classification for amount below threshold."""
         await create_inventory_item(db_session, product_id=4005, initial_stock=100, created_by_id=test_user.id)

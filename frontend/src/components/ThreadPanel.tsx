@@ -25,6 +25,8 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
 
   // Fetch thread replies
   useEffect(() => {
+    if (!parentMessage?.id) return
+    
     setLoading(true)
     setError(null)
     api.get(`/api/messages/${parentMessage.id}/replies`)
@@ -62,6 +64,8 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
 
   // Subscribe to real-time thread replies
   useEffect(() => {
+    if (!parentMessage?.id) return
+    
     const currentUserId = currentUser?.id
     console.log('[ThreadPanel] Setting up thread:reply listener for parent:', parentMessage.id, 'currentUserId:', currentUserId)
     

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
+import { extractAxiosError } from '../utils/errorUtils'
 
 export default function Login() {
   const [identifier, setIdentifier] = useState('')
@@ -24,7 +25,7 @@ export default function Login() {
       login(response.data.access_token, response.data.user)
       navigate('/')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed')
+      setError(extractAxiosError(err, 'Login failed'))
     } finally {
       setIsLoading(false)
     }

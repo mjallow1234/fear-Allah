@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List
 
 from app.db.database import get_db
-from app.db.models import User, UserStatus
+from app.db.models import User, UserStatus, UserRole as UserRoleModel, Role, RolePermission
 from app.core.security import get_current_user
 
 router = APIRouter()
@@ -101,6 +102,70 @@ async def get_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     return user
+
+
+# Phase 8.6: Get current user's permissions
+@router.get("/me/permissions")
+async def get_current_user_permissions(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the current user's permissions based on their assigned roles.
+    System admins get all permissions.
+    """
+    user_id = current_user["user_id"]
+    
+    # Fetch user to check is_system_admin
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # System admins have all permissions
+    if user.is_system_admin:
+        return {
+            "is_system_admin": True,
+            "permissions": [
+                "system.manage_users",
+                "system.manage_roles", 
+                "system.view_audit",
+                "system.manage_settings",
+                "channel.create",
+                "channel.delete",
+                "channel.manage",
+                "message.delete_any",
+                "user.ban",
+                "user.mute",
+            ]
+        }
+    
+    # Get permissions from user's assigned roles
+    permissions = set()
+    
+    # Query user's roles with their permissions
+    result = await db.execute(
+        select(UserRoleModel)
+        .options(
+            selectinload(UserRoleModel.role)
+            .selectinload(Role.permissions)
+            .selectinload(RolePermission.permission)
+        )
+        .where(UserRoleModel.user_id == user_id)
+    )
+    user_roles = result.scalars().all()
+    
+    for user_role in user_roles:
+        if user_role.role and user_role.role.permissions:
+            for rp in user_role.role.permissions:
+                if rp.permission and rp.permission.key:
+                    permissions.add(rp.permission.key)
+    
+    return {
+        "is_system_admin": False,
+        "permissions": sorted(list(permissions))
+    }
 
 
 @router.get("/by-username/{username}", response_model=UserResponse)

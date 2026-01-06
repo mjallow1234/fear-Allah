@@ -2,12 +2,13 @@
 Automation Engine Service Layer (Phase 6.1)
 Core business logic for task-based workflow automation.
 Phase 6.4 - Integrated notification hooks.
+Phase 6.5 - Make.com webhook integration.
 """
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,6 +20,13 @@ from app.db.enums import (
     TaskEventType
 )
 from app.core.config import logger
+from app.automation.payloads import (
+    build_task_created_payload,
+    build_task_completed_payload,
+    build_automation_triggered_payload,
+    build_automation_failed_payload,
+)
+from app.integrations.make_webhook import emit_make_webhook
 
 
 class AutomationService:
@@ -67,13 +75,15 @@ class AutomationService:
         await db.flush()  # Get the ID
         
         # Log the creation event
-        await AutomationService._log_event(
-            db=db,
+        # Persist creation event directly to avoid relying on runtime mutation of class attributes
+        event = TaskEvent(
             task_id=task.id,
             user_id=created_by_id,
             event_type=TaskEventType.created,
-            metadata={"title": title, "task_type": task_type.value}
+            event_metadata=json.dumps({"title": title, "task_type": task_type.value}),
         )
+        db.add(event)
+        await db.flush()
         
         await db.commit()
         
@@ -86,6 +96,26 @@ class AutomationService:
         task = result.scalar_one()
         
         logger.info(f"[Automation] Task {task.id} created: {title} (type={task_type.value})")
+        
+        # Emit Make.com webhook for task.created event
+        try:
+            # Get creator username for payload
+            creator_username = None
+            if created_by_id:
+                user_result = await db.execute(select(User).where(User.id == created_by_id))
+                creator = user_result.scalar_one_or_none()
+                creator_username = creator.username if creator else None
+            
+            payload = build_task_created_payload(
+                task_id=task.id,
+                title=title,
+                related_order_id=related_order_id,
+                actor_user_id=created_by_id,
+                actor_username=creator_username,
+            )
+            await emit_make_webhook(payload)
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to emit task.created webhook: {e}")
         
         return task
     
@@ -154,7 +184,7 @@ class AutomationService:
         
         # Log status change
         event_type = TaskEventType.closed if new_status == AutomationTaskStatus.completed else TaskEventType.cancelled
-        await AutomationService._log_event(
+        await AutomationService._safe_log_event(
             db=db,
             task_id=task_id,
             user_id=user_id,
@@ -225,25 +255,20 @@ class AutomationService:
             task.status = AutomationTaskStatus.in_progress
         
         # Log the assignment
-        await AutomationService._log_event(
-            db=db,
+        # Persist assignment event directly to avoid runtime attr dependency
+        evt = TaskEvent(
             task_id=task_id,
             user_id=assigned_by_id,
             event_type=TaskEventType.assigned,
-            metadata={"assigned_user_id": user_id, "role_hint": role_hint}
+            event_metadata=json.dumps({"assigned_user_id": user_id, "role_hint": role_hint}),
         )
+        db.add(evt)
+        await db.flush()
         
         await db.commit()
         await db.refresh(assignment)
         
         logger.info(f"[Automation] User {user_id} assigned to task {task_id} (role={role_hint})")
-        
-        # Phase 6.4: Send notification to assignee
-        try:
-            from app.automation.notification_hooks import on_task_assigned
-            await on_task_assigned(db, task, user_id, assigned_by_id)
-        except Exception as e:
-            logger.error(f"[Automation] Failed to send assignment notification: {e}")
         
         return assignment
     
@@ -257,6 +282,7 @@ class AutomationService:
             select(TaskAssignment).where(TaskAssignment.id == assignment_id)
         )
         return result.scalar_one_or_none()
+
     
     @staticmethod
     async def get_user_assignments(
@@ -274,66 +300,258 @@ class AutomationService:
         
         result = await db.execute(query)
         return list(result.scalars().all())
-    
+
     @staticmethod
     async def complete_assignment(
         db: AsyncSession,
         task_id: int,
         user_id: int,
         notes: Optional[str] = None,
+        assignment_id: Optional[int] = None,
     ) -> Optional[TaskAssignment]:
         """
         Mark an assignment as complete.
         
+        Validates that the corresponding workflow task (based on role_hint) is active
+        before allowing completion. This enforces strict task ordering.
+        
         Args:
             db: Database session
-            task_id: ID of the task
+            task_id: ID of the automation task
             user_id: ID of the user completing their assignment
             notes: Optional completion notes
             
         Returns:
             The updated TaskAssignment or None if not found
         """
-        # Find the assignment
-        result = await db.execute(
-            select(TaskAssignment).where(
-                TaskAssignment.task_id == task_id,
-                TaskAssignment.user_id == user_id
+        # Find the assignment (prefer explicit assignment_id when provided)
+        if assignment_id is not None:
+            result = await db.execute(
+                select(TaskAssignment).where(TaskAssignment.id == assignment_id)
             )
-        )
+        else:
+            result = await db.execute(
+                select(TaskAssignment).where(
+                    TaskAssignment.task_id == task_id,
+                    TaskAssignment.user_id == user_id
+                )
+            )
+
         assignment = result.scalar_one_or_none()
-        
+
         if not assignment:
-            logger.warning(f"[Automation] Assignment not found: task={task_id}, user={user_id}")
-            return None
+            logger.warning(f"[Automation] Assignment not found: task={task_id}, user={user_id}, assignment_id={assignment_id}")
+            raise ValueError("Assignment not found")
         
         if assignment.status == AssignmentStatus.done:
             logger.warning(f"[Automation] Assignment already completed: task={task_id}, user={user_id}")
             return assignment
+
+        # --- Enforce workflow task ordering and auto-advance workflow ---
+        # Check if the automation task is linked to an order and validate workflow task status
+        from app.db.models import Task, AutomationTask
+        from app.db.enums import TaskStatus
+        from app.services.task_engine import complete_task as engine_complete_task
         
-        # Update assignment
-        assignment.status = AssignmentStatus.done
-        assignment.completed_at = datetime.utcnow()
-        if notes:
-            assignment.notes = notes
+        automation_task_result = await db.execute(
+            select(AutomationTask).where(AutomationTask.id == task_id)
+        )
+        automation_task = automation_task_result.scalar_one_or_none()
         
-        # Log the completion
-        await AutomationService._log_event(
-            db=db,
+        workflow_task_to_complete = None
+        has_more_steps = False  # Track if user has more workflow steps after current one
+        
+        if automation_task and automation_task.related_order_id:
+            # Map role_hint to workflow step_key(s)
+            # Each role is responsible for specific workflow steps
+            role_to_steps = {
+                "foreman": ["assemble_items", "foreman_handover"],  # Foreman: assembles, then hands over to delivery
+                "delivery": ["delivery_received", "deliver_items", "accept_delivery"],  # Delivery: confirms receipt, then delivers
+                "requester": ["confirm_received"],  # Requester confirms final receipt
+            }
+            
+            role_hint = assignment.role_hint
+            allowed_steps = role_to_steps.get(role_hint, [])
+            
+            if allowed_steps:
+                # Find the ACTIVE workflow task that matches this role's responsibilities
+                step_result = await db.execute(
+                    select(Task).where(
+                        Task.order_id == automation_task.related_order_id,
+                        Task.step_key.in_(allowed_steps)
+                    ).order_by(Task.id)
+                )
+                role_tasks = step_result.scalars().all()
+                
+                # Find active task for this role
+                active_task_for_role = None
+                for t in role_tasks:
+                    if t.status == TaskStatus.active or t.status == TaskStatus.active.value:
+                        active_task_for_role = t
+                        break
+                
+                if not active_task_for_role:
+                    # Check what the current active task is for better error message
+                    active_result = await db.execute(
+                        select(Task).where(Task.order_id == automation_task.related_order_id)
+                    )
+                    all_tasks = active_result.scalars().all()
+                    current_active = None
+                    for t in all_tasks:
+                        if t.status == TaskStatus.active or t.status == TaskStatus.active.value:
+                            current_active = t
+                            break
+                    
+                    current_step = current_active.title if current_active else "No active step"
+                    current_key = current_active.step_key if current_active else "none"
+                    
+                    # Give helpful error message
+                    if role_hint == "foreman":
+                        raise PermissionError(f"Cannot complete yet - 'Assemble Items' is not the active step. Current: '{current_step}'")
+                    elif role_hint == "delivery":
+                        raise PermissionError(f"Cannot complete yet - no delivery step is active. Current: '{current_step}'. Wait for foreman to complete assembly.")
+                    else:
+                        raise PermissionError(f"Cannot complete yet - your step is not active. Current: '{current_step}'")
+                
+                # Store the workflow task to complete after assignment is marked done
+                workflow_task_to_complete = active_task_for_role
+                logger.info(f"[Automation] Will complete workflow task: {workflow_task_to_complete.step_key} (id={workflow_task_to_complete.id})")
+                
+                # Check if there are more pending workflow steps for this role after the current one
+                # Count how many of this role's steps are NOT yet done
+                pending_role_steps = sum(
+                    1 for t in role_tasks 
+                    if t.status != TaskStatus.done and t.status != TaskStatus.done.value
+                )
+                # After we complete the current step, there will be (pending_role_steps - 1) remaining
+                has_more_steps = (pending_role_steps > 1)
+
+        # -------------------------------------------------------------------------
+        # Cross-role acknowledgment logic:
+        # - Foreman's assignment marked DONE when delivery acknowledges receipt (delivery_received)
+        # - Delivery's assignment marked DONE when agent acknowledges receipt (confirm_received)
+        # -------------------------------------------------------------------------
+        now = datetime.utcnow()
+        
+        # Determine what acknowledgment step this is and if we should mark another role's assignment DONE
+        acknowledges_role = None  # Which role's assignment gets marked DONE by this step
+        if workflow_task_to_complete:
+            step_key = workflow_task_to_complete.step_key
+            # Delivery acknowledging receipt from foreman -> marks foreman DONE
+            if step_key == "delivery_received":
+                acknowledges_role = "foreman"
+            # Agent/requester acknowledging final receipt -> marks delivery DONE
+            elif step_key == "confirm_received":
+                acknowledges_role = "delivery"
+        
+        # Mark the acknowledged role's assignment as DONE
+        if acknowledges_role and automation_task:
+            # Find the assignment for the acknowledged role
+            ack_result = await db.execute(
+                select(TaskAssignment).where(
+                    TaskAssignment.task_id == task_id,
+                    TaskAssignment.role_hint == acknowledges_role
+                )
+            )
+            ack_assignment = ack_result.scalar_one_or_none()
+            if ack_assignment and ack_assignment.status != AssignmentStatus.done:
+                await db.execute(
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == ack_assignment.id)
+                    .values(status=AssignmentStatus.done, completed_at=now)
+                )
+                logger.info(f"[Automation] Cross-role acknowledgment: {role_hint} acknowledged receipt, marking {acknowledges_role}'s assignment as DONE")
+        
+        # For the current user's assignment:
+        # - Don't mark as DONE until the NEXT role acknowledges receipt
+        # - Keep as IN_PROGRESS while completing steps
+        # Only mark DONE if:
+        #   1. This is the final step in the workflow (requester's confirm_received)
+        #   2. Or no workflow info available (fallback)
+        should_mark_done = False
+        
+        if workflow_task_to_complete:
+            step_key = workflow_task_to_complete.step_key
+            # Only the final acknowledgment step marks its own assignment DONE immediately
+            if step_key == "confirm_received":
+                should_mark_done = True
+        elif not automation_task or not automation_task.related_order_id:
+            # No workflow - fallback to old behavior
+            should_mark_done = True
+        
+        if should_mark_done:
+            # Mark assignment as DONE
+            upd = (
+                update(TaskAssignment)
+                .where(TaskAssignment.id == assignment.id)
+                .where(TaskAssignment.user_id == user_id)
+                .where(TaskAssignment.status != AssignmentStatus.done)
+                .values(status=AssignmentStatus.done, completed_at=now)
+            )
+        else:
+            # Keep assignment as IN_PROGRESS (waiting for next role to acknowledge)
+            upd = (
+                update(TaskAssignment)
+                .where(TaskAssignment.id == assignment.id)
+                .where(TaskAssignment.user_id == user_id)
+                .values(status=AssignmentStatus.in_progress)
+            )
+        
+        res = await db.execute(upd)
+        if res.rowcount == 0:
+            # Could be concurrent modification or permission issue
+            logger.warning(f"[Automation] Failed to update assignment row: task={task_id}, assignment={assignment.id}")
+            raise RuntimeError("Failed to complete assignment")
+
+        # Log the completion event
+        evt = TaskEvent(
             task_id=task_id,
             user_id=user_id,
             event_type=TaskEventType.step_completed,
-            metadata={"assignment_id": assignment.id, "notes": notes}
+            event_metadata=json.dumps({"assignment_id": assignment.id, "notes": notes}),
         )
+        db.add(evt)
+        await db.flush()
         
+        # --- Complete the corresponding workflow task to advance the order ---
+        if workflow_task_to_complete:
+            try:
+                logger.info(f"[Automation] Advancing workflow: completing task {workflow_task_to_complete.id} ({workflow_task_to_complete.step_key})")
+                await engine_complete_task(db, workflow_task_to_complete.id, user_id)
+                logger.info(f"[Automation] Workflow advanced: {workflow_task_to_complete.step_key} completed")
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to advance workflow task: {e}")
+                # Don't fail the assignment completion if workflow fails
+                # The assignment is still marked done
+
         await db.commit()
+        # Refresh the assignment object
         await db.refresh(assignment)
-        
-        logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}")
-        
-        # Check if all assignments are done
-        await AutomationService.close_task_if_all_done(db, task_id)
-        
+
+        logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}, assignment_id={assignment.id}")
+
+        # Emit Make.com webhook for task.completed event
+        try:
+            # Get user info for payload
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            completing_user = user_result.scalar_one_or_none()
+            username = completing_user.username if completing_user else "unknown"
+            
+            payload = build_task_completed_payload(
+                task_id=task_id,
+                completed_by_user_id=user_id,
+                completed_by_username=username,
+                completed_at=now,
+            )
+            await emit_make_webhook(payload)
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to emit task.completed webhook: {e}")
+
+        # Check if all assignments are done and optionally close task
+        closed = await AutomationService.close_task_if_all_done(db, task_id)
+        if closed:
+            logger.info(f"[Automation] Task {task_id} closed after all assignments completed")
+
         return assignment
     
     @staticmethod
@@ -368,13 +586,15 @@ class AutomationService:
         if pending_count == 0:
             task.status = AutomationTaskStatus.completed
             
-            await AutomationService._log_event(
-                db=db,
+            # Persist closed event directly to avoid runtime attr dependency
+            evt = TaskEvent(
                 task_id=task_id,
-                user_id=None,  # System action
+                user_id=None,
                 event_type=TaskEventType.closed,
-                metadata={"reason": "all_assignments_completed"}
+                event_metadata=json.dumps({"reason": "all_assignments_completed"}),
             )
+            db.add(evt)
+            await db.flush()
             
             await db.commit()
             
@@ -404,6 +624,33 @@ class AutomationService:
         """
         Log a task event for audit purposes.
         """
+        event = TaskEvent(
+            task_id=task_id,
+            user_id=user_id,
+            event_type=event_type,
+            event_metadata=json.dumps(metadata) if metadata else None,
+        )
+        db.add(event)
+        await db.flush()
+        return event
+
+    @staticmethod
+    async def _safe_log_event(
+        db: AsyncSession,
+        task_id: int,
+        user_id: Optional[int],
+        event_type: TaskEventType,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> TaskEvent:
+        """
+        Ensures a TaskEvent is logged even if the underlying _log_event attribute is missing
+        due to import ordering or other runtime mutation.
+        """
+        fn = getattr(AutomationService, '_log_event', None)
+        if fn:
+            return await fn(db=db, task_id=task_id, user_id=user_id, event_type=event_type, metadata=metadata)
+
+        # Fallback - create the TaskEvent directly
         event = TaskEvent(
             task_id=task_id,
             user_id=user_id,
@@ -469,3 +716,62 @@ class AutomationService:
             )
         )
         return result.scalar_one_or_none() is not None
+
+
+async def trigger_event(db: AsyncSession, event_type: str, context: dict, dry_run: bool = False) -> None:
+    """Trigger a named automation event for testing or external triggers.
+
+    When dry_run=True this helper will NOT mutate the database and will only log the event.
+    When dry_run=False it will create a simple automation task for testing the event trigger.
+    
+    Also emits Make.com webhook for automation.triggered event.
+    """
+    title = f"Test event: {event_type}"
+    metadata = {"event_type": event_type, "context": context}
+
+    if dry_run:
+        # Do not persist anything during a dry-run; just log the event
+        logger.info(f"[Automation] Dry-run trigger event '{event_type}' (no DB changes)")
+        return
+
+    # Create a simple automation task for testing the event trigger
+    task = None
+    try:
+        task = await AutomationService.create_task(
+            db=db,
+            task_type=AutomationTaskType.custom,
+            title=title,
+            created_by_id=context.get('user_id') or 0,
+            description=f"Trigger event {event_type}",
+            metadata=metadata
+        )
+        logger.info(f"[Automation] Trigger event '{event_type}' executed")
+        
+        # Emit Make.com webhook for automation.triggered event
+        try:
+            payload = build_automation_triggered_payload(
+                automation_task_id=task.id,
+                rule=f"trigger_{event_type}",
+                trigger_event=event_type,
+                status="executed",
+            )
+            await emit_make_webhook(payload)
+        except Exception as we:
+            logger.warning(f"[Automation] Failed to emit automation.triggered webhook: {we}")
+            
+    except Exception as e:
+        logger.warning(f"[Automation] Failed to trigger event {event_type}: {e}")
+        
+        # Emit automation.failed webhook
+        try:
+            payload = build_automation_failed_payload(
+                entity_type="automation_event",
+                entity_id=0,
+                reason="trigger_failed",
+                message=str(e),
+                recoverable=True,
+            )
+            await emit_make_webhook(payload)
+        except Exception as we:
+            logger.warning(f"[Automation] Failed to emit automation.failed webhook: {we}")
+        return

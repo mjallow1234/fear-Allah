@@ -13,11 +13,13 @@ let orderSubscribed = false
 interface OrderCreatedEvent {
   order_id: number
   status: string
+  order_type?: string
 }
 
 interface OrderUpdatedEvent {
   order_id: number
   status: string
+  order_type?: string
 }
 
 interface OrderCompletedEvent {

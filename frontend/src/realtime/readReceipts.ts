@@ -52,8 +52,14 @@ export function subscribeToReadReceipts(): () => void {
 /**
  * Fetch initial read receipts for a channel.
  * Call when entering a channel.
+ * @param channelType - Optional channel type. If 'direct', skip the fetch (DMs don't support read receipts).
  */
-export async function fetchChannelReads(channelId: number): Promise<void> {
+export async function fetchChannelReads(channelId: number, channelType?: string): Promise<void> {
+  // Skip read receipts for DM channels (not supported)
+  if (channelType === 'direct') {
+    return;
+  }
+
   try {
     const response = await api.get(`/api/channels/${channelId}/reads`);
     const reads = response.data as Array<{ user_id: number; last_read_message_id: number | null }>;
@@ -67,19 +73,36 @@ export async function fetchChannelReads(channelId: number): Promise<void> {
 /**
  * Mark a channel as read up to a specific message.
  * Debounced to avoid spam on scroll.
+ * @param lastMessageId - Optional message ID. If not provided or invalid, skip the API call.
+ * @param channelType - Optional channel type. If 'direct', skip the API call (DMs don't support read receipts).
  */
-export function markChannelRead(channelId: number, lastReadMessageId: number): void {
+export function markChannelRead(channelId: number, lastMessageId?: number, channelType?: string): void {
+  // Skip read receipts for DM channels (not supported)
+  if (channelType === 'direct') {
+    return;
+  }
+
+  // Skip if no valid message ID provided
+  if (!lastMessageId || typeof lastMessageId !== 'number' || lastMessageId <= 0) {
+    return;
+  }
+
+  // Skip if no valid channel ID
+  if (!channelId || typeof channelId !== 'number' || channelId <= 0) {
+    return;
+  }
+
   // Skip if we're already pending the same or higher message
   if (
     pendingMarkRead &&
     pendingMarkRead.channelId === channelId &&
-    pendingMarkRead.messageId >= lastReadMessageId
+    pendingMarkRead.messageId >= lastMessageId
   ) {
     return;
   }
   
   // Update pending
-  pendingMarkRead = { channelId, messageId: lastReadMessageId };
+  pendingMarkRead = { channelId, messageId: lastMessageId };
   
   // Clear existing timer
   if (markReadDebounceTimer) {

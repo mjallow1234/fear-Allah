@@ -91,44 +91,43 @@ async def create_inventory_item(
     Raises:
         ValueError: If product_id already exists
     """
-    # Check if already exists
-    existing = await get_inventory_item(session, product_id)
-    if existing:
-        raise ValueError(f"Inventory item for product {product_id} already exists")
-    
-    inventory = Inventory(
-        product_id=product_id,
-        product_name=product_name,
-        total_stock=initial_stock,
-        total_sold=0,
-        low_stock_threshold=low_stock_threshold,
-    )
-    session.add(inventory)
-    await session.flush()  # Get ID
-    
-    # Record initial stock as transaction if > 0
-    if initial_stock > 0:
-        transaction = InventoryTransaction(
-            inventory_item_id=inventory.id,
-            change=initial_stock,
-            reason="initial",
-            performed_by_id=created_by_id,
-            notes="Initial inventory setup",
+    try:
+        # Check if already exists
+        existing = await get_inventory_item(session, product_id)
+        if existing:
+            raise ValueError(f"Inventory item for product {product_id} already exists")
+        
+        inventory = Inventory(
+            product_id=product_id,
+            product_name=product_name,
+            total_stock=initial_stock or 0,
+            total_sold=0,
+            low_stock_threshold=low_stock_threshold or 10,
         )
-        session.add(transaction)
-    
-    await session.commit()
-    
-    await emit_event('inventory.created', {
-        'inventory_id': inventory.id,
-        'product_id': product_id,
-        'product_name': product_name,
-        'initial_stock': initial_stock,
-    })
-    
-    logger.info(f"[Inventory] Created item: product_id={product_id}, stock={initial_stock}")
-    
-    return inventory
+        session.add(inventory)
+        await session.flush()  # Get ID
+        
+        # Record initial stock as transaction if > 0
+        if initial_stock and initial_stock > 0:
+            transaction = InventoryTransaction(
+                inventory_item_id=inventory.id,
+                change=initial_stock,
+                reason="initial",
+                performed_by_id=created_by_id,
+                notes="Initial inventory setup",
+            )
+            session.add(transaction)
+        
+        await session.commit()
+        
+        logger.info(f"[Inventory] Created item: product_id={product_id}, stock={initial_stock}")
+        
+        return inventory
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.error(f"[Inventory] Error creating item: {e}")
+        raise
 
 
 async def restock_inventory(

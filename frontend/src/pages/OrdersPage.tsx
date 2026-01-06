@@ -6,7 +6,7 @@
  * Note: Backend doesn't have order list API yet, so orders come from
  * notifications, tasks, and realtime events.
  */
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   ArrowLeft, 
@@ -21,14 +21,22 @@ import {
   CheckCircle,
   XCircle,
   PlayCircle,
-  PauseCircle
+  PauseCircle,
+  Plus
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useOrderStore, OrderWithDetails, OrderStatus, OrderType } from '../stores/orderStore'
+import { useOrderStore, OrderWithDetails } from '../stores/orderStore'
 import { subscribeToOrders } from '../realtime/orders'
+import RecentAutomationEvents from '../components/RecentAutomationEvents'
+import OrderForm from '../components/forms/OrderForm'
+import DynamicFormModal from '../components/forms/DynamicFormModal'
+
+// Helper to normalize to uppercase for config lookup
+const normalizeType = (type: string): string => type?.toUpperCase() || 'AGENT_RESTOCK'
+const normalizeStatus = (status: string): string => status?.toUpperCase() || 'SUBMITTED'
 
 // Order type icons and colors
-const orderTypeConfig: Record<OrderType, { icon: typeof Package; color: string; label: string }> = {
+const orderTypeConfig: Record<string, { icon: typeof Package; color: string; label: string }> = {
   'AGENT_RESTOCK': { icon: Warehouse, color: 'bg-blue-600', label: 'Agent Restock' },
   'AGENT_RETAIL': { icon: ShoppingCart, color: 'bg-green-600', label: 'Agent Retail' },
   'STORE_KEEPER_RESTOCK': { icon: Warehouse, color: 'bg-purple-600', label: 'Store Restock' },
@@ -36,7 +44,7 @@ const orderTypeConfig: Record<OrderType, { icon: typeof Package; color: string; 
 }
 
 // Status badge config
-const statusConfig: Record<OrderStatus, { color: string; bgColor: string; icon: typeof CheckCircle; label: string }> = {
+const statusConfig: Record<string, { color: string; bgColor: string; icon: typeof CheckCircle; label: string }> = {
   'DRAFT': { color: 'text-gray-400', bgColor: 'bg-gray-400/10', icon: PauseCircle, label: 'Draft' },
   'SUBMITTED': { color: 'text-yellow-400', bgColor: 'bg-yellow-400/10', icon: Clock, label: 'Submitted' },
   'IN_PROGRESS': { color: 'text-blue-400', bgColor: 'bg-blue-400/10', icon: PlayCircle, label: 'In Progress' },
@@ -46,8 +54,8 @@ const statusConfig: Record<OrderStatus, { color: string; bgColor: string; icon: 
 }
 
 function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () => void }) {
-  const typeConfig = orderTypeConfig[order.order_type] || orderTypeConfig['AGENT_RESTOCK']
-  const status = statusConfig[order.status] || statusConfig['SUBMITTED']
+  const typeConfig = orderTypeConfig[normalizeType(order.order_type)] || orderTypeConfig['AGENT_RESTOCK']
+  const status = statusConfig[normalizeStatus(order.status)] || statusConfig['SUBMITTED']
   const TypeIcon = typeConfig.icon
   const StatusIcon = status.icon
   
@@ -134,6 +142,9 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
 
 export default function OrdersPage() {
   const navigate = useNavigate()
+  const [showOrderForm, setShowOrderForm] = useState(false)
+  // Use dynamic forms when available (toggle _setUseDynamicForms to false for legacy forms)
+  const [useDynamicForms, _setUseDynamicForms] = useState(true)
   const {
     orders,
     loading,
@@ -183,19 +194,28 @@ export default function OrdersPage() {
               </p>
             </div>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className={clsx(
-              'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-              loading
-                ? 'bg-[#1f2023] text-[#72767d] cursor-not-allowed'
-                : 'bg-[#5865f2] hover:bg-[#4752c4] text-white'
-            )}
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowOrderForm(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors"
+            >
+              <Plus size={16} />
+              New Order
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className={clsx(
+                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
+                loading
+                  ? 'bg-[#1f2023] text-[#72767d] cursor-not-allowed'
+                  : 'bg-[#5865f2] hover:bg-[#4752c4] text-white'
+              )}
+            >
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
       
@@ -217,6 +237,11 @@ export default function OrdersPage() {
       
       {/* Order List */}
       <div className="max-w-4xl mx-auto py-6 px-6">
+        {/* Recent Automation Events Panel */}
+        <div className="mb-6">
+          <RecentAutomationEvents />
+        </div>
+        
         {loading ? (
           <div className="py-12 text-center">
             <Loader2 className="animate-spin mx-auto mb-4 text-[#5865f2]" size={32} />
@@ -270,6 +295,37 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
+      
+      {/* Order Form Modal - Use dynamic form if available */}
+      {useDynamicForms ? (
+        <DynamicFormModal
+          isOpen={showOrderForm}
+          onClose={() => setShowOrderForm(false)}
+          formSlug="orders"
+          title="Create Order"
+          onSuccess={() => {
+            fetchOrders()
+          }}
+          fallbackComponent={
+            <OrderForm
+              isOpen={true}
+              onClose={() => setShowOrderForm(false)}
+              onSuccess={() => {
+                fetchOrders()
+                setShowOrderForm(false)
+              }}
+            />
+          }
+        />
+      ) : (
+        <OrderForm
+          isOpen={showOrderForm}
+          onClose={() => setShowOrderForm(false)}
+          onSuccess={() => {
+            fetchOrders()
+          }}
+        />
+      )}
     </div>
   )
 }

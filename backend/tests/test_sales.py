@@ -69,8 +69,8 @@ async def test_concurrent_double_sale(test_engine, monkeypatch):
         t1 = l1.json()['access_token']
         t2 = l2.json()['access_token']
 
-        fut1 = c1.post('/api/sales/', json={'product_id': 2, 'quantity': 3, 'unit_price': 5.0, 'sale_channel': 'STORE'}, headers={'Authorization': f'Bearer {t1}'})
-        fut2 = c2.post('/api/sales/', json={'product_id': 2, 'quantity': 3, 'unit_price': 5.0, 'sale_channel': 'STORE'}, headers={'Authorization': f'Bearer {t2}'})
+        fut1 = c1.post('/api/sales/', json={'product_id': 2, 'quantity': 3, 'unit_price': 5.0, 'sale_channel': 'AGENT'}, headers={'Authorization': f'Bearer {t1}'})
+        fut2 = c2.post('/api/sales/', json={'product_id': 2, 'quantity': 3, 'unit_price': 5.0, 'sale_channel': 'AGENT'}, headers={'Authorization': f'Bearer {t2}'})
         r1, r2 = await __import__('asyncio').gather(fut1, fut2)
 
         statuses = sorted([r1.status_code, r2.status_code])
@@ -128,7 +128,7 @@ async def test_sale_linked_to_completed_order(client: AsyncClient, test_session)
     await test_session.commit()
 
     # sale linked to completed order should succeed
-    resp = await client.post('/api/sales/', json={'product_id': 10, 'quantity': 1, 'unit_price': 10.0, 'sale_channel': 'STORE', 'related_order_id': order.id}, headers={'Authorization': f'Bearer {token}'})
+    resp = await client.post('/api/sales/', json={'product_id': 10, 'quantity': 1, 'unit_price': 10.0, 'sale_channel': 'AGENT', 'related_order_id': order.id}, headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code in (200, 201)
 
 
@@ -149,5 +149,5 @@ async def test_sale_linked_to_non_completed_order_conflict(client: AsyncClient, 
     await test_session.commit()
 
     # sale linked to non-completed order should return 409
-    resp = await client.post('/api/sales/', json={'product_id': 11, 'quantity': 1, 'unit_price': 10.0, 'sale_channel': 'STORE', 'related_order_id': order.id}, headers={'Authorization': f'Bearer {token}'})
+    resp = await client.post('/api/sales/', json={'product_id': 11, 'quantity': 1, 'unit_price': 10.0, 'sale_channel': 'AGENT', 'related_order_id': order.id}, headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 409

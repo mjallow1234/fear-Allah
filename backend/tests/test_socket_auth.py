@@ -68,15 +68,15 @@ class TestDecodeTokenSync:
 class TestAuthenticateSocket:
     """Tests for socket authentication."""
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reject_no_token(self):
         """Should reject connection without token."""
         is_auth, user_data = await authenticate_socket(auth=None, environ=None)
-        
+
         assert is_auth is False
         assert user_data is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reject_empty_auth(self):
         """Should reject connection with empty auth object."""
         is_auth, user_data = await authenticate_socket(auth={}, environ={})
@@ -84,7 +84,7 @@ class TestAuthenticateSocket:
         assert is_auth is False
         assert user_data is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reject_invalid_token(self):
         """Should reject connection with invalid token."""
         is_auth, user_data = await authenticate_socket(
@@ -95,7 +95,7 @@ class TestAuthenticateSocket:
         assert is_auth is False
         assert user_data is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reject_expired_token(self):
         """Should reject connection with expired token."""
         token = create_expired_token(user_id=123)
@@ -108,7 +108,7 @@ class TestAuthenticateSocket:
         assert is_auth is False
         assert user_data is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_accept_valid_token_from_auth(self):
         """Should accept connection with valid token from auth object."""
         # Create a mock user
@@ -125,14 +125,19 @@ class TestAuthenticateSocket:
         # Mock the database session with proper async context manager
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_user
-        
+
+        # Prepare a mock for team query which should return a first() row like (team_id,)
+        mock_team_result = MagicMock()
+        mock_team_result.first.return_value = (1,)
+
         mock_db = AsyncMock()
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        
+        # First call to execute() returns user result, second returns team result
+        mock_db.execute = AsyncMock(side_effect=[mock_result, mock_team_result])
+
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__.return_value = mock_db
         mock_session_cm.__aexit__.return_value = None
-        
+
         with patch("app.realtime.auth.async_session", return_value=mock_session_cm):
             is_auth, user_data = await authenticate_socket(
                 auth={"token": token},
@@ -145,7 +150,7 @@ class TestAuthenticateSocket:
         assert user_data["username"] == "testuser"
         assert user_data["team_id"] == 1
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_accept_valid_token_from_header(self):
         """Should accept connection with valid token from Authorization header."""
         mock_user = MagicMock()
@@ -179,7 +184,7 @@ class TestAuthenticateSocket:
         assert user_data["user_id"] == 456
         assert user_data["username"] == "headeruser"
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reject_user_not_found(self):
         """Should reject if user not found in database."""
         token = create_test_token(user_id=999)
@@ -203,7 +208,7 @@ class TestAuthenticateSocket:
         assert is_auth is False
         assert user_data is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reject_inactive_user(self):
         """Should reject if user is inactive."""
         mock_user = MagicMock()
@@ -232,7 +237,7 @@ class TestAuthenticateSocket:
         assert is_auth is False
         assert user_data is None
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_auth_token_takes_precedence_over_header(self):
         """Auth token should take precedence over header token."""
         mock_user = MagicMock()

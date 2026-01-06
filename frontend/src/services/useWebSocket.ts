@@ -41,6 +41,15 @@ export interface Reaction {
   users: number[]
 }
 
+export interface Attachment {
+  id: number
+  filename: string
+  file_size?: number
+  mime_type?: string
+  url: string
+  created_at?: string
+}
+
 export interface Message {
   id: number
   content: string
@@ -49,6 +58,7 @@ export interface Message {
   channel_id: number
   timestamp: string
   reactions: Reaction[]
+  attachments?: Attachment[]
   files?: Array<{
     id: number
     filename: string

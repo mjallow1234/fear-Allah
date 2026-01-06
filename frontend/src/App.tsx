@@ -13,6 +13,11 @@ import NotificationsPage from './pages/NotificationsPage'
 import TaskInboxPage from './pages/TaskInboxPage'
 import OrdersPage from './pages/OrdersPage'
 import OrderDetailsPage from './pages/OrderDetailsPage'
+import SalesPage from './pages/SalesPage'
+import AdminAuditPage from './pages/AdminAuditPage'
+import SystemConsolePage from './pages/SystemConsolePage'
+import AdminFormBuilderPage from './pages/AdminFormBuilderPage'
+import AIInsightsPage from './pages/AIInsightsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -59,6 +64,16 @@ function App() {
         <Route path="tasks" element={<TaskInboxPage />} />
         <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:id" element={<OrderDetailsPage />} />
+        <Route path="sales" element={<SalesPage />} />
+        <Route path="system/audit" element={<AdminAuditPage />} />
+        <Route path="system/*" element={<SystemConsolePage />} />
+        {/* Admin Form Builder routes */}
+        <Route path="admin/forms" element={<AdminFormBuilderPage />} />
+        <Route path="admin/forms/:formId" element={<AdminFormBuilderPage />} />
+        {/* AI Insights (Admin only) */}
+        <Route path="admin/ai" element={<AIInsightsPage />} />
+        {/* Legacy route redirect */}
+        <Route path="admin/audit" element={<Navigate to="/system/audit" replace />} />
       </Route>
       <Route path="*" element={<h1 style={{ padding: 40 }}>404 — Page not found</h1>} />
     </Routes>

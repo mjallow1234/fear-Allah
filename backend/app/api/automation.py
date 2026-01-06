@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
+from app.core.logging import automation_logger
 from app.db.database import get_db
 from app.db.models import User
 from app.db.enums import AutomationTaskType, AutomationTaskStatus
@@ -50,15 +51,37 @@ async def create_task(
     """
     user_id = current_user["user_id"]
     
-    task = await AutomationService.create_task(
-        db=db,
+    automation_logger.info(
+        "Creating automation task",
+        user_id=user_id,
         task_type=payload.task_type,
         title=payload.title,
-        created_by_id=user_id,
-        description=payload.description,
-        related_order_id=payload.related_order_id,
-        metadata=payload.metadata,
     )
+    
+    try:
+        task = await AutomationService.create_task(
+            db=db,
+            task_type=payload.task_type,
+            title=payload.title,
+            created_by_id=user_id,
+            description=payload.description,
+            related_order_id=payload.related_order_id,
+            metadata=payload.metadata,
+        )
+        automation_logger.info(
+            "Automation task created",
+            task_id=task.id,
+            task_type=payload.task_type,
+            user_id=user_id,
+        )
+    except Exception as e:
+        automation_logger.error(
+            "Automation task creation failed",
+            error=e,
+            user_id=user_id,
+            task_type=payload.task_type,
+        )
+        raise
     
     return _task_to_response(task)
 
@@ -142,13 +165,124 @@ async def get_task_events(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # Only creator or system admin can see events
-    if task.created_by_id != user_id and not user.is_system_admin:
+    # Creator, assignees, or system admin can see events
+    is_assignee = await AutomationService.is_assigned_to_task(db, task_id, user_id)
+    can_view = (
+        task.created_by_id == user_id or
+        is_assignee or
+        user.is_system_admin
+    )
+    
+    if not can_view:
         raise HTTPException(status_code=403, detail="Access denied")
     
     events = await AutomationService.get_task_events(db, task_id)
     
     return [_event_to_response(e) for e in events]
+
+
+@router.get("/tasks/{task_id}/workflow-step")
+async def get_active_workflow_step(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get the current active workflow step for an automation task.
+    
+    Returns the active step details including the action label for the UI button.
+    Also returns which role each step is assigned to.
+    """
+    from app.db.models import Task, AutomationTask, TaskAssignment
+    from app.db.enums import TaskStatus
+    from app.services.task_engine import WORKFLOWS
+    
+    user_id = current_user["user_id"]
+    
+    # Get the automation task
+    result = await db.execute(
+        select(AutomationTask).where(AutomationTask.id == task_id)
+    )
+    automation_task = result.scalar_one_or_none()
+    
+    if not automation_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    if not automation_task.related_order_id:
+        return {"active_step": None, "all_steps": [], "my_steps": []}
+    
+    # Get order to determine workflow type
+    from app.db.models import Order
+    order_result = await db.execute(
+        select(Order).where(Order.id == automation_task.related_order_id)
+    )
+    order = order_result.scalar_one_or_none()
+    
+    if not order:
+        return {"active_step": None, "all_steps": [], "my_steps": []}
+    
+    # Get user's assignment to determine their role
+    assignment_result = await db.execute(
+        select(TaskAssignment).where(
+            TaskAssignment.task_id == task_id,
+            TaskAssignment.user_id == user_id
+        )
+    )
+    user_assignment = assignment_result.scalar_one_or_none()
+    user_role = user_assignment.role_hint if user_assignment else None
+    
+    # Get workflow definition
+    workflow_def = WORKFLOWS.get(order.order_type, [])
+    
+    # Get all workflow tasks for this order
+    tasks_result = await db.execute(
+        select(Task).where(Task.order_id == automation_task.related_order_id).order_by(Task.id)
+    )
+    workflow_tasks = tasks_result.scalars().all()
+    
+    # Build step info list
+    steps = []
+    my_steps = []
+    active_step = None
+    
+    for task in workflow_tasks:
+        # Find matching workflow definition for action_label and assigned_to
+        step_def = next((s for s in workflow_def if s["step_key"] == task.step_key), None)
+        action_label = step_def.get("action_label", "Complete") if step_def else "Complete"
+        assigned_to = step_def.get("assigned_to", "unknown") if step_def else "unknown"
+        
+        is_active = task.status == TaskStatus.active or task.status == TaskStatus.active.value
+        is_done = task.status == TaskStatus.done or task.status == TaskStatus.done.value
+        
+        step_info = {
+            "id": task.id,
+            "step_key": task.step_key,
+            "title": task.title,
+            "action_label": action_label,
+            "assigned_to": assigned_to,
+            "status": task.status.value if hasattr(task.status, 'value') else task.status,
+            "is_active": is_active,
+            "is_done": is_done,
+        }
+        steps.append(step_info)
+        
+        # Check if this step belongs to the current user's role
+        if user_role and assigned_to == user_role:
+            my_steps.append(step_info)
+        # Special case: requester role matches the automation task creator (order requester)
+        elif assigned_to == "requester" and automation_task.created_by_id == user_id:
+            my_steps.append(step_info)
+        
+        if is_active:
+            active_step = step_info
+    
+    return {
+        "active_step": active_step,
+        "all_steps": steps,
+        "my_steps": my_steps,
+        "my_role": user_role,
+        "order_type": order.order_type,
+    }
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=TaskResponse)
@@ -225,15 +359,23 @@ async def complete_my_assignment(
     Mark your own assignment as complete.
     
     Only the assigned user can complete their assignment.
+    Validates that the corresponding workflow task is active before allowing completion.
     """
     user_id = current_user["user_id"]
     
-    assignment = await AutomationService.complete_assignment(
-        db=db,
-        task_id=task_id,
-        user_id=user_id,
-        notes=payload.notes,
-    )
+    try:
+        assignment = await AutomationService.complete_assignment(
+            db=db,
+            task_id=task_id,
+            user_id=user_id,
+            notes=payload.notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found or you are not assigned to this task")

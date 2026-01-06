@@ -253,33 +253,37 @@ async def list_dm_channels(
     # For each channel, find the other user
     dm_list = []
     for channel in dm_channels:
-        # Get the other member
-        other_member_query = (
-            select(ChannelMember)
-            .options()
-            .where(
-                ChannelMember.channel_id == channel.id,
-                ChannelMember.user_id != my_user_id
+        try:
+            # Get the other member (use .first() to handle duplicates gracefully)
+            other_member_query = (
+                select(ChannelMember)
+                .where(
+                    ChannelMember.channel_id == channel.id,
+                    ChannelMember.user_id != my_user_id
+                )
+                .limit(1)
             )
-        )
-        other_result = await db.execute(other_member_query)
-        other_member = other_result.scalar_one_or_none()
-        
-        if other_member:
-            # Get the other user's info
-            user_query = select(User).where(User.id == other_member.user_id)
-            user_result = await db.execute(user_query)
-            other_user = user_result.scalar_one_or_none()
+            other_result = await db.execute(other_member_query)
+            other_member = other_result.scalar_one_or_none()
             
-            if other_user:
-                dm_list.append({
-                    "id": channel.id,
-                    "name": channel.name,
-                    "display_name": other_user.display_name or other_user.username,
-                    "type": channel.type,
-                    "other_user_id": other_user.id,
-                    "other_username": other_user.username,
-                })
+            if other_member:
+                # Get the other user's info
+                user_query = select(User).where(User.id == other_member.user_id)
+                user_result = await db.execute(user_query)
+                other_user = user_result.scalar_one_or_none()
+                
+                if other_user:
+                    dm_list.append({
+                        "id": channel.id,
+                        "name": channel.name,
+                        "display_name": other_user.display_name or other_user.username,
+                        "type": channel.type,
+                        "other_user_id": other_user.id,
+                        "other_username": other_user.username,
+                    })
+        except Exception:
+            # Skip channels that can't be processed
+            continue
     
     return dm_list
 
@@ -530,7 +534,7 @@ async def get_channel_messages_v34(
     # Fetch messages in descending order (newest first) with limit+1 to determine has_more
     base_q = (
         select(Message)
-        .options(selectinload(Message.author), selectinload(Message.reactions))
+        .options(selectinload(Message.author), selectinload(Message.reactions), selectinload(Message.attachments))
         .where(Message.channel_id == channel_id, Message.is_deleted == False, Message.parent_id.is_(None))
     )
 

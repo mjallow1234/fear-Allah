@@ -129,7 +129,7 @@ class TestReadReceiptLogic:
 class TestSocketEmit:
     """Tests for Socket.IO emit functionality."""
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_emit_receipt_update_fires_once(self):
         """Socket emit should fire exactly once for a valid update."""
         from app.realtime.socket import emit_receipt_update
@@ -154,7 +154,7 @@ class TestSocketEmit:
             assert call_args[0][1]["user_id"] == 12
             assert call_args[0][1]["last_read_message_id"] == 123
     
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_emit_to_correct_room(self):
         """Socket emit should target the correct channel room."""
         from app.realtime.socket import emit_receipt_update

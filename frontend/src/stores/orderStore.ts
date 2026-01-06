@@ -8,9 +8,23 @@
 import { create } from 'zustand'
 import api from '../services/api'
 
-// Enums matching backend
-export type OrderType = 'AGENT_RESTOCK' | 'AGENT_RETAIL' | 'STORE_KEEPER_RESTOCK' | 'CUSTOMER_WHOLESALE'
-export type OrderStatus = 'DRAFT' | 'SUBMITTED' | 'IN_PROGRESS' | 'AWAITING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED'
+// Enums matching backend (accept both cases for compatibility)
+export type OrderType = 'AGENT_RESTOCK' | 'AGENT_RETAIL' | 'STORE_KEEPER_RESTOCK' | 'CUSTOMER_WHOLESALE' |
+                        'agent_restock' | 'agent_retail' | 'store_keeper_restock' | 'customer_wholesale'
+export type OrderStatus = 'DRAFT' | 'SUBMITTED' | 'IN_PROGRESS' | 'AWAITING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' |
+                          'draft' | 'submitted' | 'in_progress' | 'awaiting_confirmation' | 'completed' | 'cancelled'
+
+// Normalize status to uppercase for display consistency
+export function normalizeStatus(status: string | undefined | null): OrderStatus {
+  if (!status) return 'SUBMITTED'
+  return status.toUpperCase() as OrderStatus
+}
+
+// Normalize order type to uppercase for display consistency
+export function normalizeOrderType(type: string | undefined | null): OrderType {
+  if (!type) return 'AGENT_RESTOCK'
+  return type.toUpperCase() as OrderType
+}
 
 export interface Order {
   id: number
@@ -59,8 +73,8 @@ interface OrderState {
   fetchOrderAutomation: (orderId: number) => Promise<void>
   
   // Socket event handlers
-  handleOrderCreated: (data: { order_id: number; status: string }) => void
-  handleOrderUpdated: (data: { order_id: number; status: string }) => void
+  handleOrderCreated: (data: { order_id: number; status: string; order_type?: string }) => void
+  handleOrderUpdated: (data: { order_id: number; status: string; order_type?: string }) => void
   handleOrderCompleted: (data: { order_id: number }) => void
   
   // UI helpers
@@ -173,8 +187,8 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     // Add to orders list if we have more info
     const newOrder: OrderWithDetails = {
       id: data.order_id,
-      order_type: 'AGENT_RESTOCK', // Unknown
-      status: (data.status as OrderStatus) || 'SUBMITTED',
+      order_type: normalizeOrderType(data.order_type),
+      status: normalizeStatus(data.status),
       items: null,
       meta: null,
       created_at: new Date().toISOString(),
@@ -187,14 +201,15 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   
   handleOrderUpdated: (data) => {
     console.log('[OrderStore] Order updated event:', data)
+    const normalizedStatus = normalizeStatus(data.status)
     set((state) => ({
       orders: state.orders.map(o => 
         o.id === data.order_id 
-          ? { ...o, status: (data.status as OrderStatus) || o.status, updated_at: new Date().toISOString() }
+          ? { ...o, status: normalizedStatus, updated_at: new Date().toISOString() }
           : o
       ),
       selectedOrder: state.selectedOrder?.id === data.order_id
-        ? { ...state.selectedOrder, status: (data.status as OrderStatus) || state.selectedOrder.status }
+        ? { ...state.selectedOrder, status: normalizedStatus }
         : state.selectedOrder,
     }))
   },

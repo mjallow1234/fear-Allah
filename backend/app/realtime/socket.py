@@ -28,6 +28,8 @@ from app.realtime.typing import typing_manager
 
 logger = logging.getLogger(__name__)
 
+from app.core.config import settings
+
 # Initialize Socket.IO server
 # async_mode="asgi" for FastAPI/Starlette compatibility
 # cors_allowed_origins=[] - Let FastAPI's CORS middleware handle CORS to avoid duplicate headers
@@ -37,6 +39,9 @@ sio = socketio.AsyncServer(
     logger=False,
     engineio_logger=False,
 )
+
+# When running tests we avoid starting or emitting via real sockets.
+# Emission helpers will early-return when `settings.TESTING`.
 
 # Create ASGI app wrapper
 socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
@@ -327,6 +332,8 @@ async def emit_message_new(channel_id: int, message_data: dict):
     Emit a new message event to a channel room.
     Called from message creation endpoint.
     """
+    if settings.TESTING:
+        return
     room_name = f"channel:{channel_id}"
     await sio.emit("message:new", message_data, room=room_name)
     logger.debug(f"Emitted message:new to {room_name}")
@@ -336,6 +343,8 @@ async def emit_thread_reply(channel_id: int, parent_id: int, reply_data: dict):
     """
     Emit a thread reply event.
     """
+    if settings.TESTING:
+        return
     room_name = f"channel:{channel_id}"
     payload = {
         "parent_id": parent_id,
@@ -343,6 +352,39 @@ async def emit_thread_reply(channel_id: int, parent_id: int, reply_data: dict):
     }
     await sio.emit("thread:reply", payload, room=room_name)
     logger.debug(f"Emitted thread:reply to {room_name}")
+
+
+async def emit_message_updated(channel_id: int, message_data: dict):
+    """Emit message updated event to a channel room."""
+    if settings.TESTING:
+        return
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:updated", message_data, room=room_name)
+    logger.debug(f"Emitted message:updated to {room_name}")
+
+
+async def emit_message_deleted(channel_id: int, message_id: int):
+    if settings.TESTING:
+        return
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:deleted", {"message_id": message_id}, room=room_name)
+    logger.debug(f"Emitted message:deleted to {room_name}")
+
+
+async def emit_message_pinned(channel_id: int, message_id: int):
+    if settings.TESTING:
+        return
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:pinned", {"message_id": message_id}, room=room_name)
+    logger.debug(f"Emitted message:pinned to {room_name}")
+
+
+async def emit_message_unpinned(channel_id: int, message_id: int):
+    if settings.TESTING:
+        return
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:unpinned", {"message_id": message_id}, room=room_name)
+    logger.debug(f"Emitted message:unpinned to {room_name}")
 
 
 async def emit_notification(user_id: int, notification_data: dict):
@@ -404,6 +446,49 @@ async def emit_receipt_update(channel_id: int, user_id: int, last_read_message_i
     logger.debug(f"Emitted receipt:update to {room_name} for user {user_id}")
 
 
+async def emit_attachment_added(channel_id: int, attachment_data: dict):
+    """
+    Phase 9.1: Emit attachment added event to channel.
+    """
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:attachment_added", attachment_data, room=room_name)
+    logger.debug(f"Emitted message:attachment_added to {room_name}")
+
+
+async def emit_attachment_removed(channel_id: int, attachment_id: int, message_id: int = None):
+    """
+    Phase 9.1: Emit attachment removed event to channel.
+    """
+    room_name = f"channel:{channel_id}"
+    payload = {
+        "attachment_id": attachment_id,
+        "message_id": message_id,
+        "channel_id": channel_id,
+    }
+    await sio.emit("message:attachment_removed", payload, room=room_name)
+    logger.debug(f"Emitted message:attachment_removed to {room_name}")
+
+
+async def emit_reaction_added(channel_id: int, reaction_data: dict):
+    """
+    Phase 9.3: Emit reaction added event to channel.
+    Payload: {message_id, emoji, user_id, username}
+    """
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:reaction_added", reaction_data, room=room_name)
+    logger.debug(f"Emitted message:reaction_added to {room_name}")
+
+
+async def emit_reaction_removed(channel_id: int, reaction_data: dict):
+    """
+    Phase 9.3: Emit reaction removed event to channel.
+    Payload: {message_id, emoji, user_id, username}
+    """
+    room_name = f"channel:{channel_id}"
+    await sio.emit("message:reaction_removed", reaction_data, room=room_name)
+    logger.debug(f"Emitted message:reaction_removed to {room_name}")
+
+
 def get_connected_users() -> Dict[str, dict]:
     """
     Get all currently connected users.
@@ -418,3 +503,60 @@ def get_user_count() -> int:
     """
     unique_users = set(u["user_id"] for u in authenticated_users.values())
     return len(unique_users)
+
+
+# ============================================================================
+# Order Events (Phase 7)
+# ============================================================================
+
+async def emit_order_updated(order_id: int, status: str, order_type: str = None):
+    """
+    Emit order:updated event to all connected clients.
+    Called when order status changes.
+    """
+    if settings.TESTING:
+        return
+    
+    payload = {
+        "order_id": order_id,
+        "status": status,
+        "order_type": order_type,
+    }
+    
+    # Broadcast to all connected users (orders are visible based on role)
+    await sio.emit("order:updated", payload)
+    logger.info(f"Emitted order:updated for order {order_id}, status={status}")
+
+
+async def emit_order_created(order_id: int, status: str, order_type: str = None):
+    """
+    Emit order:created event to all connected clients.
+    """
+    if settings.TESTING:
+        return
+    
+    payload = {
+        "order_id": order_id,
+        "status": status,
+        "order_type": order_type,
+    }
+    
+    await sio.emit("order:created", payload)
+    logger.info(f"Emitted order:created for order {order_id}")
+
+
+async def emit_task_completed(task_id: int, step_key: str, order_id: int = None):
+    """
+    Emit task:completed event to all connected clients.
+    """
+    if settings.TESTING:
+        return
+    
+    payload = {
+        "task_id": task_id,
+        "step_key": step_key,
+        "order_id": order_id,
+    }
+    
+    await sio.emit("task:completed", payload)
+    logger.info(f"Emitted task:completed for task {task_id}, step={step_key}")

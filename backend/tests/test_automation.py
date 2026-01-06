@@ -10,9 +10,6 @@ from app.main import app
 from app.db.enums import AutomationTaskType, AutomationTaskStatus, AssignmentStatus
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
 
 
 @pytest.mark.anyio
@@ -27,7 +24,7 @@ async def test_automation_task_lifecycle(
     create_resp = await client.post(
         "/api/automation/tasks",
         json={
-            "task_type": "restock",
+            "task_type": "RESTOCK",
             "title": "Test Restock Task",
             "description": "Test task for automation engine",
         },
@@ -37,8 +34,8 @@ async def test_automation_task_lifecycle(
     task_id = task_data["id"]
     
     assert task_data["title"] == "Test Restock Task"
-    assert task_data["task_type"] == "restock"
-    assert task_data["status"] == "pending"
+    assert task_data["task_type"] == "RESTOCK"
+    assert task_data["status"] == "PENDING"
     assert task_data["created_by_id"] == user_id
     
     # 2. Get the task
@@ -58,11 +55,11 @@ async def test_automation_task_lifecycle(
     assignment = assign_resp.json()
     assert assignment["user_id"] == user_id
     assert assignment["role_hint"] == "tester"
-    assert assignment["status"] == "pending"
+    assert assignment["status"] == "PENDING"
     
     # 4. Verify task is now in_progress
     get_resp2 = await client.get(f"/api/automation/tasks/{task_id}")
-    assert get_resp2.json()["status"] == "in_progress"
+    assert get_resp2.json()["status"] == "IN_PROGRESS"
     
     # 5. Complete the assignment
     complete_resp = await client.post(
@@ -71,12 +68,12 @@ async def test_automation_task_lifecycle(
     )
     assert complete_resp.status_code == 200, f"Complete failed: {complete_resp.text}"
     completed_assignment = complete_resp.json()
-    assert completed_assignment["status"] == "done"
+    assert completed_assignment["status"] == "DONE"
     assert completed_assignment["notes"] == "Task completed successfully"
-    
+
     # 6. Verify task auto-closed
     get_resp3 = await client.get(f"/api/automation/tasks/{task_id}")
-    assert get_resp3.json()["status"] == "completed"
+    assert get_resp3.json()["status"] == "COMPLETED"
     
     # 7. Get events (audit trail)
     events_resp = await client.get(f"/api/automation/tasks/{task_id}/events")
@@ -85,10 +82,10 @@ async def test_automation_task_lifecycle(
     assert len(events) >= 4  # created, assigned, step_completed, closed
     
     event_types = [e["event_type"] for e in events]
-    assert "created" in event_types
-    assert "assigned" in event_types
-    assert "step_completed" in event_types
-    assert "closed" in event_types
+    assert "CREATED" in event_types
+    assert "ASSIGNED" in event_types
+    assert "STEP_COMPLETED" in event_types
+    assert "CLOSED" in event_types
 
 
 @pytest.mark.anyio
@@ -103,7 +100,7 @@ async def test_list_my_assignments(
     create_resp = await client.post(
         "/api/automation/tasks",
         json={
-            "task_type": "retail",
+            "task_type": "RETAIL",
             "title": "My Assignment Test",
         },
     )
@@ -138,7 +135,7 @@ async def test_cancel_task(
     create_resp = await client.post(
         "/api/automation/tasks",
         json={
-            "task_type": "generic",
+            "task_type": "CUSTOM",
             "title": "Task to Cancel",
         },
     )
@@ -148,7 +145,7 @@ async def test_cancel_task(
     # Cancel it
     cancel_resp = await client.post(f"/api/automation/tasks/{task_id}/cancel")
     assert cancel_resp.status_code == 200
-    assert cancel_resp.json()["status"] == "cancelled"
+    assert cancel_resp.json()["status"] == "CANCELLED"
 
 
 @pytest.mark.anyio
@@ -162,7 +159,7 @@ async def test_cannot_complete_unassigned_task(
     create_resp = await client.post(
         "/api/automation/tasks",
         json={
-            "task_type": "generic",
+            "task_type": "CUSTOM",
             "title": "Unassigned Task",
         },
     )

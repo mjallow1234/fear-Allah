@@ -14,7 +14,7 @@ async def get_unread_count(db: AsyncSession, channel_id: int, user_id: int) -> i
     if not member:
         return 0
 
-    q = select(func.count(Message.id)).where(Message.channel_id == channel_id)
+    q = select(func.count(Message.id)).where(Message.channel_id == channel_id, Message.is_deleted == False)
     if member.last_read_at:
         q = q.where(Message.created_at > member.last_read_at)
 

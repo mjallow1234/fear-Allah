@@ -26,11 +26,15 @@ import {
   FileText
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useOrderStore, OrderStatus, OrderType } from '../stores/orderStore'
+import { useOrderStore } from '../stores/orderStore'
 import { subscribeToOrders } from '../realtime/orders'
 
+// Helper to normalize to uppercase for config lookup
+const normalizeType = (type: string): string => type?.toUpperCase() || 'AGENT_RESTOCK'
+const normalizeStatus = (status: string): string => status?.toUpperCase() || 'SUBMITTED'
+
 // Order type icons and colors
-const orderTypeConfig: Record<OrderType, { icon: typeof Package; color: string; label: string }> = {
+const orderTypeConfig: Record<string, { icon: typeof Package; color: string; label: string }> = {
   'AGENT_RESTOCK': { icon: Warehouse, color: 'bg-blue-600', label: 'Agent Restock' },
   'AGENT_RETAIL': { icon: ShoppingCart, color: 'bg-green-600', label: 'Agent Retail' },
   'STORE_KEEPER_RESTOCK': { icon: Warehouse, color: 'bg-purple-600', label: 'Store Restock' },
@@ -38,7 +42,7 @@ const orderTypeConfig: Record<OrderType, { icon: typeof Package; color: string; 
 }
 
 // Status badge config
-const statusConfig: Record<OrderStatus, { color: string; bgColor: string; icon: typeof CheckCircle; label: string }> = {
+const statusConfig: Record<string, { color: string; bgColor: string; icon: typeof CheckCircle; label: string }> = {
   'DRAFT': { color: 'text-gray-400', bgColor: 'bg-gray-400/10', icon: PauseCircle, label: 'Draft' },
   'SUBMITTED': { color: 'text-yellow-400', bgColor: 'bg-yellow-400/10', icon: Clock, label: 'Submitted' },
   'IN_PROGRESS': { color: 'text-blue-400', bgColor: 'bg-blue-400/10', icon: PlayCircle, label: 'In Progress' },
@@ -80,8 +84,8 @@ export default function OrderDetailsPage() {
   }
   
   const order = selectedOrder
-  const typeConfig = order ? (orderTypeConfig[order.order_type] || orderTypeConfig['AGENT_RESTOCK']) : null
-  const status = order ? (statusConfig[order.status] || statusConfig['SUBMITTED']) : null
+  const typeConfig = order ? (orderTypeConfig[normalizeType(order.order_type)] || orderTypeConfig['AGENT_RESTOCK']) : null
+  const status = order ? (statusConfig[normalizeStatus(order.status)] || statusConfig['SUBMITTED']) : null
   const TypeIcon = typeConfig?.icon || Package
   const StatusIcon = status?.icon || Clock
 

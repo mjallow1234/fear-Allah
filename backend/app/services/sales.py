@@ -1,9 +1,22 @@
 """
-Sales Service Layer (Phase 6.3)
-Handles sale recording, inventory updates, and automation triggers.
+Sales Service Layer (Phase 6.3 - Transactional)
+
+Core Principles:
+- Sales are immutable transactions (no edits, only reversals)
+- Inventory uses ledger pattern (InventoryTransaction with deltas)
+- Atomic commits: Sale + Ledger in one transaction with explicit rollback
+- Side effects (notifications) happen AFTER commit, failures don't break sale
+- Defense in depth: role checks at both API and service layer
+
+Error Handling:
+- ProductNotFoundError (404)
+- InsufficientStockError (409)
+- ValidationError (400)
+- PermissionDeniedError (403)
 """
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple, Set
 import os
 import logging
 
@@ -24,6 +37,207 @@ SALES_AUTOMATION_ENABLED = os.environ.get("SALES_AUTOMATION_ENABLED", "true").lo
 DEFAULT_LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "10"))
 
 
+# ============================================================================
+# Custom Exceptions (maps to HTTP codes)
+# ============================================================================
+
+class SalesError(Exception):
+    """Base class for sales errors."""
+    http_code: int = 500
+    
+class ValidationError(SalesError):
+    """Invalid input (400)."""
+    http_code = 400
+
+class ProductNotFoundError(SalesError):
+    """Product not found in inventory (404)."""
+    http_code = 404
+
+class InsufficientStockError(SalesError):
+    """Not enough stock to fulfill sale (409)."""
+    http_code = 409
+
+class PermissionDeniedError(SalesError):
+    """User not allowed to record sales (403)."""
+    http_code = 403
+
+
+# ============================================================================
+# Role Constants (defense in depth - per stabilization spec)
+# ============================================================================
+
+# Roles that are NEVER allowed to record sales
+BLOCKED_ROLES: Set[str] = {'delivery', 'customer', 'foreman', 'member'}
+
+# Roles allowed to record sales (only these 3)
+ALLOWED_ROLES: Set[str] = {'admin', 'system_admin', 'team_admin', 'storekeeper', 'agent'}
+
+
+# ============================================================================
+# Data Transfer Objects
+# ============================================================================
+
+@dataclass
+class SaleInput:
+    """Validated sale input."""
+    product_id: int
+    product_name: str
+    quantity: int
+    unit_price: float
+    channel: str
+    customer_name: Optional[str] = None
+    related_order_id: Optional[int] = None
+    idempotency_key: Optional[str] = None
+
+
+@dataclass
+class SaleResult:
+    """Result of a successful sale."""
+    sale_id: int
+    product_name: str
+    quantity: int
+    unit_price: float
+    total_amount: float
+    channel: str
+    stock_before: int
+    stock_after: int
+    customer_name: Optional[str] = None
+
+
+# ============================================================================
+# Input Normalization & Validation
+# ============================================================================
+
+async def resolve_product_by_id(
+    session: AsyncSession, 
+    product_id: int
+) -> Tuple[int, str, Inventory]:
+    """
+    Resolve product by ID ONLY (canonical flow).
+    
+    ❌ No name resolution - product_id is required
+    
+    Returns: (product_id, product_name, inventory_item)
+    Raises: ProductNotFoundError, ValidationError
+    """
+    if not product_id:
+        raise ValidationError("Product ID is required")
+    
+    try:
+        product_id = int(product_id)
+    except (TypeError, ValueError):
+        raise ValidationError("Product ID must be a valid integer")
+    
+    try:
+        res = await session.execute(select(Inventory).where(Inventory.product_id == product_id))
+        inv = res.scalar_one_or_none()
+        if inv:
+            return inv.product_id, inv.product_name or f"Product #{product_id}", inv
+        raise ProductNotFoundError(f"Product with ID {product_id} not found in inventory")
+    except SalesError:
+        raise
+    except Exception as e:
+        logger.exception("Product lookup failed")
+        raise ValidationError("Product lookup failed, please try again")
+
+
+def normalize_channel(channel_arg: Optional[str]) -> str:
+    """Normalize channel string to SaleChannel enum value."""
+    if not channel_arg:
+        return SaleChannel.direct.value
+    
+    channel_lower = channel_arg.lower().strip()
+    channel_map = {
+        'field': SaleChannel.field.value,
+        'store': SaleChannel.store.value,
+        'delivery': SaleChannel.delivery.value,
+        'direct': SaleChannel.direct.value,
+        # Legacy mappings
+        'agent': SaleChannel.field.value,
+    }
+    return channel_map.get(channel_lower, SaleChannel.direct.value)
+
+
+async def validate_sale_input(
+    session: AsyncSession,
+    product_id: int,
+    quantity: int,
+    unit_price: float,
+    channel: Optional[str] = None,
+    customer_name: Optional[str] = None,
+    related_order_id: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+) -> SaleInput:
+    """
+    Validate and normalize sale input.
+    
+    ❌ Uses product_id ONLY - no name resolution
+    
+    Returns: SaleInput dataclass
+    Raises: ValidationError, ProductNotFoundError
+    """
+    errors = []
+    
+    if quantity <= 0:
+        errors.append("Quantity must be greater than 0")
+    if unit_price is None or unit_price < 0:
+        errors.append("Price must be >= 0")
+    if not product_id:
+        errors.append("Product ID is required")
+    
+    if errors:
+        raise ValidationError(", ".join(errors))
+    
+    # Resolve product by ID only
+    resolved_id, product_name, _ = await resolve_product_by_id(session, product_id)
+    
+    return SaleInput(
+        product_id=resolved_id,
+        product_name=product_name,
+        quantity=quantity,
+        unit_price=unit_price,
+        channel=normalize_channel(channel),
+        customer_name=customer_name,
+        related_order_id=related_order_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+# ============================================================================
+# Stock Check (Pre-transaction)
+# ============================================================================
+
+async def check_stock_availability(
+    session: AsyncSession,
+    product_id: int,
+    quantity: int,
+) -> Tuple[int, int]:
+    """
+    Check if sufficient stock is available.
+    
+    Returns: (current_stock, stock_after_sale)
+    Raises: ProductNotFoundError, InsufficientStockError
+    """
+    result = await session.execute(
+        select(Inventory).where(Inventory.product_id == product_id)
+    )
+    inventory = result.scalar_one_or_none()
+    
+    if not inventory:
+        raise ProductNotFoundError(f"Inventory record for product {product_id} not found")
+    
+    if inventory.total_stock < quantity:
+        raise InsufficientStockError(
+            f"Insufficient stock: requested {quantity}, available {inventory.total_stock}"
+        )
+    
+    return inventory.total_stock, inventory.total_stock - quantity
+
+
+# ============================================================================
+# Core Transaction (Atomic with Explicit Rollback)
+# ============================================================================
+
 async def record_sale(
     session: AsyncSession,
     product_id: int,
@@ -34,122 +248,320 @@ async def record_sale(
     related_order_id: Optional[int] = None,
     location: Optional[str] = None,
     idempotency_key: Optional[str] = None,
+    customer_name: Optional[str] = None,
+    # Forms Extension fields
+    reference: Optional[str] = None,
+    customer_phone: Optional[str] = None,
+    discount: Optional[float] = None,
+    payment_method: Optional[str] = None,
+    sale_date: Optional[str] = None,  # ISO string
+    linked_order_id: Optional[int] = None,
+    affiliate_code: Optional[str] = None,
+    affiliate_name: Optional[str] = None,
+    affiliate_source: Optional[str] = None,
+    # Defense in depth: caller's role (optional, for service-layer validation)
+    caller_role: Optional[str] = None,
 ) -> Sale:
     """
-    Validate and record a sale atomically.
+    Validate and record a sale atomically with explicit rollback on failure.
 
-    - Ensures quantity > 0
-    - Performs an atomic UPDATE on inventory: requires available stock >= quantity
-    - Inserts sale row
-    - Creates inventory transaction record
-    - Checks for low stock and emits automation event
-    - Emits 'sale.recorded' after commit
+    ATOMIC: Sale + InventoryTransaction in one commit.
+    ROLLBACK: Any error triggers explicit rollback before re-raising.
+    SIDE EFFECTS: Notifications happen AFTER commit (non-blocking).
 
-    Returns the Sale row.
-    Raises ValueError for missing inventory or validation errors.
-    Raises RuntimeError for insufficient stock or concurrent conflicts.
+    Returns the Sale row with stock_before/stock_after attributes attached.
+    Raises: ValidationError, ProductNotFoundError, InsufficientStockError, PermissionDeniedError
     """
-    if quantity <= 0:
-        raise ValueError("Quantity must be > 0")
-
-    # If idempotency key provided and a prior sale exists, return it (idempotent)
-    if idempotency_key:
-        q = select(Sale).where(Sale.idempotency_key == idempotency_key, Sale.sold_by_user_id == sold_by_user_id)
-        res = await session.execute(q)
-        existing = res.scalar_one_or_none()
-        if existing:
-            return existing
-
-    # If related_order_id provided, validate order exists and is in an acceptable state
-    if related_order_id is not None:
-        q = select(Order).where(Order.id == related_order_id)
-        r = await session.execute(q)
-        order = r.scalar_one_or_none()
-        if not order:
-            raise ValueError("Order not found")
-        # Accept 'AWAITING_CONFIRMATION' (delivered awaiting confirmation) or 'COMPLETED'
-        if order.status not in ("AWAITING_CONFIRMATION", "COMPLETED"):
-            raise RuntimeError("Order is not in a delivered/completed state")
-
-    # Get inventory item first (we need the ID for the transaction)
-    inv_q = select(Inventory).where(Inventory.product_id == product_id)
-    inv_res = await session.execute(inv_q)
-    inventory_item = inv_res.scalar_one_or_none()
+    sale = None
+    inventory_item = None
+    stock_before = 0
     
-    if not inventory_item:
-        raise ValueError("Inventory record not found")
-    
-    if inventory_item.total_stock < quantity:
-        raise RuntimeError("Insufficient stock")
+    try:
+        # ===== VALIDATION PHASE (before any DB writes) =====
+        
+        # Defense in depth: block forbidden roles at service layer
+        if caller_role and caller_role.lower() in BLOCKED_ROLES:
+            raise PermissionDeniedError(f"Role '{caller_role}' is not allowed to record sales")
+        
+        if quantity <= 0:
+            raise ValidationError("Quantity must be > 0")
+        
+        if unit_price is None or unit_price < 0:
+            raise ValidationError("Price must be >= 0")
 
-    # Perform atomic inventory update: decrement stock if sufficient
-    upd = (
-        update(Inventory)
-        .where(Inventory.product_id == product_id)
-        .where(Inventory.total_stock >= quantity)
-        .values(
-            total_stock=Inventory.total_stock - quantity,
-            total_sold=Inventory.total_sold + quantity,
-            version=Inventory.version + 1,
+        # If idempotency key provided and a prior sale exists, return it (idempotent)
+        if idempotency_key:
+            q = select(Sale).where(Sale.idempotency_key == idempotency_key, Sale.sold_by_user_id == sold_by_user_id)
+            res = await session.execute(q)
+            existing = res.scalar_one_or_none()
+            if existing:
+                return existing
+
+        # If related_order_id provided, validate order exists and is in an acceptable state
+        if related_order_id is not None:
+            q = select(Order).where(Order.id == related_order_id)
+            r = await session.execute(q)
+            order = r.scalar_one_or_none()
+            if not order:
+                raise ValidationError("Related order not found")
+            # Accept 'awaiting_confirmation' (delivered awaiting confirmation) or 'completed'
+            if order.status not in ("awaiting_confirmation", "completed"):
+                raise ValidationError("Order is not in a delivered/completed state")
+
+        # ===== INVENTORY LOOKUP & STOCK CHECK =====
+        
+        # Get inventory item (we need the ID for the transaction)
+        inv_q = select(Inventory).where(Inventory.product_id == product_id)
+        inv_res = await session.execute(inv_q)
+        inventory_item = inv_res.scalar_one_or_none()
+        
+        if not inventory_item:
+            raise ProductNotFoundError(f"Inventory record for product {product_id} not found")
+        
+        stock_before = inventory_item.total_stock
+        
+        # Pre-check stock (will be re-checked atomically in UPDATE)
+        if stock_before < quantity:
+            raise InsufficientStockError(
+                f"Insufficient stock: requested {quantity}, available {stock_before}"
+            )
+
+        # ===== ATOMIC WRITE PHASE =====
+        
+        # Perform atomic inventory update with WHERE clause to prevent negative stock
+        # This is the critical section - uses optimistic locking via version column
+        upd = (
+            update(Inventory)
+            .where(Inventory.product_id == product_id)
+            .where(Inventory.total_stock >= quantity)  # CRITICAL: prevents negative stock
+            .values(
+                total_stock=Inventory.total_stock - quantity,
+                total_sold=Inventory.total_sold + quantity,
+                version=Inventory.version + 1,
+            )
         )
-    )
-    res_upd = await session.execute(upd)
-    if res_upd.rowcount == 0:
-        # Concurrent modification detected
-        raise RuntimeError("Insufficient stock or concurrent modification")
+        res_upd = await session.execute(upd)
+        if res_upd.rowcount == 0:
+            # Either concurrent modification or stock dropped below requested quantity
+            raise InsufficientStockError("Insufficient stock or concurrent modification - please retry")
 
-    # Insert sale record
-    total_amount = float(unit_price) * int(quantity)
-    sale = Sale(
-        product_id=product_id,
-        quantity=quantity,
-        unit_price=int(unit_price),
-        total_amount=int(total_amount),
-        sold_by_user_id=sold_by_user_id,
-        sale_channel=sale_channel or SaleChannel.direct.value,
-        related_order_id=related_order_id,
-        location=location,
-        idempotency_key=idempotency_key,
-    )
-    session.add(sale)
-    await session.flush()  # Get sale ID
+        # Normalize channel
+        normalized_channel = normalize_channel(sale_channel)
 
-    # Create inventory transaction record
-    transaction = InventoryTransaction(
-        inventory_item_id=inventory_item.id,
-        change=-quantity,  # Negative for sale
-        reason="sale",
-        related_sale_id=sale.id,
-        related_order_id=related_order_id,
-        performed_by_id=sold_by_user_id,
-        notes=f"Sale recorded via {sale_channel or 'DIRECT'}",
-    )
-    session.add(transaction)
+        # Parse sale_date if provided
+        parsed_sale_date = None
+        if sale_date:
+            try:
+                from datetime import datetime as dt
+                parsed_sale_date = dt.fromisoformat(sale_date.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                pass  # Keep as None if parsing fails
 
-    # Commit all changes
-    await session.commit()
+        # Insert sale record
+        total_amount = float(unit_price) * int(quantity)
+        sale = Sale(
+            product_id=product_id,
+            quantity=quantity,
+            unit_price=int(unit_price),
+            total_amount=int(total_amount),
+            sold_by_user_id=sold_by_user_id,
+            sale_channel=normalized_channel,
+            related_order_id=related_order_id,
+            location=location,
+            idempotency_key=idempotency_key,
+            # Forms Extension fields
+            reference=reference,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            discount=discount,
+            payment_method=payment_method,
+            sale_date=parsed_sale_date,
+            linked_order_id=linked_order_id,
+            # Affiliate fields (all nullable/optional)
+            affiliate_code=affiliate_code if affiliate_code else None,
+            affiliate_name=affiliate_name if affiliate_name else None,
+            affiliate_source=affiliate_source if affiliate_source else None,
+        )
+        session.add(sale)
+        await session.flush()  # Get sale ID
 
-    # Refresh inventory to get updated stock
-    await session.refresh(inventory_item)
-    
-    # Emit sale recorded event
-    await emit_event('sale.recorded', {
-        'sale_id': sale.id,
-        'product_id': sale.product_id,
-        'quantity': sale.quantity,
-        'sold_by': sale.sold_by_user_id,
-        'channel': sale.sale_channel,
-        'location': sale.location,
-        'total_amount': sale.total_amount,
-    })
+        # Create inventory transaction (ledger entry) - ALWAYS created for auditing
+        transaction = InventoryTransaction(
+            inventory_item_id=inventory_item.id,
+            change=-quantity,  # Negative for sale
+            reason="sale",
+            related_sale_id=sale.id,
+            related_order_id=related_order_id,
+            performed_by_id=sold_by_user_id,
+            notes=f"Sale recorded via {normalized_channel}" + (f" | Customer: {customer_name}" if customer_name else ""),
+        )
+        session.add(transaction)
 
-    # Check for low stock and trigger automation event
-    if SALES_AUTOMATION_ENABLED:
-        await _check_low_stock_trigger(session, inventory_item, sold_by_user_id)
+        # ===== COMMIT - Atomic transaction complete =====
+        await session.commit()
+
+    except SalesError:
+        # Known sales errors - rollback and re-raise with proper HTTP code
+        await session.rollback()
+        raise
+    except Exception as e:
+        # Unexpected error - rollback and wrap in ValidationError
+        await session.rollback()
+        logger.exception(f"[Sales] Unexpected error during sale recording: {e}")
+        raise ValidationError(f"Sale recording failed: {str(e)}")
+
+    # Attach stock info to sale object for response
+    sale.stock_before = stock_before
+    sale.stock_after = stock_before - quantity
+    sale.product_name = inventory_item.product_name
+
+    # ========== SIDE EFFECTS (after commit, non-blocking) ==========
+    try:
+        # Refresh inventory to get updated stock
+        await session.refresh(inventory_item)
+        
+        # Emit sale:created event (canonical event name)
+        await emit_event('sale:created', {
+            'sale_id': sale.id,
+            'product_id': sale.product_id,
+            'quantity': sale.quantity,
+            'channel': sale.sale_channel,
+        })
+        
+        # Emit inventory:updated event
+        await emit_event('inventory:updated', {
+            'product_id': sale.product_id,
+            'stock_before': stock_before,
+            'stock_after': sale.stock_after,
+            'change': -quantity,
+            'reason': 'sale',
+            'sale_id': sale.id,
+        })
+
+        # Check for low stock and trigger automation event
+        if SALES_AUTOMATION_ENABLED:
+            await _check_low_stock_trigger(session, inventory_item, sold_by_user_id)
+    except Exception as e:
+        # Side effects failing should NOT invalidate the sale
+        logger.warning(f"[Sales] Side effect failed (sale still valid): {e}")
 
     logger.info(f"[Sales] Sale {sale.id} recorded: product={product_id}, qty={quantity}, by_user={sold_by_user_id}")
 
     return sale
+
+
+# ============================================================================
+# High-Level API for Slash Commands
+# ============================================================================
+
+# Legacy function for name-based lookup (slash commands only)
+async def resolve_product_by_name_or_id(
+    session: AsyncSession,
+    product_ref: str
+) -> Tuple[int, str, Inventory]:
+    """
+    Legacy: Resolve product by ID or name (for slash commands only).
+    API endpoints should use resolve_product_by_id().
+    """
+    if not product_ref or not str(product_ref).strip():
+        raise ValidationError("Product is required")
+    
+    raw = str(product_ref).strip()
+    
+    # Try as ID first
+    try:
+        product_id = int(raw)
+        return await resolve_product_by_id(session, product_id)
+    except (ValueError, TypeError):
+        pass
+    except ProductNotFoundError:
+        pass  # Fall through to name search
+    
+    # Fallback to name search
+    norm = raw.lower()
+    res = await session.execute(select(Inventory).where(func.lower(Inventory.product_name) == norm))
+    inv = res.scalar_one_or_none()
+    if inv:
+        return inv.product_id, inv.product_name, inv
+    
+    raise ProductNotFoundError(f"Product '{raw}' not found")
+
+
+async def create_sale_from_command(
+    session: AsyncSession,
+    user_id: int,
+    product_ref: str,
+    quantity: int,
+    unit_price: float,
+    channel: Optional[str] = None,
+    customer_name: Optional[str] = None,
+    dry_run: bool = False,
+) -> SaleResult:
+    """
+    High-level function for slash command (allows name-based lookup).
+    
+    Note: API endpoints should use record_sale() with product_id directly.
+    
+    Handles:
+    1. Input normalization
+    2. Product resolution (by ID or name)
+    3. Stock check
+    4. Sale recording (if not dry_run)
+    
+    Returns: SaleResult dataclass
+    Raises: ValidationError, ProductNotFoundError, InsufficientStockError
+    """
+    # Resolve product (allows name for slash commands)
+    product_id, product_name, _ = await resolve_product_by_name_or_id(session, product_ref)
+    
+    # Validate input using the resolved product_id
+    sale_input = await validate_sale_input(
+        session, product_id, quantity, unit_price, channel, customer_name
+    )
+    
+    # Check stock availability
+    stock_before, stock_after = await check_stock_availability(
+        session, sale_input.product_id, quantity
+    )
+    
+    total_amount = unit_price * quantity
+    
+    if dry_run:
+        # Return preview without recording
+        return SaleResult(
+            sale_id=0,  # No ID for dry run
+            product_name=sale_input.product_name,
+            quantity=quantity,
+            unit_price=unit_price,
+            total_amount=total_amount,
+            channel=sale_input.channel,
+            stock_before=stock_before,
+            stock_after=stock_after,
+            customer_name=customer_name,
+        )
+    
+    # Record the sale
+    sale = await record_sale(
+        session,
+        product_id=sale_input.product_id,
+        quantity=quantity,
+        unit_price=unit_price,
+        sold_by_user_id=user_id,
+        sale_channel=channel,
+        customer_name=customer_name,
+    )
+    
+    return SaleResult(
+        sale_id=sale.id,
+        product_name=sale_input.product_name,
+        quantity=sale.quantity,
+        unit_price=float(sale.unit_price),
+        total_amount=float(sale.total_amount),
+        channel=sale.sale_channel,
+        stock_before=sale.stock_before,
+        stock_after=sale.stock_after,
+        customer_name=customer_name,
+    )
 
 
 async def _check_low_stock_trigger(
@@ -267,12 +679,13 @@ async def get_agent_performance(
     Returns:
         List of agent performance records with user info.
     """
+    # Use 'field' channel for agent sales (agents work in the field)
     query = select(
         Sale.sold_by_user_id,
         func.count(Sale.id).label('total_sales'),
         func.coalesce(func.sum(Sale.quantity), 0).label('total_quantity'),
         func.coalesce(func.sum(Sale.total_amount), 0).label('total_amount'),
-    ).where(Sale.sale_channel == SaleChannel.agent.value).group_by(Sale.sold_by_user_id)
+    ).where(Sale.sale_channel == SaleChannel.field.value).group_by(Sale.sold_by_user_id)
     
     if start_date:
         query = query.where(Sale.created_at >= start_date)
@@ -320,8 +733,8 @@ async def classify_sale(session: AsyncSession, sale_id: int, amount_threshold: f
     if not sale:
         raise ValueError("Sale not found")
 
-    # Simple channel rule
-    if sale.sale_channel != SaleChannel.agent.value:
+    # Simple channel rule - field channel is for agents
+    if sale.sale_channel != SaleChannel.field.value:
         return {"sale_id": sale.id, "commission_eligible": False, "exclusion_reason": 'channel_not_eligible'}
 
     # Amount threshold
@@ -333,7 +746,7 @@ async def classify_sale(session: AsyncSession, sale_id: int, amount_threshold: f
         o_q = select(Order).where(Order.id == sale.related_order_id)
         o_res = await session.execute(o_q)
         order = o_res.scalar_one_or_none()
-        if not order or order.status not in ("AWAITING_CONFIRMATION", "COMPLETED"):
+        if not order or order.status not in ("awaiting_confirmation", "completed"):
             return {"sale_id": sale.id, "commission_eligible": False, "exclusion_reason": 'related_order_not_eligible'}
 
     return {"sale_id": sale.id, "commission_eligible": True, "exclusion_reason": None}

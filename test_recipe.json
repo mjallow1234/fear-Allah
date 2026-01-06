@@ -1,0 +1,8 @@
+{
+  "finished_product_id": 24,
+  "raw_material_id": 1,
+  "quantity_required": 5,
+  "unit": "kg",
+  "waste_percentage": 10,
+  "notes": "Roast and grind"
+}

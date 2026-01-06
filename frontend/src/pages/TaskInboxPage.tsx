@@ -6,7 +6,7 @@
  * Shows user's assignments and created tasks.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
   ClipboardList, 
@@ -27,6 +27,7 @@ type TabType = 'my-tasks' | 'created' | 'completed'
 
 export default function TaskInboxPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore((state) => state.user)
   const {
     tasks,
@@ -39,6 +40,7 @@ export default function TaskInboxPage() {
     error,
     fetchMyAssignments,
     fetchMyTasks,
+    fetchTaskDetails,
     completeAssignment,
     setSelectedTask,
     clearError,
@@ -51,6 +53,21 @@ export default function TaskInboxPage() {
     const unsubscribe = subscribeToTasks()
     return () => unsubscribe()
   }, [])
+  
+  // Handle URL query param to open a specific task
+  useEffect(() => {
+    const taskId = searchParams.get('task')
+    if (taskId) {
+      const id = parseInt(taskId, 10)
+      if (!isNaN(id)) {
+        // Fetch and select the task
+        fetchTaskDetails(id)
+      }
+      // Clear the search param after reading it
+      searchParams.delete('task')
+      setSearchParams(searchParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams, fetchTaskDetails])
   
   // Fetch data on mount and tab change
   useEffect(() => {
@@ -104,9 +121,9 @@ export default function TaskInboxPage() {
   const pendingCount = myAssignments.filter(a => a.status === 'PENDING' || a.status === 'IN_PROGRESS').length
 
   return (
-    <div className="min-h-screen bg-[#313338]">
+    <div className="h-screen flex flex-col bg-[#313338] overflow-hidden">
       {/* Header */}
-      <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
+      <div className="flex-shrink-0 bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -189,7 +206,7 @@ export default function TaskInboxPage() {
       
       {/* Error Banner */}
       {error && (
-        <div className="max-w-4xl mx-auto px-6 py-4">
+        <div className="flex-shrink-0 max-w-4xl mx-auto px-6 py-4">
           <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
             <AlertCircle className="text-red-400" size={20} />
             <span className="text-red-400 flex-1">{error}</span>
@@ -203,21 +220,22 @@ export default function TaskInboxPage() {
         </div>
       )}
       
-      {/* Task List */}
-      <div className="max-w-4xl mx-auto py-6 px-6">
-        {loading ? (
-          <div className="py-12 text-center">
-            <Loader2 className="animate-spin mx-auto mb-4 text-[#5865f2]" size={32} />
-            <p className="text-[#949ba4]">Loading tasks...</p>
-          </div>
-        ) : activeTab === 'my-tasks' && myAssignments.length === 0 ? (
-          <div className="py-12 text-center">
-            <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
-            <p className="text-[#949ba4]">No tasks assigned to you</p>
-            <p className="text-[#72767d] text-sm mt-1">
-              Tasks will appear here when you're assigned to them
-            </p>
-          </div>
+      {/* Task List - Scrollable */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto py-6 px-6">
+          {loading ? (
+            <div className="py-12 text-center">
+              <Loader2 className="animate-spin mx-auto mb-4 text-[#5865f2]" size={32} />
+              <p className="text-[#949ba4]">Loading tasks...</p>
+            </div>
+          ) : activeTab === 'my-tasks' && myAssignments.length === 0 ? (
+            <div className="py-12 text-center">
+              <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
+              <p className="text-[#949ba4]">No tasks assigned to you</p>
+              <p className="text-[#72767d] text-sm mt-1">
+                Tasks will appear here when you're assigned to them
+              </p>
+            </div>
         ) : activeTab !== 'my-tasks' && filteredTasks.length === 0 ? (
           <div className="py-12 text-center">
             <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
@@ -290,6 +308,7 @@ export default function TaskInboxPage() {
             ))}
           </div>
         )}
+        </div>
       </div>
       
       {/* Task Details Drawer */}

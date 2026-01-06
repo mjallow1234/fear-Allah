@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from app.core.security import get_current_user
+from app.core.logging import inventory_logger
 from app.db.database import get_db
 from app.db.models import User
 from app.services.inventory import (
@@ -52,29 +53,62 @@ async def list_inventory_items(
         limit: Maximum items to return
         offset: Pagination offset
     """
-    items = await list_inventory(
-        db,
-        include_low_stock_only=low_stock_only,
-        limit=limit,
-        offset=offset,
-    )
-    
-    return {
-        "items": [
-            {
-                "id": item.id,
-                "product_id": item.product_id,
-                "product_name": item.product_name,
-                "total_stock": item.total_stock,
-                "total_sold": item.total_sold,
-                "low_stock_threshold": item.low_stock_threshold,
-                "is_low_stock": item.total_stock <= item.low_stock_threshold,
-                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-            }
-            for item in items
-        ],
-        "count": len(items),
-    }
+    try:
+        items = await list_inventory(
+            db,
+            include_low_stock_only=low_stock_only,
+            limit=limit,
+            offset=offset,
+        )
+
+        serialized = []
+        for item in items:
+            try:
+                product_id = int(getattr(item, 'product_id', 0) or 0)
+            except Exception:
+                product_id = 0
+            product_name = getattr(item, 'product_name', None) or ""
+            try:
+                total_stock = int(getattr(item, 'total_stock', 0) or 0)
+            except Exception:
+                total_stock = 0
+            try:
+                total_sold = int(getattr(item, 'total_sold', 0) or 0)
+            except Exception:
+                total_sold = 0
+            try:
+                low_stock_threshold = int(getattr(item, 'low_stock_threshold', 0) or 0)
+            except Exception:
+                low_stock_threshold = 0
+
+            updated_at = None
+            try:
+                if getattr(item, 'updated_at', None):
+                    updated_at = item.updated_at.isoformat()
+            except Exception:
+                updated_at = None
+
+            is_low_stock = total_stock <= low_stock_threshold
+
+            serialized.append({
+                "id": getattr(item, 'id', None),
+                "product_id": product_id,
+                "product_name": product_name,
+                "total_stock": total_stock,
+                "total_sold": total_sold,
+                "low_stock_threshold": low_stock_threshold,
+                "is_low_stock": is_low_stock,
+                "updated_at": updated_at,
+            })
+
+        return {
+            "items": serialized,
+            "count": len(serialized),
+        }
+    except Exception as e:
+        # Defensive: do not return 500 on missing or malformed rows
+        inventory_logger.error("Failed to list inventory", error=e)
+        return {"items": [], "count": 0}
 
 
 @router.get("/summary")
@@ -119,36 +153,74 @@ async def create_inventory(
     
     Permissions: Admin only
     """
-    if not await _check_can_manage_inventory(db, current_user['user_id']):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    user_id = current_user.get('user_id')
     
     try:
-        product_id = int(payload.get('product_id'))
-        product_name = payload.get('product_name')
-        initial_stock = int(payload.get('initial_stock', 0))
-        low_stock_threshold = int(payload.get('low_stock_threshold', 10))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    
-    try:
-        item = await create_inventory_item(
-            db,
+        if not await _check_can_manage_inventory(db, user_id):
+            inventory_logger.warning("Inventory create denied - not admin", user_id=user_id)
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        try:
+            raw_product_id = payload.get('product_id')
+            # Handle large product_ids (e.g., Date.now() from frontend exceeds int32)
+            if raw_product_id:
+                raw_product_id = int(raw_product_id)
+                # If product_id exceeds int32 max, generate a smaller one
+                if raw_product_id > 2147483647:
+                    import random
+                    raw_product_id = random.randint(100000, 9999999)
+                product_id = raw_product_id
+            else:
+                import random
+                product_id = random.randint(100000, 9999999)
+            product_name = payload.get('product_name')
+            initial_stock = int(payload.get('initial_stock', 0) or 0)
+            low_stock_threshold = int(payload.get('low_stock_threshold', 10) or 10)
+        except (TypeError, ValueError) as e:
+            inventory_logger.warning("Invalid inventory payload", error=e, user_id=user_id)
+            raise HTTPException(status_code=400, detail="Invalid payload")
+        
+        inventory_logger.info(
+            "Creating inventory item",
+            user_id=user_id,
             product_id=product_id,
-            product_name=product_name,
             initial_stock=initial_stock,
-            low_stock_threshold=low_stock_threshold,
-            created_by_id=current_user['user_id'],
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    return {
-        "id": item.id,
-        "product_id": item.product_id,
-        "product_name": item.product_name,
-        "total_stock": item.total_stock,
-        "low_stock_threshold": item.low_stock_threshold,
-    }
+        
+        try:
+            item = await create_inventory_item(
+                db,
+                product_id=product_id,
+                product_name=product_name,
+                initial_stock=initial_stock,
+                low_stock_threshold=low_stock_threshold,
+                created_by_id=user_id,
+            )
+            inventory_logger.info(
+                "Inventory item created",
+                item_id=item.id,
+                product_id=product_id,
+                user_id=user_id,
+            )
+        except ValueError as e:
+            inventory_logger.warning("Inventory create failed", error=e, product_id=product_id)
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            inventory_logger.error("Inventory create failed - unexpected", error=e, product_id=product_id)
+            raise
+        
+        return {
+            "id": item.id,
+            "product_id": item.product_id,
+            "product_name": item.product_name,
+            "total_stock": item.total_stock,
+            "low_stock_threshold": item.low_stock_threshold,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        inventory_logger.error("Inventory endpoint exception", error=e)
+        raise
 
 
 @router.get("/product/{product_id}")
@@ -185,27 +257,48 @@ async def restock_product(
     
     Permissions: Admin only
     """
-    if not await _check_can_manage_inventory(db, current_user['user_id']):
+    user_id = current_user['user_id']
+    if not await _check_can_manage_inventory(db, user_id):
+        inventory_logger.warning("Restock denied - not admin", user_id=user_id, product_id=product_id)
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
         quantity = int(payload.get('quantity'))
         related_order_id = payload.get('related_order_id')
         notes = payload.get('notes')
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        inventory_logger.warning("Invalid restock payload", error=e, user_id=user_id)
         raise HTTPException(status_code=400, detail="Invalid quantity")
+    
+    inventory_logger.info(
+        "Restocking inventory",
+        user_id=user_id,
+        product_id=product_id,
+        quantity=quantity,
+    )
     
     try:
         item = await restock_inventory(
             db,
             product_id=product_id,
             quantity=quantity,
-            performed_by_id=current_user['user_id'],
+            performed_by_id=user_id,
             related_order_id=related_order_id,
             notes=notes,
         )
+        inventory_logger.info(
+            "Inventory restocked",
+            product_id=product_id,
+            quantity_added=quantity,
+            new_stock=item.total_stock,
+            user_id=user_id,
+        )
     except ValueError as e:
+        inventory_logger.warning("Restock failed", error=e, product_id=product_id)
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        inventory_logger.error("Restock failed - unexpected", error=e, product_id=product_id)
+        raise
     
     return {
         "product_id": item.product_id,
@@ -227,15 +320,26 @@ async def adjust_product_inventory(
     
     Permissions: Admin only
     """
-    if not await _check_can_manage_inventory(db, current_user['user_id']):
+    user_id = current_user['user_id']
+    if not await _check_can_manage_inventory(db, user_id):
+        inventory_logger.warning("Adjustment denied - not admin", user_id=user_id, product_id=product_id)
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
         adjustment = int(payload.get('adjustment'))
         reason = payload.get('reason', 'adjustment')
         notes = payload.get('notes')
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        inventory_logger.warning("Invalid adjustment payload", error=e, user_id=user_id)
         raise HTTPException(status_code=400, detail="Invalid adjustment value")
+    
+    inventory_logger.info(
+        "Adjusting inventory",
+        user_id=user_id,
+        product_id=product_id,
+        adjustment=adjustment,
+        reason=reason,
+    )
     
     # Validate reason
     valid_reasons = ['adjustment', 'return', 'correction', 'damage', 'expired', 'other']

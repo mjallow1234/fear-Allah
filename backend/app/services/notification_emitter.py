@@ -11,10 +11,16 @@ from app.db.models import Notification
 from app.db.enums import NotificationType
 
 
+from app.core.config import settings
+
 async def emit_notification_to_user(user_id: int, notification: Notification):
     """
     Emit a notification to a specific user via Socket.IO
     """
+    # No-op during tests to avoid external sockets/threads
+    if settings.TESTING:
+        return
+
     from app.realtime.socket import emit_notification
     
     notification_data = {
@@ -41,6 +47,10 @@ async def emit_notification_read(user_id: int, notification_id: int):
     """
     Emit notification:read event when a notification is marked as read
     """
+    # No-op during tests
+    if settings.TESTING:
+        return
+
     from app.realtime.socket import sio, authenticated_users
     
     # Find all sids for this user
@@ -55,6 +65,10 @@ async def emit_all_notifications_read(user_id: int):
     """
     Emit notification:all_read event when all notifications are marked as read
     """
+    # No-op during tests
+    if settings.TESTING:
+        return
+
     from app.realtime.socket import sio, authenticated_users
     
     # Find all sids for this user
@@ -67,6 +81,10 @@ async def emit_notification_count_update(user_id: int, unread_count: int):
     """
     Emit updated notification count to user
     """
+    # No-op during tests
+    if settings.TESTING:
+        return
+
     from app.realtime.socket import sio, authenticated_users
     
     # Find all sids for this user

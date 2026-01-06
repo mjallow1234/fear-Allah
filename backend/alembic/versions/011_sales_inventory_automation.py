@@ -1,7 +1,7 @@
 """Add sales & inventory automation tables (Phase 6.3)
 
-Revision ID: 011_sales_inventory_automation
-Revises: 010_automation_engine
+Revision ID: 011
+Revises: 010
 Create Date: 2025-12-25
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '011_sales_inventory_automation'
-down_revision = '010_automation_engine'
+revision = '011'
+down_revision = '010'
 branch_labels = None
 depends_on = None
 

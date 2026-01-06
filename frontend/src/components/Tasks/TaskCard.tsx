@@ -20,10 +20,7 @@ import {
 import clsx from 'clsx'
 import { 
   AutomationTask, 
-  TaskAssignment, 
-  AutomationTaskType, 
-  AutomationTaskStatus,
-  AssignmentStatus 
+  TaskAssignment
 } from '../../stores/taskStore'
 
 interface TaskCardProps {
@@ -35,8 +32,12 @@ interface TaskCardProps {
   onClick: () => void
 }
 
+// Helper to normalize status to uppercase for config lookup
+const normalizeStatus = (status: string): string => status?.toUpperCase() || 'PENDING'
+const normalizeType = (type: string): string => type?.toUpperCase() || 'CUSTOM'
+
 // Task type icons and colors
-const taskTypeConfig: Record<AutomationTaskType, { icon: typeof Package; color: string; label: string }> = {
+const taskTypeConfig: Record<string, { icon: typeof Package; color: string; label: string }> = {
   'RESTOCK': { icon: Warehouse, color: 'bg-blue-600', label: 'Restock' },
   'RETAIL': { icon: ShoppingCart, color: 'bg-green-600', label: 'Retail' },
   'WHOLESALE': { icon: Package, color: 'bg-purple-600', label: 'Wholesale' },
@@ -45,14 +46,14 @@ const taskTypeConfig: Record<AutomationTaskType, { icon: typeof Package; color: 
 }
 
 // Status badge config
-const statusConfig: Record<AutomationTaskStatus, { color: string; bgColor: string; label: string }> = {
+const statusConfig: Record<string, { color: string; bgColor: string; label: string }> = {
   'PENDING': { color: 'text-yellow-400', bgColor: 'bg-yellow-400/10', label: 'Pending' },
   'IN_PROGRESS': { color: 'text-blue-400', bgColor: 'bg-blue-400/10', label: 'In Progress' },
   'COMPLETED': { color: 'text-green-400', bgColor: 'bg-green-400/10', label: 'Completed' },
   'CANCELLED': { color: 'text-red-400', bgColor: 'bg-red-400/10', label: 'Cancelled' },
 }
 
-const assignmentStatusConfig: Record<AssignmentStatus, { color: string; label: string }> = {
+const assignmentStatusConfig: Record<string, { color: string; label: string }> = {
   'PENDING': { color: 'text-yellow-400', label: 'Pending' },
   'IN_PROGRESS': { color: 'text-blue-400', label: 'In Progress' },
   'DONE': { color: 'text-green-400', label: 'Done' },
@@ -69,17 +70,22 @@ export default function TaskCard({
 }: TaskCardProps) {
   const [showConfirm, setShowConfirm] = useState(false)
   
-  const typeConfig = taskTypeConfig[task.task_type] || taskTypeConfig['CUSTOM']
-  const status = statusConfig[task.status] || statusConfig['PENDING']
+  // Normalize status/type to uppercase for config lookup (backend may return lowercase)
+  const normalizedTaskType = normalizeType(task.task_type)
+  const normalizedTaskStatus = normalizeStatus(task.status)
+  const normalizedAssignmentStatus = assignment ? normalizeStatus(assignment.status) : null
+  
+  const typeConfig = taskTypeConfig[normalizedTaskType] || taskTypeConfig['CUSTOM']
+  const status = statusConfig[normalizedTaskStatus] || statusConfig['PENDING']
   const TypeIcon = typeConfig.icon
   
-  // Check if user can complete this task
+  // Check if user can complete this task (compare normalized values)
   const canComplete = assignment && 
     assignment.user_id === currentUserId && 
-    assignment.status !== 'DONE' && 
-    assignment.status !== 'SKIPPED' &&
-    task.status !== 'COMPLETED' &&
-    task.status !== 'CANCELLED'
+    normalizedAssignmentStatus !== 'DONE' && 
+    normalizedAssignmentStatus !== 'SKIPPED' &&
+    normalizedTaskStatus !== 'COMPLETED' &&
+    normalizedTaskStatus !== 'CANCELLED'
   
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr)
@@ -117,7 +123,7 @@ export default function TaskCard({
       onClick={onClick}
       className={clsx(
         'p-4 rounded-lg cursor-pointer transition-all border',
-        task.status === 'COMPLETED' || task.status === 'CANCELLED'
+        normalizedTaskStatus === 'COMPLETED' || normalizedTaskStatus === 'CANCELLED'
           ? 'bg-[#2b2d31] border-[#1f2023] opacity-75'
           : 'bg-[#2b2d31] border-[#1f2023] hover:bg-[#35373c] hover:border-[#35373c]'
       )}
@@ -169,8 +175,8 @@ export default function TaskCard({
             <div className="mt-2 pt-2 border-t border-[#1f2023]">
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-[#72767d]">Your assignment:</span>
-                <span className={assignmentStatusConfig[assignment.status]?.color || 'text-gray-400'}>
-                  {assignmentStatusConfig[assignment.status]?.label || assignment.status}
+                <span className={assignmentStatusConfig[normalizedAssignmentStatus || 'PENDING']?.color || 'text-gray-400'}>
+                  {assignmentStatusConfig[normalizedAssignmentStatus || 'PENDING']?.label || assignment.status}
                 </span>
                 {assignment.role_hint && (
                   <span className="text-[#72767d]">({assignment.role_hint})</span>
@@ -221,7 +227,7 @@ export default function TaskCard({
             </div>
           )}
           
-          {!canComplete && assignment?.status === 'DONE' && (
+          {!canComplete && normalizedAssignmentStatus === 'DONE' && (
             <span className="flex items-center gap-1 text-green-400 text-sm">
               <Check size={16} />
               Done

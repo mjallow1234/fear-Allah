@@ -34,46 +34,52 @@ from app.core.config import logger
 
 ORDER_TASK_TEMPLATES = {
     # Agent Restock: Agent requests stock from warehouse
+    # Flow: Agent orders → Foreman assembles → Foreman hands over → Delivery receives → Delivery delivers → Agent confirms
     OrderType.agent_restock.value: {
         "task_type": AutomationTaskType.restock,
         "title_template": "Restock Order #{order_id}",
         "description_template": "Process restock order for agent",
         "assignments": [
-            {"role_hint": "warehouse", "auto_assign_role": "warehouse_staff"},
-            {"role_hint": "delivery", "auto_assign_role": "delivery_driver"},
+            {"role_hint": "foreman", "auto_assign_role": "foreman"},
+            {"role_hint": "delivery", "auto_assign_role": "delivery"},
+            {"role_hint": "requester", "auto_assign_user": "order_creator"},  # Assign order creator for final confirmation
         ],
     },
     
-    # Agent Retail: Agent selling to customer
+    # Agent Retail: Agent selling to customer  
+    # Flow: Agent orders → Delivery acknowledges → Delivery delivers
     OrderType.agent_retail.value: {
         "task_type": AutomationTaskType.retail,
         "title_template": "Retail Order #{order_id}",
         "description_template": "Process retail sale from agent",
         "assignments": [
-            {"role_hint": "agent", "auto_assign_role": None},  # Assigned to order creator
+            {"role_hint": "delivery", "auto_assign_role": "delivery"},
         ],
     },
     
     # Store Keeper Restock: Store keeper requests stock
+    # Flow: Store Keeper orders → Foreman assembles → Foreman hands over → Delivery receives → Delivery delivers → Store Keeper confirms
     OrderType.store_keeper_restock.value: {
         "task_type": AutomationTaskType.restock,
         "title_template": "Store Restock #{order_id}",
         "description_template": "Process store keeper restock request",
         "assignments": [
-            {"role_hint": "warehouse", "auto_assign_role": "warehouse_staff"},
-            {"role_hint": "store_keeper", "auto_assign_role": None},
+            {"role_hint": "foreman", "auto_assign_role": "foreman"},
+            {"role_hint": "delivery", "auto_assign_role": "delivery"},
+            {"role_hint": "requester", "auto_assign_user": "order_creator"},  # Assign order creator for final confirmation
         ],
     },
     
     # Customer Wholesale: Direct customer wholesale order
+    # Flow: Customer orders → Foreman assembles → Foreman hands over → Delivery receives → Delivery delivers → Customer confirms
     OrderType.customer_wholesale.value: {
         "task_type": AutomationTaskType.wholesale,
         "title_template": "Wholesale Order #{order_id}",
         "description_template": "Process wholesale order for customer",
         "assignments": [
-            {"role_hint": "sales", "auto_assign_role": "sales_rep"},
-            {"role_hint": "warehouse", "auto_assign_role": "warehouse_staff"},
-            {"role_hint": "delivery", "auto_assign_role": "delivery_driver"},
+            {"role_hint": "foreman", "auto_assign_role": "foreman"},
+            {"role_hint": "delivery", "auto_assign_role": "delivery"},
+            {"role_hint": "requester", "auto_assign_user": "order_creator"},  # Assign order creator for final confirmation
         ],
     },
 }
@@ -177,17 +183,26 @@ class OrderAutomationTriggers:
     ) -> list[TaskAssignment]:
         """
         Create assignments for a task based on template configuration.
+        
+        Supports:
+        - auto_assign_role: Find user by role name pattern (e.g., "foreman" -> foreman1)
+        - auto_assign_user: Special assignment like "order_creator" for requester
         """
         assignments = []
         
         for assignment_cfg in template.get("assignments", []):
             role_hint = assignment_cfg.get("role_hint")
             auto_assign_role = assignment_cfg.get("auto_assign_role")
+            auto_assign_user = assignment_cfg.get("auto_assign_user")
             
             # Determine who to assign
             user_id = None
             
-            if auto_assign_role:
+            if auto_assign_user == "order_creator":
+                # Assign to the order creator (requester)
+                user_id = created_by_id
+                logger.info(f"[OrderAutomation] Assigning order creator {user_id} as {role_hint}")
+            elif auto_assign_role:
                 # Try to find a user with this role
                 user_id = await OrderAutomationTriggers._find_user_by_role(db, auto_assign_role)
             
@@ -217,17 +232,45 @@ class OrderAutomationTriggers:
         role_name: str,
     ) -> Optional[int]:
         """
-        Find a user with a specific role.
-        For now, returns the first system_admin as fallback.
-        In production, this would use a proper role-based assignment system.
-        """
-        # Try to find user by role mapping
-        # For demo purposes, we'll use simple logic:
-        # - warehouse_staff -> any user (first available)
-        # - delivery_driver -> any user (first available)
-        # - sales_rep -> any user (first available)
+        Find a user with a specific role by username pattern.
+        Looks for users whose username starts with the role name.
         
-        # In production, integrate with the roles/permissions system
+        Role mappings:
+        - foreman -> users starting with 'foreman' (e.g., foreman1)
+        - delivery -> users starting with 'delivery' (e.g., delivery1)
+        - storekeeper -> users starting with 'storekeeper' (e.g., storekeeper1)
+        - agent -> users starting with 'agent' (e.g., agent1)
+        """
+        # Map role names to username prefixes
+        role_prefix_map = {
+            "foreman": "foreman",
+            "delivery": "delivery",
+            "delivery_driver": "delivery",
+            "warehouse_staff": "foreman",  # foreman handles warehouse assembly
+            "storekeeper": "storekeeper",
+            "store_keeper": "storekeeper",
+            "agent": "agent",
+            "sales_rep": "agent",
+        }
+        
+        prefix = role_prefix_map.get(role_name, role_name)
+        
+        # Find first active user matching the prefix
+        result = await db.execute(
+            select(User)
+            .where(User.is_active == True)
+            .where(User.username.like(f"{prefix}%"))
+            .order_by(User.id)
+            .limit(1)
+        )
+        user = result.scalar_one_or_none()
+        
+        if user:
+            logger.debug(f"[OrderAutomation] Found user '{user.username}' for role '{role_name}'")
+            return user.id
+        
+        # Fallback: try to find a system admin
+        logger.warning(f"[OrderAutomation] No user found for role '{role_name}', falling back to admin")
         result = await db.execute(
             select(User)
             .where(User.is_active == True)

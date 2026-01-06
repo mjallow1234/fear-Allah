@@ -49,7 +49,7 @@ async def test_inventory_remaining_endpoint(client: AsyncClient, test_session):
     r = await client.post('/api/auth/register', json={'email': 'm2@example.com', 'password': 'Password123!', 'username': 'm2'})
     login = await client.post('/api/auth/login', json={'identifier': 'm2@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
-    await client.post('/api/sales/', json={'product_id': 30, 'quantity': 5, 'unit_price': 2.0, 'sale_channel': 'STORE'}, headers={'Authorization': f'Bearer {token}'})
+    await client.post('/api/sales/', json={'product_id': 30, 'quantity': 5, 'unit_price': 2.0, 'sale_channel': 'AGENT'}, headers={'Authorization': f'Bearer {token}'})
 
     resp = await client.get('/api/sales/inventory')
     rows = resp.json()
@@ -75,8 +75,11 @@ async def test_sales_grouped_endpoints(client: AsyncClient, test_session):
 
     # g1 sells 2 via AGENT
     await client.post('/api/sales/', json={'product_id': 40, 'quantity': 2, 'unit_price': 10.0, 'sale_channel': 'AGENT'}, headers={'Authorization': f'Bearer {t1}'})
-    # g2 sells 3 via STORE
-    await client.post('/api/sales/', json={'product_id': 41, 'quantity': 3, 'unit_price': 5.0, 'sale_channel': 'STORE'}, headers={'Authorization': f'Bearer {t2}'})
+    # g2 sells 3 via STORE (insert directly because API requires special roles)
+    from app.db.models import Sale
+    sale = Sale(product_id=41, quantity=3, unit_price=5.0, total_amount=15.0, sold_by_user_id=2, sale_channel='STORE')
+    test_session.add(sale)
+    await test_session.commit()
     # g1 sells 1 via AGENT
     await client.post('/api/sales/', json={'product_id': 40, 'quantity': 1, 'unit_price': 10.0, 'sale_channel': 'AGENT'}, headers={'Authorization': f'Bearer {t1}'})
 
@@ -89,7 +92,17 @@ async def test_sales_grouped_endpoints(client: AsyncClient, test_session):
     assert by_channel['STORE']['total_quantity'] == 3
 
     # grouped by user
-    r = await client.get('/api/sales/grouped/user')
+    # Promote g1 to system admin so they can view all users' sales
+    from sqlalchemy import select
+    from app.db.models import User
+    q = select(User).where(User.username == 'g1')
+    res = await test_session.execute(q)
+    user = res.scalar_one()
+    user.is_system_admin = True
+    test_session.add(user)
+    await test_session.commit()
+
+    r = await client.get('/api/sales/grouped/user', headers={'Authorization': f'Bearer {t1}'})
     assert r.status_code == 200
     by_user = {item['username']: item for item in r.json() if item['username']}
     assert by_user['g1']['total_quantity'] == 3

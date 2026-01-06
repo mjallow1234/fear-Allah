@@ -11,9 +11,19 @@ config-*.json
 *.crt
 *.key
 /.env
+.env.local
+.env*.local
 *.log
 __pycache__/**
 frontend/node_modules/
 node_modules/
 frontend/dist/
+uploads/
 tmp-artifacts-*
+# Dev databases
+*.db
+test_concurrency.db
+backend/dev.db
+backend/test_concurrency.db
+# Old/backup dirs
+frontend/node_modules_old/

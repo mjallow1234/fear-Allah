@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus } from 'lucide-react'
+import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus, FileText, Brain } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { usePresenceStore } from '../stores/presenceStore'
 import api from '../services/api'
@@ -330,6 +330,37 @@ export default function Sidebar() {
                 </button>
               )
             })
+        )}
+
+        {/* Admin Section - Only visible to system admins */}
+        {user?.is_system_admin && (
+          <>
+            <div className="px-2 mt-6 mb-2">
+              <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
+                Administration
+              </span>
+            </div>
+            <Link
+              to="/admin/forms"
+              className={clsx(
+                'flex items-center gap-2 px-2 py-1 mx-2 rounded text-[#949ba4] hover:text-[#dbdee1] hover:bg-[#35373c] transition-colors',
+                location.pathname.startsWith('/admin/forms') && 'bg-[#35373c] text-white'
+              )}
+            >
+              <FileText size={18} />
+              <span>Form Builder</span>
+            </Link>
+            <Link
+              to="/admin/ai"
+              className={clsx(
+                'flex items-center gap-2 px-2 py-1 mx-2 rounded text-[#949ba4] hover:text-[#dbdee1] hover:bg-[#35373c] transition-colors',
+                location.pathname === '/admin/ai' && 'bg-[#35373c] text-white'
+              )}
+            >
+              <Brain size={18} />
+              <span>AI Insights</span>
+            </Link>
+          </>
         )}
       </div>
 

@@ -6,18 +6,31 @@ import pytest
 from httpx import AsyncClient
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
 
 
 @pytest.mark.anyio
 async def test_order_creates_automation_task(
     async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
 ):
     """Test that creating an order also creates an automation task."""
     client, user_data = async_client_authenticated
     
+    # Ensure a system admin exists so template auto-assignments can find a user
+    from app.db.models import User
+    from app.core.security import get_password_hash
+
+    admin = User(
+        username="auto_admin",
+        email="auto_admin@example.com",
+        hashed_password=get_password_hash("admin123"),
+        is_system_admin=True,
+        is_active=True,
+    )
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
     # Create an order
     order_resp = await client.post(
         "/api/orders/",

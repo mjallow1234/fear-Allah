@@ -7,11 +7,12 @@
  */
 import { create } from 'zustand'
 import api from '../services/api'
+import { useOrderStore } from './orderStore'
 
-// Enums matching backend
-export type AutomationTaskType = 'RESTOCK' | 'RETAIL' | 'WHOLESALE' | 'SALE' | 'CUSTOM'
-export type AutomationTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
-export type AssignmentStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'SKIPPED'
+// Enums matching backend (supports both cases for compatibility)
+export type AutomationTaskType = 'RESTOCK' | 'RETAIL' | 'WHOLESALE' | 'SALE' | 'CUSTOM' | 'restock' | 'retail' | 'wholesale' | 'sale' | 'custom'
+export type AutomationTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'pending' | 'in_progress' | 'completed' | 'cancelled'
+export type AssignmentStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'SKIPPED' | 'pending' | 'in_progress' | 'done' | 'skipped'
 
 export interface TaskAssignment {
   id: number
@@ -168,9 +169,16 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     try {
       await api.post(`/api/automation/tasks/${taskId}/complete`, { notes })
       
-      // Refresh data after completion
+      // Refresh data after completion - tasks, assignments, AND orders
       await get().fetchMyAssignments()
       await get().fetchMyTasks()
+      
+      // Also refetch orders to get updated status
+      try {
+        await useOrderStore.getState().fetchOrders()
+      } catch (e) {
+        console.warn('[TaskStore] Failed to refetch orders after task completion:', e)
+      }
       
       set({ completingTaskId: null })
       return true
@@ -207,6 +215,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         ? { ...state.selectedTask, status: 'COMPLETED' as AutomationTaskStatus }
         : state.selectedTask,
     }))
+    // Also refetch orders to update their status
+    useOrderStore.getState().fetchOrders().catch(console.warn)
   },
   
   handleTaskAutoClosed: (data) => {
@@ -221,6 +231,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         ? { ...state.selectedTask, status: 'COMPLETED' as AutomationTaskStatus }
         : state.selectedTask,
     }))
+    // Also refetch orders to update their status
+    useOrderStore.getState().fetchOrders().catch(console.warn)
   },
   
   // UI helpers

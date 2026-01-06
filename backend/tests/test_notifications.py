@@ -23,16 +23,20 @@ from app.services.notification_emitter import (
     notify_and_emit_task_assigned,
 )
 
+# Mark whole module as anyio so legacy @pytest.mark.asyncio usages run under pytest-anyio
+pytestmark = pytest.mark.anyio
+
 
 # ============================================================
 # Fixtures
 # ============================================================
 
 @pytest.fixture
-async def db_session():
-    """Provide a database session for tests."""
-    async with async_session() as session:
-        yield session
+async def db_session(test_session):
+    """Provide a database session for tests using the test engine."""
+    # Reuse the session provided by the `test_session` fixture to ensure tests
+    # use the SQLite test engine and do not attempt to connect to the real DB.
+    yield test_session
 
 
 @pytest.fixture
@@ -50,7 +54,7 @@ async def test_users(db_session: AsyncSession):
         user = User(
             username="notif_test_user",
             email="notif_test@example.com",
-            password_hash="test_hash",
+            hashed_password="test_hash",
             role=UserRole.member,
             is_active=True,
         )
@@ -68,8 +72,8 @@ async def test_users(db_session: AsyncSession):
         admin = User(
             username="notif_admin_user",
             email="notif_admin@example.com",
-            password_hash="test_hash",
-            role=UserRole.admin,
+            hashed_password="test_hash",
+            role=UserRole.system_admin,
             is_system_admin=True,
             is_active=True,
         )
@@ -84,7 +88,7 @@ async def test_users(db_session: AsyncSession):
 # NotificationService Tests
 # ============================================================
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_notification(db_session: AsyncSession, test_users):
     """Test creating a basic notification."""
     user = test_users["user"]
@@ -104,7 +108,7 @@ async def test_create_notification(db_session: AsyncSession, test_users):
     assert notification.is_read is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_notification_with_automation_context(db_session: AsyncSession, test_users):
     """Test creating notification with automation context fields."""
     user = test_users["user"]
@@ -121,11 +125,12 @@ async def test_create_notification_with_automation_context(db_session: AsyncSess
     
     assert notification.id is not None
     assert notification.task_id == 123
-    assert notification.metadata is not None
-    assert "priority" in notification.metadata
+    assert notification.extra_data is not None
+    data = json.loads(notification.extra_data)
+    assert "priority" in data
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_list_notifications(db_session: AsyncSession, test_users):
     """Test listing notifications for a user."""
     user = test_users["user"]

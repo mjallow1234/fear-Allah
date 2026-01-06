@@ -1,6 +1,6 @@
 """Add automation engine tables (Phase 6.1)
 
-Revision ID: 010_automation_engine
+Revision ID: 010
 Revises: f93a4f97e6d0
 Create Date: 2025-12-25
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '010_automation_engine'
+revision = '010'
 down_revision = 'f93a4f97e6d0'
 branch_labels = None
 depends_on = None

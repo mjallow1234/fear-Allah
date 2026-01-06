@@ -12,6 +12,8 @@ interface Notification {
   content: string | null
   channel_id: number | null
   message_id: number | null
+  task_id: number | null
+  order_id: number | null
   sender_id: number | null
   sender_username: string | null
   is_read: boolean
@@ -114,9 +116,25 @@ export default function NotificationBell() {
   }
 
   const handleNotificationClick = (notif: Notification) => {
-    if (notif.channel_id) {
-      navigate(`/channels/${notif.channel_id}`)
+    // Handle task-related notifications - navigate to task inbox
+    if (notif.task_id) {
+      // Navigate to task inbox with the task ID to highlight/open it
+      navigate(`/tasks?task=${notif.task_id}`)
     }
+    // Handle channel/message notifications
+    else if (notif.channel_id) {
+      // Navigate to channel with optional message anchor
+      if (notif.message_id) {
+        navigate(`/channels/${notif.channel_id}?message=${notif.message_id}`)
+      } else {
+        navigate(`/channels/${notif.channel_id}`)
+      }
+    }
+    // Handle order notifications - navigate to orders
+    else if (notif.order_id) {
+      navigate(`/orders?order=${notif.order_id}`)
+    }
+    
     if (!notif.is_read) {
       handleMarkRead(notif.id, { stopPropagation: () => {} } as React.MouseEvent)
     }

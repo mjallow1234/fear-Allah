@@ -11,43 +11,111 @@ logger = logging.getLogger(__name__)
 # Check if automations are enabled (Phase 6.2)
 AUTOMATIONS_ENABLED = os.environ.get("AUTOMATIONS_ENABLED", "true").lower() == "true"
 
-# Workflow definitions
+# Workflow definitions with accountability steps
+# Each step has a contextual action label for the UI button
 WORKFLOWS = {
     OrderType.agent_restock.value: [
-        {"step_key": "assemble_items", "title": "Assemble Items", "required": True},
-        {"step_key": "pickup_items", "title": "Pickup Items", "required": True},
-        {"step_key": "deliver_items", "title": "Deliver Items", "required": True},
-        {"step_key": "confirm_received", "title": "Confirm Received", "required": True},
+        # Foreman: 2 steps
+        {"step_key": "assemble_items", "title": "Assemble Items", "action_label": "Assembled", "assigned_to": "foreman", "required": True},
+        {"step_key": "foreman_handover", "title": "Hand Over to Delivery", "action_label": "Handed Over For Delivery", "assigned_to": "foreman", "required": True},
+        # Delivery: 2 steps
+        {"step_key": "delivery_received", "title": "Delivery Receives from Foreman", "action_label": "Received from Foreman", "assigned_to": "delivery", "required": True},
+        {"step_key": "deliver_items", "title": "Deliver to Agent", "action_label": "Delivered to Agent", "assigned_to": "delivery", "required": True},
+        # Agent: 1 step
+        {"step_key": "confirm_received", "title": "Agent Confirms Receipt", "action_label": "Received", "assigned_to": "requester", "required": True},
     ],
     OrderType.agent_retail.value: [
-        {"step_key": "accept_delivery", "title": "Accept Delivery", "required": True},
-        {"step_key": "deliver_items", "title": "Deliver Items", "required": True},
+        {"step_key": "accept_delivery", "title": "Accept Delivery Request", "action_label": "Accepted", "assigned_to": "delivery", "required": True},
+        {"step_key": "deliver_items", "title": "Deliver Items", "action_label": "Delivered", "assigned_to": "delivery", "required": True},
     ],
     OrderType.store_keeper_restock.value: [
-        {"step_key": "assemble_items", "title": "Assemble Items", "required": True},
-        {"step_key": "pickup_items", "title": "Pickup Items", "required": True},
-        {"step_key": "deliver_items", "title": "Deliver Items", "required": True},
-        {"step_key": "confirm_received", "title": "Confirm Received", "required": True},
+        # Foreman: 2 steps
+        {"step_key": "assemble_items", "title": "Assemble Items", "action_label": "Assembled", "assigned_to": "foreman", "required": True},
+        {"step_key": "foreman_handover", "title": "Hand Over to Delivery", "action_label": "Handed Over For Delivery", "assigned_to": "foreman", "required": True},
+        # Delivery: 2 steps
+        {"step_key": "delivery_received", "title": "Delivery Receives from Foreman", "action_label": "Received from Foreman", "assigned_to": "delivery", "required": True},
+        {"step_key": "deliver_items", "title": "Deliver to Store", "action_label": "Delivered to Store", "assigned_to": "delivery", "required": True},
+        # Store Keeper: 1 step
+        {"step_key": "confirm_received", "title": "Store Keeper Confirms Receipt", "action_label": "Received", "assigned_to": "requester", "required": True},
     ],
     OrderType.customer_wholesale.value: [
-        {"step_key": "assemble_items", "title": "Assemble Items", "required": True},
-        {"step_key": "pickup_items", "title": "Pickup Items", "required": True},
-        {"step_key": "deliver_items", "title": "Deliver Items", "required": True},
+        # Foreman: 2 steps
+        {"step_key": "assemble_items", "title": "Assemble Items", "action_label": "Assembled", "assigned_to": "foreman", "required": True},
+        {"step_key": "foreman_handover", "title": "Hand Over to Delivery", "action_label": "Handed Over For Delivery", "assigned_to": "foreman", "required": True},
+        # Delivery: 2 steps
+        {"step_key": "delivery_received", "title": "Delivery Receives from Foreman", "action_label": "Received from Foreman", "assigned_to": "delivery", "required": True},
+        {"step_key": "deliver_items", "title": "Deliver to Customer", "action_label": "Delivered to Customer", "assigned_to": "delivery", "required": True},
+        # No customer confirmation needed for wholesale
     ],
 }
 
 
 async def emit_event(event_name: str, payload: dict):
-    # Event emission hook. Backed by real event system in future.
+    """Event emission hook - now emits real Socket.IO events."""
     logger.info("Event emitted: %s %s", event_name, payload)
+    
+    # Import socket functions here to avoid circular imports
+    try:
+        from app.realtime.socket import emit_order_updated, emit_order_created, emit_task_completed
+        
+        if event_name == 'order.status_changed' or event_name == 'order.completed':
+            await emit_order_updated(
+                order_id=payload.get('order_id'),
+                status=payload.get('status'),
+                order_type=payload.get('order_type')
+            )
+        elif event_name == 'order.submitted':
+            await emit_order_created(
+                order_id=payload.get('order_id'),
+                status=payload.get('status'),
+                order_type=payload.get('order_type')
+            )
+        elif event_name == 'task.completed':
+            await emit_task_completed(
+                task_id=payload.get('task_id'),
+                step_key=payload.get('step_key'),
+                order_id=payload.get('order_id')
+            )
+    except Exception as e:
+        logger.warning(f"Failed to emit socket event {event_name}: {e}")
 
 
-async def create_order(session: AsyncSession, order_type: str, items: str = None, metadata: str = None, created_by_id: int = None):
+async def create_order(
+    session: AsyncSession, 
+    order_type: str, 
+    items: str = None, 
+    metadata: str = None, 
+    created_by_id: int = None,
+    # Forms Extension fields
+    reference: str = None,
+    priority: str = None,
+    requested_delivery_date = None,
+    customer_name: str = None,
+    customer_phone: str = None,
+    payment_method: str = None,
+    internal_comment: str = None,
+):
     """Create order and associated tasks. First task becomes ACTIVE."""
+    # Normalize order_type to lowercase to accept both AGENT_RESTOCK and agent_restock
+    order_type = order_type.lower() if order_type else order_type
+    
     if order_type not in WORKFLOWS:
         raise ValueError("Invalid order_type")
 
-    order = Order(order_type=order_type, status=OrderStatus.submitted.value, items=items, meta=metadata)
+    order = Order(
+        order_type=order_type, 
+        status=OrderStatus.submitted.value, 
+        items=items, 
+        meta=metadata,
+        # Forms Extension fields
+        reference=reference,
+        priority=priority,
+        requested_delivery_date=requested_delivery_date,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        payment_method=payment_method,
+        internal_comment=internal_comment,
+    )
     session.add(order)
     await session.flush()  # ensure order.id
 
@@ -66,8 +134,8 @@ async def create_order(session: AsyncSession, order_type: str, items: str = None
 
     await session.commit()
 
-    # Emit order.submitted
-    await emit_event('order.submitted', {"order_id": order.id, "status": order.status})
+    # Emit order.submitted with order_type for frontend
+    await emit_event('order.submitted', {"order_id": order.id, "status": order.status, "order_type": order.order_type})
     
     # Trigger automation (Phase 6.2)
     if AUTOMATIONS_ENABLED and created_by_id:
@@ -198,14 +266,14 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
     await session.flush()
     await session.commit()
 
-    # Emit events after commit
-    await emit_event('task.completed', {"task_id": task.id, "step_key": task.step_key})
+    # Emit events after commit with order_type for frontend
+    await emit_event('task.completed', {"task_id": task.id, "step_key": task.step_key, "order_id": order.id})
     if next_task:
         await emit_event('task.activated', {"task_id": next_task.id, "assigned_user_id": next_task.assigned_user_id})
     if changed:
-        if new_status == 'COMPLETED':
-            await emit_event('order.completed', {"order_id": order.id, "status": order.status})
-        await emit_event('order.status_changed', {"order_id": order.id, "status": order.status})
+        if new_status == 'completed':
+            await emit_event('order.completed', {"order_id": order.id, "status": order.status, "order_type": order.order_type})
+        await emit_event('order.status_changed', {"order_id": order.id, "status": order.status, "order_type": order.order_type})
         
         # Trigger automation on status change (Phase 6.2)
         if AUTOMATIONS_ENABLED:
@@ -216,5 +284,7 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
                 )
             except Exception as e:
                 logger.warning(f"[Automation] Failed to trigger status change automation: {e}")
+
+    return task, next_task, order
 
     return task, next_task, order

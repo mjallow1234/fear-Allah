@@ -9,6 +9,7 @@ interface User {
   display_name: string | null
   avatar_url: string | null
   is_system_admin: boolean
+  role?: string  // Business role: agent, storekeeper, delivery, foreman, customer, member, guest
 }
 
 interface AuthState {
@@ -31,6 +32,10 @@ export const useAuthStore = create<AuthState>()(
       _hasHydrated: false,
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
       login: (token, user) => {
+        // Persist role to localStorage for session recovery
+        if (user.role) {
+          localStorage.setItem('user_role', user.role)
+        }
         set({
           token,
           user,
@@ -42,6 +47,8 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         // Disconnect Socket.IO before clearing auth state
         disconnectSocket()
+        // Clear persisted role
+        localStorage.removeItem('user_role')
         set({
           token: null,
           user: null,
