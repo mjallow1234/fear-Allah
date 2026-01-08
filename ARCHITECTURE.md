@@ -326,3 +326,12 @@ Then we’ll:
 - Add team creation flow
 - Keep Socket.IO untouched
 - Move forward cleanly, In shā’ Allāh 🤲
+
+
+---
+
+**Implementation note:**
+- Backend endpoint: `POST /api/onboarding/first-team` (creates team, default channels, promotes user to system admin, broadcasts `channel_created` via presence)
+- Frontend: route `/onboarding` with UI to create first team; App redirects to onboarding when no teams exist or user has no team membership
+
+The implementation follows `ARCHITECTURE.md` rules and does not modify Socket.IO or middleware ordering.
