@@ -155,3 +155,174 @@ This model has proven more stable in tests and CI and allows independent tuning 
 ---
 
 If you want, I can add a short README badge or note linking to this file in the repo README so feature authors discover this guidance when touching the real-time codepaths. ✨
+
+---
+
+# System Architecture & Execution Order (Authoritative)
+
+This section complements the WebSocket architecture above.
+It defines global system state, deployment reality, and execution order.
+All contributors and AI assistants (including GitHub Copilot) must follow this.
+
+---
+
+## Current Deployment State (LIVE)
+
+- Frontend: https://app.sidrahsalaam.com
+- Backend API: https://api.sidrahsalaam.com
+- Authentication: ✅ Working
+- CORS: ✅ Fixed
+- Socket.IO: ✅ Working and stable (see sections above)
+- Admin user exists
+- `user.team_id` may be NULL → onboarding required
+
+---
+
+## Technology Stack (Summary)
+
+### Backend
+- FastAPI (ASGI)
+- PostgreSQL
+- SQLAlchemy (async)
+- Redis (pub/sub)
+- Socket.IO (python-socketio ASGI)
+- Nginx reverse proxy
+
+### Frontend
+- React + TypeScript
+- Vite
+- Zustand
+- Socket.IO client
+- JWT authentication
+
+---
+
+## Execution Order (NON-NEGOTIABLE)
+
+All development MUST follow this order:
+
+1. Real-time & Presence ✅ COMPLETE (documented above)
+2. Onboarding & Team Creation 🔜 CURRENT
+3. Permissions & Roles
+4. Automation Engine
+5. UX Polish
+
+Skipping ahead or mixing phases is forbidden.
+
+---
+
+## Onboarding Model (Mattermost-style)
+
+Onboarding triggers ONLY when:
+
+```ts
+user.team_id === null
+
+````
+
+---
+
+## Onboarding Flow & Global Rules
+
+Flow:
+
+User creates first team
+
+User becomes:
+
+system_admin
+
+team_admin
+
+Default channels created automatically:
+
+town-square
+
+off-topic
+
+User auto-joins default channels
+
+Presence broadcasts channel_created events
+
+UI transitions into main app (no reload)
+
+Global Non-Negotiable Rules
+
+Do NOT:
+
+Break or refactor Socket.IO logic defined above
+
+Merge chat and presence sockets
+
+Reorder middleware
+
+Change API prefixes
+
+Introduce permissions logic before onboarding completes
+
+Prefer extending existing code over rewriting
+
+Ask before refactoring core infrastructure files
+
+AI Assistant Policy (IMPORTANT)
+
+GitHub Copilot:
+
+Allowed:
+
+Boilerplate
+
+Mechanical coding
+
+Component generation
+
+Forbidden:
+
+Architectural changes
+
+Phase skipping
+
+Socket lifecycle changes
+
+Copilot must follow THIS FILE as the source of truth.
+
+---
+
+## 🧠 Why This Works (Key Insight)
+
+- Copilot **already trusts this file**
+- You’re adding **context**, not contradicting it
+- WebSocket rules stay **untouched**
+- System-wide rules become explicit
+- Future you (and teammates) won’t break real-time accidentally
+
+This is exactly how **senior teams evolve architecture docs**.
+
+---
+
+## 🧭 What To Tell Copilot (Copy-Paste Prompt)
+
+After saving the file, tell Copilot:
+
+
+Follow the architecture document in the repo.
+We are currently in the Onboarding phase.
+Do not modify WebSocket or presence logic.
+
+
+From this point on, Copilot will stay aligned.
+
+---
+
+## ✅ Next Step (When You’re Ready)
+
+Say:
+
+> “Architecture doc updated.  
+> Let’s implement onboarding (Option 2).”
+
+Then we’ll:
+- Add onboarding route guard
+- Add team creation flow
+- Keep Socket.IO untouched
+- Move forward cleanly, In shā’ Allāh 🤲
