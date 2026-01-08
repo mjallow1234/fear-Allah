@@ -6,6 +6,7 @@ import { subscribeToReadReceipts } from './realtime/readReceipts'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
+import OnboardingPage from './pages/Onboarding'
 import ChannelView from './pages/ChannelView'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
@@ -30,6 +31,7 @@ function App() {
 
   // Connect Socket.IO when authenticated
   useEffect(() => {
+    let cancelled = false
     if (isAuthenticated && token) {
       console.log('[App] User authenticated, connecting Socket.IO...')
       connectSocket()
@@ -37,9 +39,39 @@ function App() {
       
       // Subscribe to read receipts
       const unsubscribeReceipts = subscribeToReadReceipts()
+
+      // Check onboarding state: if no teams exist or user not a member of any team -> redirect to onboarding
+      ;(async () => {
+        try {
+          const teamsResp = await (await import('./services/api')).default.get('/api/teams/')
+          const teams = Array.isArray(teamsResp.data) ? teamsResp.data : []
+          if (teams.length === 0) {
+            // No teams at all -> onboarding
+            if (!cancelled) {
+              window.location.href = '/onboarding'
+            }
+            return
+          }
+
+          // Check current user's teams
+          const userTeamsResp = await (await import('./services/api')).default.get('/api/users/me/teams')
+          const myTeams = Array.isArray(userTeamsResp.data) ? userTeamsResp.data : []
+          if (myTeams.length === 0) {
+            // User has no team membership -> onboarding (create or join flow)
+            if (!cancelled) {
+              window.location.href = '/onboarding'
+            }
+            return
+          }
+        } catch (err) {
+          // Ignore: leave as-is and let normal flow continue
+          console.error('Failed to check onboarding state', err)
+        }
+      })()
       
       return () => {
         unsubscribeReceipts()
+        cancelled = true
       }
     }
   }, [isAuthenticated, token])
@@ -57,6 +89,7 @@ function App() {
         }
       >
         <Route index element={<ChannelView />} />
+        <Route path="onboarding" element={<OnboardingPage/>} />
         <Route path="channels/:channelId" element={<ChannelView />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />

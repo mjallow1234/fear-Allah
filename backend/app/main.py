@@ -258,6 +258,9 @@ from app.api import processing
 app.include_router(processing.router, prefix="/api/processing", tags=["Processing"])
 
 # Automation Engine (Phase 6.1)
+# Onboarding endpoints
+from app.api import onboarding
+app.include_router(onboarding.router, prefix="/api/onboarding", tags=["Onboarding"])
 from app.api import automation
 app.include_router(automation.router, prefix="/api", tags=["Automation"])
 
