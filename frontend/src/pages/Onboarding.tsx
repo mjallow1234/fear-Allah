@@ -5,7 +5,6 @@ import { useAuthStore } from '../stores/authStore'
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
-  const token = useAuthStore((s) => s.token)
   const updateUser = useAuthStore((s) => s.updateUser)
   const [name, setName] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -17,7 +16,7 @@ export default function OnboardingPage() {
     setError(null)
     setLoading(true)
     try {
-      const resp = await api.post('/api/onboarding/first-team', {
+      await api.post('/api/onboarding/first-team', {
         name,
         display_name: displayName || undefined,
       })
