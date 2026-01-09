@@ -168,6 +168,10 @@ app = FastAPI(
     description="Backend API for fear-Allah chat application",
     version="0.1.0",
     lifespan=lifespan,
+    # Do not automatically redirect paths without trailing slashes. FastAPI/Starlette
+    # defaults to returning 307 redirects for routes like /api/teams -> /api/teams/ which
+    # causes Axios (and our front-end) to retry and can trigger an onboarding refresh loop.
+    redirect_slashes=False,
 )
 
 # === MIDDLEWARE SETUP ===
