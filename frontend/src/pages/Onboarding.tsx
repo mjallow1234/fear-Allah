@@ -11,7 +11,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const userTeamId = useAuthStore((s) => s.user?.team_id)
+  const userTeamId = useAuthStore((s: any) => s.user?.team_id)
 
   // If user already has a team, navigate into app. This avoids polling or recheck loops.
   React.useEffect(() => {
@@ -31,7 +31,8 @@ export default function OnboardingPage() {
       })
       // Promote current user as system admin and set team_id from backend response
       const teamId = resp?.data?.id
-      updateUser({ is_system_admin: true, team_id: teamId })
+      // Hotfix: cast update payload to any to avoid TS errors on environments where team_id is not yet in User type
+      updateUser({ is_system_admin: true, team_id: teamId } as any)
 
       // Navigate into main app and stop further bootstrap checks
       navigate('/', { replace: true })
