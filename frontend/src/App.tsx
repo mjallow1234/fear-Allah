@@ -45,10 +45,20 @@ function App() {
         try {
           const teamsResp = await (await import('./services/api')).default.get('/api/teams/')
           const teams = Array.isArray(teamsResp.data) ? teamsResp.data : []
-          if (teams.length === 0) {
+              if (teams.length === 0) {
             // No teams at all -> onboarding
             if (!cancelled) {
-              window.location.href = '/onboarding'
+              // Only redirect once per session to avoid refresh loops caused by retries
+              try {
+                const key = 'onboarding_redirected'
+                if (!sessionStorage.getItem(key)) {
+                  sessionStorage.setItem(key, '1')
+                  window.location.href = '/onboarding'
+                }
+              } catch (e) {
+                // sessionStorage can throw in some restricted environments - fail safe to redirect
+                window.location.href = '/onboarding'
+              }
             }
             return
           }
@@ -59,7 +69,15 @@ function App() {
           if (myTeams.length === 0) {
             // User has no team membership -> onboarding (create or join flow)
             if (!cancelled) {
-              window.location.href = '/onboarding'
+              try {
+                const key = 'onboarding_redirected'
+                if (!sessionStorage.getItem(key)) {
+                  sessionStorage.setItem(key, '1')
+                  window.location.href = '/onboarding'
+                }
+              } catch (e) {
+                window.location.href = '/onboarding'
+              }
             }
             return
           }
