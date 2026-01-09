@@ -217,6 +217,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Skip if rate limiting is disabled
         if not rate_limit_settings.ENABLED:
             return await call_next(request)
+
+        # Path-based exemptions (Socket.IO and websocket API endpoints)
+        # Socket.IO uses polling which results in many initial requests immediately after login.
+        # Exempting these paths prevents the rate limiter from blocking legitimate socket bootstrap traffic.
+        if path.startswith('/socket.io/') or path.startswith('/api/ws/'):
+            return await call_next(request)
         
         # Get client identifier
         client_ip = get_client_ip(request)
@@ -248,6 +254,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 # Invalid token - fall back to IP-based limiting
                 # Auth will be properly rejected by route handlers
                 pass
+
+        # Exempt authenticated GET routes used during app bootstrap from rate limiting
+        # These requests are low-rate, critical for app bootstrap (teams/channels) and are made
+        # immediately after login; exempting them prevents 429s while preserving global limits.
+        bootstrap_get_exempt_paths = {
+            '/api/teams',
+            '/api/channels',
+            '/api/channels/direct/list',
+        }
+        if identifier_type == 'user' and request.method == 'GET' and path in bootstrap_get_exempt_paths:
+            return await call_next(request)
         
         # Apply rate limiting (user-based if authenticated, IP-based otherwise)
         result = await check_rate_limit(
