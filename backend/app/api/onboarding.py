@@ -52,6 +52,12 @@ async def create_first_team(
     if not user:
         raise HTTPException(status_code=404, detail="Current user not found")
 
+    # IMPORTANT: Onboarding must be callable by an authenticated (non-admin) user.
+    # Do NOT require admin permissions here; this endpoint is what grants the first user admin.
+    if getattr(user, 'is_banned', False):
+        raise HTTPException(status_code=403, detail="Banned users cannot perform onboarding")
+
+    # Promote user to system admin (first user becomes system admin)
     user.is_system_admin = True
     await db.commit()
 
