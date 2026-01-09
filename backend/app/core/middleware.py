@@ -258,12 +258,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Exempt authenticated GET routes used during app bootstrap from rate limiting
         # These requests are low-rate, critical for app bootstrap (teams/channels) and are made
         # immediately after login; exempting them prevents 429s while preserving global limits.
-        bootstrap_get_exempt_paths = {
+        # Exempt authenticated GET routes used during app bootstrap from rate limiting
+        # These requests are low-rate, critical for app bootstrap (teams/channels) and are made
+        # immediately after login; exempting them prevents 429s while preserving global limits.
+        bootstrap_get_exempt_prefixes = (
             '/api/teams',
+            '/api/users/me/teams',
             '/api/channels',
             '/api/channels/direct/list',
-        }
-        if identifier_type == 'user' and request.method == 'GET' and path in bootstrap_get_exempt_paths:
+        )
+        if identifier_type == 'user' and request.method == 'GET' and any(path.startswith(p) for p in bootstrap_get_exempt_prefixes):
+            return await call_next(request)
+
+        # Exempt onboarding POST endpoint so an authenticated non-admin user can complete first-team setup
+        onboarding_post_exempt_prefixes = (
+            '/api/onboarding/first-team',
+        )
+        if identifier_type == 'user' and request.method == 'POST' and any(path.startswith(p) for p in onboarding_post_exempt_prefixes):
             return await call_next(request)
         
         # Apply rate limiting (user-based if authenticated, IP-based otherwise)
