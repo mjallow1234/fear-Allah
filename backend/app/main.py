@@ -196,18 +196,14 @@ app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",    # Docker dev frontend
+        "https://app.sidrahsalaam.com",
+        "https://api.sidrahsalaam.com",
+        "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://localhost:54321",   # VS Code Simple Browser (localhost)
-        "http://127.0.0.1:54321",   # VS Code Simple Browser (127.0.0.1)
-        "http://192.168.100.2:5173",  # LAN access
-        "https://gita-unrowdy-disconnectedly.ngrok-free.dev",
     ],
-    # Allow any 192.168.x.x on port 5173 and allow localhost on any dev port (127.0.0.1:PORT)
-    allow_origin_regex=r"(http://192\.168\.\d+\.\d+:5173|http://127\.0\.0\.1:\d+|http://localhost:\d+)",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
