@@ -28,74 +28,79 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const token = useAuthStore((state) => state.token)
+  const hasBootstrappedRef = useRef(false)
 
-  // Connect Socket.IO when authenticated
+  // One-time bootstrap: subscribe to auth store and run bootstrap exactly once per session
   useEffect(() => {
+    let unsubscribeReceipts: (() => void) | null = null
     let cancelled = false
-    if (isAuthenticated && token) {
-      console.log('[App] User authenticated, connecting Socket.IO...')
-      connectSocket()
-      subscribeToPresence()
-      
-      // Subscribe to read receipts
-      const unsubscribeReceipts = subscribeToReadReceipts()
 
-      // Check onboarding state: if no teams exist or user not a member of any team -> redirect to onboarding
-      ;(async () => {
-        try {
-          const teamsResp = await (await import('./services/api')).default.get('/api/teams/')
-          const teams = Array.isArray(teamsResp.data) ? teamsResp.data : []
-              if (teams.length === 0) {
-            // No teams at all -> onboarding
-            if (!cancelled) {
-              // Only redirect once per session to avoid refresh loops caused by retries
-              try {
-                const key = 'onboarding_redirected'
-                if (!sessionStorage.getItem(key)) {
-                  sessionStorage.setItem(key, '1')
-                  window.location.href = '/onboarding'
-                }
-              } catch (e) {
-                // sessionStorage can throw in some restricted environments - fail safe to redirect
-                window.location.href = '/onboarding'
-              }
-            }
-            return
-          }
+    const runBootstrap = async () => {
+      if (cancelled) return
+      try {
+        console.log('[App] Bootstrapping app...')
+        // Connect and subscribe once
+        connectSocket()
+        subscribeToPresence()
+        unsubscribeReceipts = subscribeToReadReceipts()
 
-          // Check current user's teams
-          const userTeamsResp = await (await import('./services/api')).default.get('/api/users/me/teams')
-          const myTeams = Array.isArray(userTeamsResp.data) ? userTeamsResp.data : []
-          if (myTeams.length === 0) {
-            // User has no team membership -> onboarding (create or join flow)
-            if (!cancelled) {
-              try {
-                const key = 'onboarding_redirected'
-                if (!sessionStorage.getItem(key)) {
-                  sessionStorage.setItem(key, '1')
-                  window.location.href = '/onboarding'
-                }
-              } catch (e) {
-                window.location.href = '/onboarding'
-              }
+        // One-time checks for onboarding state
+        const api = (await import('./services/api')).default
+        const teamsResp = await api.get('/api/teams')
+        const teams = Array.isArray(teamsResp.data) ? teamsResp.data : []
+        if (teams.length === 0) {
+          try {
+            const key = 'onboarding_redirected'
+            if (!sessionStorage.getItem(key)) {
+              sessionStorage.setItem(key, '1')
+              window.location.href = '/onboarding'
             }
-            return
+          } catch (e) {
+            window.location.href = '/onboarding'
           }
-        } catch (err) {
-          // Ignore: leave as-is and let normal flow continue
-          console.error('Failed to check onboarding state', err)
+          return
         }
-      })()
-      
-      return () => {
-        unsubscribeReceipts()
-        cancelled = true
+
+        const userTeamsResp = await api.get('/api/users/me/teams')
+        const myTeams = Array.isArray(userTeamsResp.data) ? userTeamsResp.data : []
+        if (myTeams.length === 0) {
+          try {
+            const key = 'onboarding_redirected'
+            if (!sessionStorage.getItem(key)) {
+              sessionStorage.setItem(key, '1')
+              window.location.href = '/onboarding'
+            }
+          } catch (e) {
+            window.location.href = '/onboarding'
+          }
+          return
+        }
+      } catch (err) {
+        console.error('Failed to bootstrap app', err)
       }
     }
-  }, [isAuthenticated, token])
 
-  return (
-    <Routes>
+    // Subscribe to auth store changes to trigger bootstrap when user logs in
+    const unsub = useAuthStore.subscribe((state) => {
+      if (state.isAuthenticated && state.token && !hasBootstrappedRef.current) {
+        hasBootstrappedRef.current = true
+        runBootstrap()
+      }
+    })
+
+    // If already authenticated when component mounts, run bootstrap immediately
+    const state = useAuthStore.getState()
+    if (state.isAuthenticated && state.token && !hasBootstrappedRef.current) {
+      hasBootstrappedRef.current = true
+      runBootstrap()
+    }
+
+    return () => {
+      cancelled = true
+      if (unsubscribeReceipts) unsubscribeReceipts()
+      unsub()
+    }
+  }, [])
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route

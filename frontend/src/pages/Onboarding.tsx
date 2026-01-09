@@ -11,21 +11,30 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const userTeamId = useAuthStore((s) => s.user?.team_id)
+
+  // If user already has a team, navigate into app. This avoids polling or recheck loops.
+  React.useEffect(() => {
+    if (userTeamId) {
+      navigate('/', { replace: true })
+    }
+  }, [userTeamId])
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setLoading(true)
     try {
-      await api.post('/api/onboarding/first-team', {
+      const resp = await api.post('/api/onboarding/first-team', {
         name,
         display_name: displayName || undefined,
       })
-      // Promote current user as system admin on success
-      updateUser({ is_system_admin: true })
+      // Promote current user as system admin and set team_id from backend response
+      const teamId = resp?.data?.id
+      updateUser({ is_system_admin: true, team_id: teamId })
 
-      // Navigate into main app
-      navigate('/')
-      // Optionally refresh teams/channels by reloading data in components
+      // Navigate into main app and stop further bootstrap checks
+      navigate('/', { replace: true })
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to create team')
     } finally {

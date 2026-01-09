@@ -20,13 +20,20 @@ api.interceptors.request.use((config) => {
 })
 
 // Response interceptor for error handling
+// Don't automatically retry or swallow 4xx errors. Let callers handle these failures.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().logout()
-      window.location.href = '/login'
+    const status = error.response?.status
+    if (status && status >= 400 && status < 500) {
+      if (status === 401) {
+        useAuthStore.getState().logout()
+        window.location.href = '/login'
+      }
+      // Reject all 4xx errors immediately (no auto-retry)
+      return Promise.reject(error)
     }
+    // For network or 5xx errors, still reject so higher-level logic can decide to retry
     return Promise.reject(error)
   }
 )
