@@ -108,6 +108,7 @@ async def create_channel(
     return channel
 
 
+@router.get("", response_model=List[ChannelResponse])
 @router.get("/", response_model=List[ChannelResponse])
 async def list_channels(
     team_id: Optional[int] = None,
@@ -231,6 +232,7 @@ async def create_or_get_dm_channel(
 
 
 @router.get("/direct/list", response_model=List[DMChannelResponse])
+@router.get("/direct/list/", response_model=List[DMChannelResponse])
 async def list_dm_channels(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

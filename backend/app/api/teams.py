@@ -87,6 +87,7 @@ async def create_team(
     return team
 
 
+@router.get("", response_model=List[TeamResponse])
 @router.get("/", response_model=List[TeamResponse])
 async def list_teams(
     current_user: dict = Depends(get_current_user),
