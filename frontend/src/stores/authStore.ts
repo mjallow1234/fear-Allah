@@ -10,6 +10,7 @@ interface User {
   avatar_url: string | null
   is_system_admin: boolean
   role?: string  // Business role: agent, storekeeper, delivery, foreman, customer, member, guest
+  team_id?: number
 }
 
 interface AuthState {

@@ -42,23 +42,8 @@ function App() {
         subscribeToPresence()
         unsubscribeReceipts = subscribeToReadReceipts()
 
-        // One-time checks for onboarding state
+        // One-time check for onboarding state (only from current user's memberships)
         const api = (await import('./services/api')).default
-        const teamsResp = await api.get('/api/teams')
-        const teams = Array.isArray(teamsResp.data) ? teamsResp.data : []
-        if (teams.length === 0) {
-          try {
-            const key = 'onboarding_redirected'
-            if (!sessionStorage.getItem(key)) {
-              sessionStorage.setItem(key, '1')
-              window.location.href = '/onboarding'
-            }
-          } catch (e) {
-            window.location.href = '/onboarding'
-          }
-          return
-        }
-
         const userTeamsResp = await api.get('/api/users/me/teams')
         const myTeams = Array.isArray(userTeamsResp.data) ? userTeamsResp.data : []
         if (myTeams.length === 0) {
