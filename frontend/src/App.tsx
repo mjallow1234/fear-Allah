@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { connectSocket, subscribeToPresence } from './realtime'
@@ -26,8 +26,6 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
-  const token = useAuthStore((state) => state.token)
   const hasBootstrappedRef = useRef(false)
 
   // One-time bootstrap: subscribe to auth store and run bootstrap exactly once per session
@@ -101,6 +99,9 @@ function App() {
       unsub()
     }
   }, [])
+
+  return (
+    <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route
