@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 from app.db.database import get_db
-from app.db.models import User
+from app.db.models import User, Team
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.rate_limiter import check_rate_limit, get_client_ip
 from app.core.rate_limit_config import AUTH_LIMITS, rate_limit_settings
@@ -67,13 +67,22 @@ async def login(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(auth_rate_limit),
 ):
+    # Prevent login if system is not initialized
+    users_count = await db.scalar(select(func.count(User.id))) or 0
+    teams_count = await db.scalar(select(func.count(Team.id))) or 0
+    if not (users_count > 0 and teams_count > 0):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="System not initialized. Visit /setup",
+        )
+
     # Find user by username or email
     query = select(User).where(
         (User.username == request.identifier) | (User.email == request.identifier)
     )
     result = await db.execute(query)
     user = result.scalar_one_or_none()
-    
+
     if not user or not verify_password(request.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -227,7 +227,10 @@ app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
 app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
-app.include_router(system.router, prefix="/api/system", tags=["System Console"])
+app.include_router(system.router, prefix="/api/system", tags=["System Console"]) 
+# Setup endpoints (public)
+from app.api import setup as setup_router
+app.include_router(setup_router.router, prefix="/api/setup", tags=["Setup"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["File Attachments"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
@@ -269,8 +272,12 @@ from app.api import forms
 app.include_router(forms.router, prefix="/api", tags=["Forms"])
 
 # AI Advisory System (Phase 9)
-from app.api import ai
-app.include_router(ai.router, prefix="/api/ai", tags=["AI Advisory"])
+try:
+    from app.api import ai
+    app.include_router(ai.router, prefix="/api/ai", tags=["AI Advisory"])
+except Exception as e:
+    from app.core.config import logger
+    logger.warning(f"AI routes not available: {e}")
 
 @app.get("/health")
 async def health_check():

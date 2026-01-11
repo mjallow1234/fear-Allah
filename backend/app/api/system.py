@@ -28,7 +28,7 @@ import secrets
 import json
 
 from app.db.database import get_db
-from app.db.models import User, AuditLog, Role, PermissionModel, RolePermission
+from app.db.models import User, Team, AuditLog, Role, PermissionModel, RolePermission
 from app.db.enums import UserRole
 from app.core.security import (
     get_current_user,
@@ -49,6 +49,18 @@ from app.core.rate_limit_config import (
 from app.services.audit import log_audit, AuditActions, AuditTargetTypes
 
 router = APIRouter()
+
+
+@router.get("/status")
+async def system_status(db: AsyncSession = Depends(get_db)):
+    """Return whether the system is initialized.
+
+    initialized = users > 0 AND teams > 0
+    This endpoint is public and does not require authentication.
+    """
+    users_count = await db.scalar(select(func.count(User.id))) or 0
+    teams_count = await db.scalar(select(func.count(Team.id))) or 0
+    return {"initialized": bool(users_count > 0 and teams_count > 0)}
 
 
 # === Safety Helpers (Phase 8.5.1) ===
