@@ -39,7 +39,7 @@ export default function SetupPage() {
     setError(null)
     setLoading(true)
     try {
-      const resp = await api.post('/api/setup/initialize', {
+      await api.post('/api/setup/initialize', {
         admin_name: adminName,
         admin_email: adminEmail,
         admin_password: adminPassword,

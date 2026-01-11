@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
-import { connectSocket, subscribeToPresence } from './realtime'
-import { subscribeToReadReceipts } from './realtime/readReceipts'
+
 import Login from './pages/Login'
 import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
+import SetupPage from './pages/SetupPage'
 
 import ChannelView from './pages/ChannelView'
 import Settings from './pages/Settings'
@@ -26,7 +26,6 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const hasBootstrappedRef = useRef(false)
   const navigate = useNavigate()
   const [initialized, setInitialized] = useState<boolean | null>(null)
 

@@ -10,16 +10,9 @@ services:
     command: /app/scripts/dev-entrypoint.sh
     # backend is accessed by other containers using the internal network (no host port published)
 
-  frontend:
-    image: node:20
-    volumes:
-      - ./frontend:/app:cached
-    working_dir: /app
-    ports:
-      - "3000:5173"
-    environment:
-      - VITE_API_URL=http://localhost:18002
-    command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0"
+  # Frontend is served as a static build in PROD mode. The static files are mounted
+  # into the `api-proxy` container at /usr/share/nginx/html and served by nginx.
+  # To run in DEV mode (Vite dev server), restore the `frontend` service here.
 
   api-proxy:
     image: nginx:alpine
