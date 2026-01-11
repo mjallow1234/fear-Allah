@@ -16,11 +16,10 @@ async def test_system_status_fresh_db(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_system_status_initialized(client: AsyncClient, test_session):
-    # Create a user and a team
-    user = User(username="u1", email="u1@example.com", display_name="U1", hashed_password="x", is_active=True)
-    team = Team(name="t1", display_name="Team 1")
-    test_session.add(user)
-    test_session.add(team)
+    # Mark the system as initialized via the persisted flag
+    from app.db.models import SystemState
+    state = SystemState(setup_completed=True)
+    test_session.add(state)
     await test_session.commit()
 
     resp = await client.get("/api/system/status")
@@ -41,7 +40,7 @@ async def test_login_blocked_when_not_initialized(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_setup_initialize_creates_resources(client: AsyncClient):
+async def test_setup_initialize_creates_resources(client: AsyncClient, test_session):
     payload = {
         "admin_name": "Admin User",
         "admin_email": "admin@example.com",
@@ -54,10 +53,20 @@ async def test_setup_initialize_creates_resources(client: AsyncClient):
     data = resp.json()
     assert "user" in data and "team" in data
 
-    # After initialization, system status should be true
+    # After initialization, system status should be true and persisted
     resp2 = await client.get("/api/system/status")
     assert resp2.status_code == 200
     assert resp2.json().get("initialized") is True
+
+    # Verify the persisted flag exists in DB
+    from app.db.models import SystemState
+    result = await test_session.execute(select(SystemState))
+    state = result.scalar_one_or_none()
+    assert state is not None and state.setup_completed is True
+
+    # Submitting initialize again should return 409
+    resp3 = await client.post("/api/setup/initialize", json=payload)
+    assert resp3.status_code == 409
 
     # Login should now succeed for the created admin
     login_resp = await client.post(

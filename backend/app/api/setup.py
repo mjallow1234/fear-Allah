@@ -23,11 +23,13 @@ class SetupResponse(BaseModel):
 
 @router.post("/initialize", response_model=SetupResponse)
 async def initialize_system(request: SetupRequest, db: AsyncSession = Depends(get_db)):
-    # Check if system already initialized
-    users_count = await db.scalar(select(func.count(User.id))) or 0
-    teams_count = await db.scalar(select(func.count(Team.id))) or 0
+    # Check persisted setup flag
+    from app.db.models import SystemState
 
-    if users_count > 0 and teams_count > 0:
+    result = await db.execute(select(SystemState))
+    state = result.scalar_one_or_none()
+
+    if state and state.setup_completed:
         # System already initialized; return 409 (idempotent-safe)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="System already initialized")
 
@@ -63,6 +65,15 @@ async def initialize_system(request: SetupRequest, db: AsyncSession = Depends(ge
     db.add(membership)
     cm = ChannelMember(user_id=admin.id, channel_id=channel.id)
     db.add(cm)
+
+    # Persist the setup flag (create row if none exists)
+    if not state:
+        new_state = SystemState(setup_completed=True)
+        db.add(new_state)
+    else:
+        await db.execute(
+            update(SystemState).values(setup_completed=True)
+        )
 
     await db.commit()
 

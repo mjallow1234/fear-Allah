@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 
 import Login from './pages/Login'
@@ -26,45 +26,37 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const navigate = useNavigate()
+
+  // System gate: ensure system status is resolved BEFORE any route/PrivateRoute runs.
   const [initialized, setInitialized] = useState<boolean | null>(null)
 
-  // System initialization check (runs once per session on app load, does NOT rely on auth)
   useEffect(() => {
-    const key = 'system_status_checked'
-    const cached = sessionStorage.getItem(key)
-    if (cached !== null) {
-      setInitialized(cached === 'true')
-      if (cached === 'false') navigate('/setup')
-      return
-    }
-
     let cancelled = false
-    ;(async () => {
-      try {
-        const api = (await import('./services/api')).default
-        const resp = await api.get('/api/system/status')
-        const inited = !!resp.data?.initialized
-        if (cancelled) return
-        setInitialized(inited)
-        sessionStorage.setItem(key, inited ? 'true' : 'false')
-        if (!inited) navigate('/setup')
-      } catch (e) {
-        console.warn('[App] Failed to fetch system status, allowing normal flow', e)
-        // Fail open: allow app to continue; set initialized to true to avoid blocking
-        setInitialized(true)
-        sessionStorage.setItem(key, 'true')
-      }
-    })()
+    import('./services/system').then(({ fetchSystemStatus }) => {
+      fetchSystemStatus()
+        .then((data) => {
+          if (!cancelled) setInitialized(Boolean(data.initialized))
+        })
+        .catch((err) => {
+          // Fail open on transient fetch errors so app still functions.
+          if (!cancelled) setInitialized(true)
+          console.warn('Failed to resolve system status, allowing normal flow', err)
+        })
+    })
 
     return () => {
       cancelled = true
     }
-  }, [navigate])
+  }, [])
+
+  // While the system status is unresolved, render a blank screen / splash to avoid any routing
+  if (initialized === null) return null
+
 
   return (
     <Routes>
       <Route path="/login" element={initialized === false ? <Navigate to="/setup" replace /> : <Login />} />
+      <Route path="/setup" element={!initialized ? <SetupPage /> : <Navigate to="/login" replace />} />
       <Route path="/register" element={<Register />} />      <Route path="setup" element={<SetupPage/>} />      <Route
         path="/"
         element={

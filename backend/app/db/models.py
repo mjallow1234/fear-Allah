@@ -272,6 +272,16 @@ class AuditLog(Base):
     # Relationships
     user = relationship("User")
 
+
+class SystemState(Base):
+    """Singleton table to track system-level state such as setup completion."""
+    __tablename__ = "system_state"
+
+    id = Column(Integer, primary_key=True, index=True)
+    setup_completed = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
 # ------------------ Orders & Tasks ------------------
 class Order(Base):
     __tablename__ = "orders"

@@ -67,10 +67,12 @@ async def login(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(auth_rate_limit),
 ):
-    # Prevent login if system is not initialized
-    users_count = await db.scalar(select(func.count(User.id))) or 0
-    teams_count = await db.scalar(select(func.count(Team.id))) or 0
-    if not (users_count > 0 and teams_count > 0):
+    # Prevent login if system is not initialized based on persisted flag
+    from app.db.models import SystemState
+
+    result = await db.execute(select(SystemState))
+    state = result.scalar_one_or_none()
+    if not (state and state.setup_completed):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="System not initialized. Visit /setup",
