@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { connectSocket, subscribeToPresence } from './realtime'
@@ -6,7 +6,7 @@ import { subscribeToReadReceipts } from './realtime/readReceipts'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import MainLayout from './layouts/MainLayout'
-import OnboardingPage from './pages/Onboarding'
+
 import ChannelView from './pages/ChannelView'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
@@ -28,81 +28,60 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function App() {
   const hasBootstrappedRef = useRef(false)
   const navigate = useNavigate()
+  const [initialized, setInitialized] = useState<boolean | null>(null)
 
-  // One-time bootstrap: subscribe to auth store and run bootstrap exactly once per session
+  // System initialization check (runs once per session on app load, does NOT rely on auth)
   useEffect(() => {
-    let unsubscribeReceipts: (() => void) | null = null
+    const key = 'system_status_checked'
+    const cached = sessionStorage.getItem(key)
+    if (cached !== null) {
+      setInitialized(cached === 'true')
+      if (cached === 'false') navigate('/setup')
+      return
+    }
+
     let cancelled = false
-
-    const runBootstrap = async () => {
-      if (cancelled) return
+    ;(async () => {
       try {
-        console.log('[App] Bootstrapping app...')
-        // Connect and subscribe once
-        connectSocket()
-        subscribeToPresence()
-        unsubscribeReceipts = subscribeToReadReceipts()
-
-        // One-time check for onboarding state: call /api/users/me and use user.team_id
         const api = (await import('./services/api')).default
-        try {
-          const userResp = await api.get('/api/users/me')
-          const user = userResp.data
-          const key = 'onboarding_redirected'
-          if (user && user.team_id === null) {
-            // Ensure we redirect only once per session
-            if (!sessionStorage.getItem(key)) {
-              sessionStorage.setItem(key, '1')
-              // Client-side navigation to avoid full page reloads
-              navigate('/onboarding')
-            }
-          }
-        } catch (e) {
-          // Do not redirect based on errors — only act on a successful response
-          console.warn('[App] Skipping onboarding redirect due to error fetching /api/users/me', e)
-        }
-      } catch (err) {
-        console.error('Failed to bootstrap app', err)
+        const resp = await api.get('/api/system/status')
+        const inited = !!resp.data?.initialized
+        if (cancelled) return
+        setInitialized(inited)
+        sessionStorage.setItem(key, inited ? 'true' : 'false')
+        if (!inited) navigate('/setup')
+      } catch (e) {
+        console.warn('[App] Failed to fetch system status, allowing normal flow', e)
+        // Fail open: allow app to continue; set initialized to true to avoid blocking
+        setInitialized(true)
+        sessionStorage.setItem(key, 'true')
       }
-    }
-
-    // Subscribe to auth store changes to trigger bootstrap when user logs in
-    const unsub = useAuthStore.subscribe((state) => {
-      if (state.isAuthenticated && state.token && !hasBootstrappedRef.current) {
-        hasBootstrappedRef.current = true
-        runBootstrap()
-      }
-    })
-
-    // If already authenticated when component mounts, run bootstrap immediately
-    const state = useAuthStore.getState()
-    if (state.isAuthenticated && state.token && !hasBootstrappedRef.current) {
-      hasBootstrappedRef.current = true
-      runBootstrap()
-    }
+    })()
 
     return () => {
       cancelled = true
-      if (unsubscribeReceipts) unsubscribeReceipts()
-      unsub()
     }
-  }, [])
+  }, [navigate])
 
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route
+      <Route path="/login" element={initialized === false ? <Navigate to="/setup" replace /> : <Login />} />
+      <Route path="/register" element={<Register />} />      <Route path="setup" element={<SetupPage/>} />      <Route
         path="/"
         element={
-          <PrivateRoute>
-            <MainLayout />
-          </PrivateRoute>
+          initialized === false ? (
+            <Navigate to="/setup" replace />
+          ) : (
+            <PrivateRoute>
+              <MainLayout />
+            </PrivateRoute>
+          )
         }
       >
         <Route index element={<ChannelView />} />
-        <Route path="onboarding" element={<OnboardingPage/>} />
+
         <Route path="channels/:channelId" element={<ChannelView />} />
+
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         <Route path="notifications" element={<NotificationsPage />} />

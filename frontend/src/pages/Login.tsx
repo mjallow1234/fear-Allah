@@ -25,6 +25,12 @@ export default function Login() {
       login(response.data.access_token, response.data.user)
       navigate('/')
     } catch (err: any) {
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail || ''
+      if (status === 403 && typeof detail === 'string' && detail.includes('System not initialized')) {
+        navigate('/setup')
+        return
+      }
       setError(extractAxiosError(err, 'Login failed'))
     } finally {
       setIsLoading(false)
