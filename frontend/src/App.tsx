@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import { connectSocket, subscribeToPresence } from './realtime'
 import { subscribeToReadReceipts } from './realtime/readReceipts'
@@ -27,6 +27,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const hasBootstrappedRef = useRef(false)
+  const navigate = useNavigate()
 
   // One-time bootstrap: subscribe to auth store and run bootstrap exactly once per session
   useEffect(() => {
@@ -42,21 +43,23 @@ function App() {
         subscribeToPresence()
         unsubscribeReceipts = subscribeToReadReceipts()
 
-        // One-time check for onboarding state (only from current user's memberships)
+        // One-time check for onboarding state: call /api/users/me and use user.team_id
         const api = (await import('./services/api')).default
-        const userTeamsResp = await api.get('/api/users/me/teams')
-        const myTeams = Array.isArray(userTeamsResp.data) ? userTeamsResp.data : []
-        if (myTeams.length === 0) {
-          try {
-            const key = 'onboarding_redirected'
+        try {
+          const userResp = await api.get('/api/users/me')
+          const user = userResp.data
+          const key = 'onboarding_redirected'
+          if (user && user.team_id === null) {
+            // Ensure we redirect only once per session
             if (!sessionStorage.getItem(key)) {
               sessionStorage.setItem(key, '1')
-              window.location.href = '/onboarding'
+              // Client-side navigation to avoid full page reloads
+              navigate('/onboarding')
             }
-          } catch (e) {
-            window.location.href = '/onboarding'
           }
-          return
+        } catch (e) {
+          // Do not redirect based on errors — only act on a successful response
+          console.warn('[App] Skipping onboarding redirect due to error fetching /api/users/me', e)
         }
       } catch (err) {
         console.error('Failed to bootstrap app', err)
