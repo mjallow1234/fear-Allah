@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = '028_add_system_state'
-down_revision: Union[str, Sequence[str], None] = '027_ai_governance_tags'
+down_revision: Union[str, Sequence[str], None] = 'f93a4f97e6d0'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
