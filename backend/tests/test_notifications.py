@@ -56,6 +56,7 @@ async def test_users(db_session: AsyncSession):
             email="notif_test@example.com",
             hashed_password="test_hash",
             role=UserRole.member,
+            operational_role='agent',
             is_active=True,
         )
         db_session.add(user)
@@ -74,6 +75,7 @@ async def test_users(db_session: AsyncSession):
             email="notif_admin@example.com",
             hashed_password="test_hash",
             role=UserRole.system_admin,
+            operational_role='agent',
             is_system_admin=True,
             is_active=True,
         )

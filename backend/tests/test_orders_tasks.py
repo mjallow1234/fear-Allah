@@ -8,7 +8,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_order_creation_and_task_generation(client: AsyncClient, test_session):
     # Register a user
-    r = await client.post('/api/auth/register', json={'email': 'o1@example.com', 'password': 'Password123!', 'username': 'o1'})
+    r = await client.post('/api/auth/register', json={'email': 'o1@example.com', 'password': 'Password123!', 'username': 'o1', 'operational_role': 'agent'})
     assert r.status_code == 201
     login = await client.post('/api/auth/login', json={'identifier': 'o1@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
@@ -33,8 +33,8 @@ async def test_order_creation_and_task_generation(client: AsyncClient, test_sess
 @pytest.mark.anyio
 async def test_task_completion_flow_and_authority(client: AsyncClient, test_session, monkeypatch):
     # Create two users: foreman and delivery
-    r1 = await client.post('/api/auth/register', json={'email': 'f@example.com', 'password': 'Password123!', 'username': 'foreman'})
-    r2 = await client.post('/api/auth/register', json={'email': 'd@example.com', 'password': 'Password123!', 'username': 'delivery'})
+    r1 = await client.post('/api/auth/register', json={'email': 'f@example.com', 'password': 'Password123!', 'username': 'foreman', 'operational_role': 'foreman'})
+    r2 = await client.post('/api/auth/register', json={'email': 'd@example.com', 'password': 'Password123!', 'username': 'delivery', 'operational_role': 'delivery'})
     login1 = await client.post('/api/auth/login', json={'identifier': 'f@example.com', 'password': 'Password123!'})
     login2 = await client.post('/api/auth/login', json={'identifier': 'd@example.com', 'password': 'Password123!'})
     t1 = login1.json()['access_token']
@@ -115,8 +115,8 @@ async def test_concurrent_double_complete_conflict(test_engine, monkeypatch):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c1, AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c2:
         # register two users
-        await c1.post('/api/auth/register', json={'email': 'race1@example.com', 'password': 'Password123!', 'username': 'race1'})
-        await c2.post('/api/auth/register', json={'email': 'race2@example.com', 'password': 'Password123!', 'username': 'race2'})
+        await c1.post('/api/auth/register', json={'email': 'race1@example.com', 'password': 'Password123!', 'username': 'race1', 'operational_role': 'agent'})
+        await c2.post('/api/auth/register', json={'email': 'race2@example.com', 'password': 'Password123!', 'username': 'race2', 'operational_role': 'agent'})
         login1 = await c1.post('/api/auth/login', json={'identifier': 'race1@example.com', 'password': 'Password123!'})
         login2 = await c2.post('/api/auth/login', json={'identifier': 'race2@example.com', 'password': 'Password123!'})
         t1 = login1.json()['access_token']
@@ -133,8 +133,8 @@ async def test_concurrent_double_complete_conflict(test_engine, monkeypatch):
 @pytest.mark.anyio
 async def test_awaiting_confirmation_and_completion(client: AsyncClient, test_session, monkeypatch):
     # Setup users
-    r1 = await client.post('/api/auth/register', json={'email': 'a2@example.com', 'password': 'Password123!', 'username': 'agent'})
-    r2 = await client.post('/api/auth/register', json={'email': 'r2@example.com', 'password': 'Password123!', 'username': 'receiver'})
+    r1 = await client.post('/api/auth/register', json={'email': 'a2@example.com', 'password': 'Password123!', 'username': 'agent', 'operational_role': 'agent'})
+    r2 = await client.post('/api/auth/register', json={'email': 'r2@example.com', 'password': 'Password123!', 'username': 'receiver', 'operational_role': 'agent'})
     login1 = await client.post('/api/auth/login', json={'identifier': 'a2@example.com', 'password': 'Password123!'})
     login2 = await client.post('/api/auth/login', json={'identifier': 'r2@example.com', 'password': 'Password123!'})
     t1 = login1.json()['access_token']
@@ -209,7 +209,7 @@ async def test_concurrent_double_complete(test_engine, monkeypatch):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c1, AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c2:
         # register and login user via client1
-        await c1.post('/api/auth/register', json={'email': 'race1@example.com', 'password': 'Password123!', 'username': 'race1'})
+        await c1.post('/api/auth/register', json={'email': 'race1@example.com', 'password': 'Password123!', 'username': 'race1', 'operational_role': 'agent'})
         login1 = await c1.post('/api/auth/login', json={'identifier': 'race1@example.com', 'password': 'Password123!'})
         t1 = login1.json()['access_token']
 

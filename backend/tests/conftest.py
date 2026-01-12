@@ -41,6 +41,7 @@ async def user_token(test_session):
         username="testuser",
         display_name="testuser",
         hashed_password=get_password_hash("testpass123"),
+        operational_role='agent',
         is_active=True,
     )
     test_session.add(user)
@@ -66,6 +67,7 @@ async def async_client_authenticated(client, test_session):
         username="auto_user",
         display_name="Auto User",
         hashed_password=get_password_hash("autopass"),
+        operational_role='agent',
         is_active=True,
     )
     test_session.add(user)

@@ -62,6 +62,7 @@ class CreateUserRequest(BaseModel):
     password: str
     display_name: Optional[str] = None
     role: Optional[str] = "member"
+    operational_role: Optional[str] = None
 
 
 class AdminStatsResponse(BaseModel):
@@ -411,13 +412,27 @@ async def create_user(
     role_value = role_enum.value
     is_sys_admin = (role_enum == UserRole.system_admin)
 
+    # Validate operational_role for non-admins
+    operational_role_value = None
+    if request.operational_role:
+        from app.db.enums import OperationalRole
+        try:
+            op_enum = OperationalRole(request.operational_role)
+            operational_role_value = op_enum.value
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid operational_role")
+
+    if not is_sys_admin and not operational_role_value:
+        raise HTTPException(status_code=400, detail="operational_role is required for non-admin users")
+
     user = User(
         username=request.username,
         email=request.email,
         hashed_password=get_password_hash(request.password),
         display_name=request.display_name or request.username,
         role=role_value,
-        is_system_admin=is_sys_admin
+        is_system_admin=is_sys_admin,
+        operational_role=operational_role_value
     )
     
     db.add(user)

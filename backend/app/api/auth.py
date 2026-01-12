@@ -39,7 +39,13 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     display_name: Optional[str] = None
-    role: Optional[str] = None  # Business role: agent, storekeeper, delivery, foreman, customer
+    operational_role: Optional[str] = None  # Optional system admin; required for non-admin users
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
 
 
 class TokenResponse(BaseModel):
@@ -114,6 +120,7 @@ async def login(
             "avatar_url": user.avatar_url,
             "is_system_admin": user.is_system_admin,
             "role": user.role,
+            "operational_role": user.operational_role,
         }
     )
 
@@ -146,6 +153,20 @@ async def register(
     # Validate role if provided
     valid_roles = {'agent', 'storekeeper', 'delivery', 'foreman', 'customer', 'member', 'guest'}
     user_role = request.role if request.role in valid_roles else 'member'
+
+    # Validate operational_role
+    operational_role_value = None
+    if request.operational_role:
+        from app.db.enums import OperationalRole
+        try:
+            operational_role_value = OperationalRole(request.operational_role).value
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid operational_role")
+
+    # Non-admin users must provide operational_role
+    # Note: registration route does not allow creating system admins
+    if not operational_role_value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="operational_role is required")
     
     # Create user
     user = User(
@@ -154,6 +175,7 @@ async def register(
         hashed_password=get_password_hash(request.password),
         display_name=request.display_name or request.username,
         role=user_role,
+        operational_role=operational_role_value,
     )
     db.add(user)
     await db.commit()
@@ -214,6 +236,7 @@ async def register(
         "sub": str(user.id), 
         "username": user.username,
         "is_system_admin": user.is_system_admin,
+        "operational_role": (user.operational_role.value if hasattr(user.operational_role, 'value') else str(user.operational_role)) if getattr(user, 'operational_role', None) else None,
     })
     
     return TokenResponse(
@@ -226,6 +249,7 @@ async def register(
             "avatar_url": user.avatar_url,
             "is_system_admin": user.is_system_admin,
             "role": user.role,
+            "operational_role": user.operational_role,
         }
     )
 

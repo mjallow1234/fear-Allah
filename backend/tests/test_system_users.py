@@ -23,6 +23,7 @@ async def create_admin_user(client: AsyncClient) -> tuple[dict, str]:
             "email": "admin@test.com",
             "password": "adminpass123",
             "username": "testadmin",
+            "operational_role": "agent",
         },
     )
     assert response.status_code == 201
@@ -41,6 +42,7 @@ async def create_regular_user(client: AsyncClient, suffix: str = "") -> tuple[di
             "email": f"user{suffix}@test.com",
             "password": "userpass123",
             "username": f"testuser{suffix}",
+            "operational_role": "agent",
         },
     )
     assert response.status_code == 201

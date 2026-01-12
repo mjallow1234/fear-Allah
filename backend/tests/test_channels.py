@@ -10,7 +10,7 @@ pytestmark = pytest.mark.integration
 async def test_non_admin_cannot_create_channel(client: AsyncClient, test_session):
     # Create a normal user
     from app.db.models import User
-    user = User(username='normal', email='normal@example.com', hashed_password='x')
+    user = User(username='normal', email='normal@example.com', hashed_password='x', operational_role='agent')
     test_session.add(user)
     await test_session.commit()
 
@@ -24,7 +24,7 @@ async def test_non_admin_cannot_create_channel(client: AsyncClient, test_session
 async def test_admin_can_create_channel_and_broadcast(client: AsyncClient, test_session, monkeypatch):
     from app.db.models import User, ChannelMember
     # Create admin user directly
-    admin = User(username='admin', email='admin@example.com', hashed_password='x', is_system_admin=True)
+    admin = User(username='admin', email='admin@example.com', hashed_password='x', operational_role='agent', is_system_admin=True)
     test_session.add(admin)
     await test_session.commit()
 
@@ -62,7 +62,7 @@ async def test_mark_channel_read_updates_last_read_at(client: AsyncClient, test_
     from app.core.security import create_access_token
 
     # Create user, channel, membership
-    user = User(username='reader', email='reader@example.com', hashed_password='x')
+    user = User(username='reader', email='reader@example.com', hashed_password='x', operational_role='agent')
     test_session.add(user)
     channel = Channel(name='readchan', display_name='Read Chan', type='public')
     test_session.add(channel)
@@ -86,7 +86,7 @@ async def test_mark_channel_read_non_member_forbidden(client: AsyncClient, test_
     from app.db.models import User, Channel
     from app.core.security import create_access_token
 
-    user = User(username='other', email='other@example.com', hashed_password='x')
+    user = User(username='other', email='other@example.com', hashed_password='x', operational_role='agent')
     test_session.add(user)
     channel = Channel(name='noch', display_name='No Ch', type='public')
     test_session.add(channel)
@@ -102,7 +102,7 @@ async def test_mark_channel_read_invalid_channel_returns_404(client: AsyncClient
     from app.db.models import User
     from app.core.security import create_access_token
 
-    user = User(username='u404', email='u404@example.com', hashed_password='x')
+    user = User(username='u404', email='u404@example.com', hashed_password='x', operational_role='agent')
     test_session.add(user)
     await test_session.commit()
 

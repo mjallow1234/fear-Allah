@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Order, AutomationTask, TaskAssignment, User
+from app.db.enums import OperationalRole
 from app.db.enums import (
     OrderType, 
     OrderStatus,
@@ -203,8 +204,8 @@ class OrderAutomationTriggers:
                 user_id = created_by_id
                 logger.info(f"[OrderAutomation] Assigning order creator {user_id} as {role_hint}")
             elif auto_assign_role:
-                # Try to find a user with this role
-                user_id = await OrderAutomationTriggers._find_user_by_role(db, auto_assign_role)
+                # Try to find a user with this operational role
+                user_id = await OrderAutomationTriggers._find_user_by_operational_role(db, auto_assign_role)
             
             if not user_id and role_hint in ("agent", "store_keeper", "sales"):
                 # Assign to order creator for these roles
@@ -227,62 +228,59 @@ class OrderAutomationTriggers:
         return assignments
     
     @staticmethod
-    async def _find_user_by_role(
+    async def _find_user_by_operational_role(
         db: AsyncSession,
-        role_name: str,
+        operational_role: str,
     ) -> Optional[int]:
         """
-        Find a user with a specific role by username pattern.
-        Looks for users whose username starts with the role name.
-        
-        Role mappings:
-        - foreman -> users starting with 'foreman' (e.g., foreman1)
-        - delivery -> users starting with 'delivery' (e.g., delivery1)
-        - storekeeper -> users starting with 'storekeeper' (e.g., storekeeper1)
-        - agent -> users starting with 'agent' (e.g., agent1)
+        Find an active user with the given operational_role.
+        Selection rules:
+        - If exactly one active user with that operational_role -> assign them
+        - If multiple -> pick the one with fewest active assignments (simple least-active heuristic)
+        - If none -> fallback to a system admin
         """
-        # Map role names to username prefixes
-        role_prefix_map = {
-            "foreman": "foreman",
-            "delivery": "delivery",
-            "delivery_driver": "delivery",
-            "warehouse_staff": "foreman",  # foreman handles warehouse assembly
-            "storekeeper": "storekeeper",
-            "store_keeper": "storekeeper",
-            "agent": "agent",
-            "sales_rep": "agent",
-        }
-        
-        prefix = role_prefix_map.get(role_name, role_name)
-        
-        # Find first active user matching the prefix
+        from sqlalchemy import func
+        # Normalize input
+        op_role = operational_role.lower()
+
+        # Select active users with the operational_role
         result = await db.execute(
             select(User)
             .where(User.is_active == True)
-            .where(User.username.like(f"{prefix}%"))
+            .where(User.operational_role == op_role)
             .order_by(User.id)
-            .limit(1)
         )
-        user = result.scalar_one_or_none()
-        
-        if user:
-            logger.debug(f"[OrderAutomation] Found user '{user.username}' for role '{role_name}'")
-            return user.id
-        
-        # Fallback: try to find a system admin
-        logger.warning(f"[OrderAutomation] No user found for role '{role_name}', falling back to admin")
-        result = await db.execute(
-            select(User)
-            .where(User.is_active == True)
-            .where(User.is_system_admin == True)
-            .limit(1)
+        users = result.scalars().all()
+
+        if not users:
+            logger.warning(f"[OrderAutomation] No user found with operational_role '{operational_role}', falling back to admin")
+            # Fallback to system admin
+            result = await db.execute(
+                select(User).where(User.is_active == True).where(User.is_system_admin == True).limit(1)
+            )
+            admin = result.scalar_one_or_none()
+            if admin:
+                return admin.id
+            return None
+
+        if len(users) == 1:
+            return users[0].id
+
+        # Simple least-active heuristic: count pending assignments per user and pick the smallest
+        user_ids = [u.id for u in users]
+        assignment_counts = {}
+        q = await db.execute(
+            select(TaskAssignment.user_id, func.count(TaskAssignment.id)).where(
+                TaskAssignment.user_id.in_(user_ids), TaskAssignment.status == 'pending'
+            ).group_by(TaskAssignment.user_id)
         )
-        admin = result.scalar_one_or_none()
-        
-        if admin:
-            return admin.id
-        
-        return None
+        rows = q.all()
+        for uid, cnt in rows:
+            assignment_counts[uid] = cnt
+
+        # Pick user with lowest count
+        selected = min(user_ids, key=lambda uid: assignment_counts.get(uid, 0))
+        return selected
     
     @staticmethod
     async def on_order_status_changed(

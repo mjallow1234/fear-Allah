@@ -63,6 +63,7 @@ async def initialize_system(request: SetupRequest, db: AsyncSession = Depends(ge
             hashed_password=get_password_hash(request.admin_password),
             is_active=True,
             is_system_admin=True,
+            operational_role='agent',  # sensible default for initial admin
         )
         db.add(admin)
         await db.flush()

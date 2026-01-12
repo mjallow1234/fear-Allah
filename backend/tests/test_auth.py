@@ -21,6 +21,7 @@ async def test_register_user(client: AsyncClient):
             "email": "test@example.com",
             "password": "testpassword123",
             "username": "testuser",
+            "operational_role": "agent",
         },
     )
     assert response.status_code == 201
@@ -40,6 +41,7 @@ async def test_register_duplicate_email(client: AsyncClient):
             "email": "duplicate@example.com",
             "password": "testpassword123",
             "username": "user1",
+            "operational_role": "agent",
         },
     )
     # Second registration with same email
@@ -49,6 +51,7 @@ async def test_register_duplicate_email(client: AsyncClient):
             "email": "duplicate@example.com",
             "password": "testpassword123",
             "username": "user2",
+            "operational_role": "agent",
         },
     )
     assert response.status_code == 400
@@ -64,6 +67,7 @@ async def test_login(client: AsyncClient):
             "email": "login@example.com",
             "password": "testpassword123",
             "username": "loginuser",
+            "operational_role": "agent",
         },
     )
     # Login

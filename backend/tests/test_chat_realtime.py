@@ -12,9 +12,9 @@ from app.api import ws as ws_module
 @pytest.mark.anyio
 async def test_ws_message_roundtrip_and_persistence(client, test_session):
     # Register users
-    r1 = await client.post('/api/auth/register', json={'email': 'u1@example.com', 'password': 'Password123!', 'username': 'u1'})
+    r1 = await client.post('/api/auth/register', json={'email': 'u1@example.com', 'password': 'Password123!', 'username': 'u1', 'operational_role': 'agent'})
     assert r1.status_code == 201
-    r2 = await client.post('/api/auth/register', json={'email': 'u2@example.com', 'password': 'Password123!', 'username': 'u2'})
+    r2 = await client.post('/api/auth/register', json={'email': 'u2@example.com', 'password': 'Password123!', 'username': 'u2', 'operational_role': 'agent'})
     assert r2.status_code == 201
 
     # Login
@@ -93,7 +93,7 @@ async def test_ws_message_roundtrip_and_persistence(client, test_session):
 @pytest.mark.anyio
 async def test_redis_publish_simulation_monkeypatch(client, monkeypatch, test_session):
     # Basic setup: register users and create/join channel
-    r1 = await client.post('/api/auth/register', json={'email': 's1@example.com', 'password': 'Password123!', 'username': 's1'})
+    r1 = await client.post('/api/auth/register', json={'email': 's1@example.com', 'password': 'Password123!', 'username': 's1', 'operational_role': 'agent'})
     assert r1.status_code == 201
     login1 = await client.post('/api/auth/login', json={'identifier': 's1@example.com', 'password': 'Password123!'})
     t1 = login1.json()['access_token']

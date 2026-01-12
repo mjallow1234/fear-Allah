@@ -10,8 +10,8 @@ async def test_channel_messages_authorized_returns_messages_ordering(client, tes
     from app.db.models import User, Channel, ChannelMember, Message
 
     # Create users and channel
-    author = User(username='author', email='author@example.com', hashed_password='x')
-    member = User(username='member', email='member@example.com', hashed_password='x')
+    author = User(username='author', email='author@example.com', hashed_password='x', operational_role='agent')
+    member = User(username='member', email='member@example.com', hashed_password='x', operational_role='agent')
     test_session.add_all([author, member])
     channel = Channel(name='ch1', display_name='Ch 1', type='public')
     test_session.add(channel)
@@ -45,7 +45,7 @@ async def test_channel_messages_authorized_returns_messages_ordering(client, tes
 async def test_channel_messages_unauthorized_user_forbidden(client, test_session):
     from app.db.models import User, Channel
 
-    user = User(username='other', email='other@example.com', hashed_password='x')
+    user = User(username='other', email='other@example.com', hashed_password='x', operational_role='agent')
     channel = Channel(name='secret', display_name='Secret', type='public')
     test_session.add_all([user, channel])
     await test_session.commit()
@@ -59,7 +59,7 @@ async def test_channel_messages_unauthorized_user_forbidden(client, test_session
 async def test_channel_messages_empty_channel_returns_empty_list(client, test_session):
     from app.db.models import User, Channel, ChannelMember
 
-    user = User(username='reader', email='reader@example.com', hashed_password='x')
+    user = User(username='reader', email='reader@example.com', hashed_password='x', operational_role='agent')
     channel = Channel(name='empty', display_name='Empty', type='public')
     test_session.add_all([user, channel])
     await test_session.flush()

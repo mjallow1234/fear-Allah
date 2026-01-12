@@ -47,6 +47,7 @@ async def get_or_create_test_users(db):
             role='system_admin',
             is_system_admin=True,
             is_active=True,
+            operational_role='agent',
         )
         db.add(admin)
     users['admin'] = admin
@@ -61,6 +62,7 @@ async def get_or_create_test_users(db):
             hashed_password='test_hash',
             role='agent',
             is_active=True,
+            operational_role='agent',
         )
         db.add(agent)
     users['agent'] = agent
@@ -75,6 +77,7 @@ async def get_or_create_test_users(db):
             hashed_password='test_hash',
             role='agent',
             is_active=True,
+            operational_role='agent',
         )
         db.add(agent2)
     users['agent2'] = agent2
@@ -89,6 +92,7 @@ async def get_or_create_test_users(db):
             hashed_password='test_hash',
             role='customer',
             is_active=True,
+            operational_role='agent',
         )
         db.add(regular)
     users['customer'] = regular

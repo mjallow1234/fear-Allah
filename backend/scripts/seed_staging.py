@@ -118,17 +118,23 @@ REALISTIC_MESSAGES = {
 }
 
 
-async def get_or_create_user(session, username: str, email: str, password: str, display_name: str = None, role: UserRole = UserRole.member):
+async def get_or_create_user(session, username: str, email: str, password: str, display_name: str = None, role: UserRole = UserRole.member, operational_role: str | None = 'agent'):
     q = await session.execute(
-        text("SELECT id FROM users WHERE email = :email"),
+        text("SELECT id, operational_role FROM users WHERE email = :email"),
         {"email": email}
     )
     row = q.first()
     if row:
-        # Update role for existing user
+        # Update role and operational_role for existing user if provided
+        params = {"role": role.value, "id": row[0]}
+        sql = "UPDATE users SET role = :role"
+        if operational_role:
+            sql += ", operational_role = :operational_role"
+            params["operational_role"] = operational_role
+        sql += " WHERE id = :id"
         await session.execute(
-            text("UPDATE users SET role = :role WHERE id = :id"),
-            {"role": role.value, "id": row[0]}
+            text(sql),
+            params
         )
         return await session.get(User, row[0])
     user = User(
@@ -137,7 +143,8 @@ async def get_or_create_user(session, username: str, email: str, password: str, 
         hashed_password=get_password_hash(password), 
         display_name=display_name or username, 
         is_active=True,
-        role=role
+        role=role,
+        operational_role=operational_role
     )
     session.add(user)
     await session.flush()
@@ -230,11 +237,11 @@ async def run():
 
     async with async_session() as session:
         # Team users with appropriate roles
-        ahmad = await get_or_create_user(session, 'ahmad', 'ahmad@staging.local', 'ahmad123', 'Ahmad', UserRole.system_admin)
-        musa = await get_or_create_user(session, 'musa', 'musa@staging.local', 'musa123', 'Musa', UserRole.team_admin)
-        alieu = await get_or_create_user(session, 'alieu', 'alieu@staging.local', 'alieu123', 'Alieu', UserRole.member)
-        modou = await get_or_create_user(session, 'modou', 'modou@staging.local', 'modou123', 'Modou', UserRole.member)
-        junior = await get_or_create_user(session, 'junior', 'junior@staging.local', 'junior123', 'Junior', UserRole.member)
+        ahmad = await get_or_create_user(session, 'ahmad', 'ahmad@staging.local', 'ahmad123', 'Ahmad', UserRole.system_admin, operational_role='agent')
+        musa = await get_or_create_user(session, 'musa', 'musa@staging.local', 'musa123', 'Musa', UserRole.team_admin, operational_role='agent')
+        alieu = await get_or_create_user(session, 'alieu', 'alieu@staging.local', 'alieu123', 'Alieu', UserRole.member, operational_role='agent')
+        modou = await get_or_create_user(session, 'modou', 'modou@staging.local', 'modou123', 'Modou', UserRole.member, operational_role='agent')
+        junior = await get_or_create_user(session, 'junior', 'junior@staging.local', 'junior123', 'Junior', UserRole.member, operational_role='agent')
         users = [ahmad, musa, alieu, modou, junior]
 
         # Channels

@@ -55,7 +55,7 @@ async def assert_automation_event(test_session, event_key: str, entity_id: int):
 async def register_and_login(client: AsyncClient, email: str, username: str, password: str = "testpass123"):
     await client.post(
         "/api/auth/register",
-        json={"email": email, "password": password, "username": username}
+        json={"email": email, "password": password, "username": username, "operational_role": "agent"}
     )
     login_resp = await client.post(
         "/api/auth/login",
@@ -77,7 +77,7 @@ async def create_channel_and_message(client: AsyncClient, headers: dict, channel
         buddy_username = f"{channel_name}_buddy"
         await client.post(
             "/api/auth/register",
-            json={"email": buddy_email, "password": "testpass123", "username": buddy_username}
+            json={"email": buddy_email, "password": "testpass123", "username": buddy_username, "operational_role": "agent"}
         )
         user_resp = await client.get(f"/api/users/by-username/{buddy_username}", headers=headers)
         buddy = user_resp.json()
@@ -112,7 +112,7 @@ async def test_order_creation_triggers_tasks(client: AsyncClient, test_session):
     q = await test_session.execute(select(User).where(User.username == 'support1'))
     support = q.scalar_one_or_none()
     if not support:
-        support = User(username="support1", email="support1@test.com", hashed_password="x", is_system_admin=True, is_active=True)
+        support = User(username="support1", email="support1@test.com", hashed_password="x", operational_role='agent', is_system_admin=True, is_active=True)
         test_session.add(support)
         await test_session.commit()
         await test_session.refresh(support)
@@ -205,7 +205,7 @@ async def test_sale_records_inventory_and_triggers_automation(client: AsyncClien
     q = await test_session.execute(select(User).where(User.username == 'admin_for_sales'))
     admin = q.scalar_one_or_none()
     if not admin:
-        admin = User(username='admin_for_sales', email='admin_sales@test.com', hashed_password='x', is_system_admin=True, is_active=True)
+        admin = User(username='admin_for_sales', email='admin_sales@test.com', hashed_password='x', operational_role='agent', is_system_admin=True, is_active=True)
         test_session.add(admin)
         await test_session.flush()
 
@@ -252,7 +252,7 @@ async def test_sale_triggers_low_stock_automation(client: AsyncClient, test_sess
     q = await test_session.execute(select(User).where(User.username == 'admin_lowstock'))
     admin = q.scalar_one_or_none()
     if not admin:
-        admin = User(username='admin_lowstock', email='admin_lowstock@test.com', hashed_password='x', is_system_admin=True, is_active=True)
+        admin = User(username='admin_lowstock', email='admin_lowstock@test.com', hashed_password='x', operational_role='agent', is_system_admin=True, is_active=True)
         test_session.add(admin)
         await test_session.flush()
 
@@ -321,7 +321,7 @@ async def test_task_created_from_order(client: AsyncClient, test_session):
     q = await test_session.execute(select(User).where(User.username == 'support1'))
     admin = q.scalar_one_or_none()
     if not admin:
-        admin = User(username='support1', email='support1@test.com', hashed_password='x', is_system_admin=True, is_active=True)
+        admin = User(username='support1', email='support1@test.com', hashed_password='x', operational_role='agent', is_system_admin=True, is_active=True)
         test_session.add(admin)
         await test_session.commit()
 
@@ -359,7 +359,7 @@ async def test_task_completion_triggers_next_step(client: AsyncClient, test_sess
     q = await test_session.execute(select(User).where(User.username == 'support_task'))
     u = q.scalar_one_or_none()
     if not u:
-        u = User(username='support_task', email='support_task@test.com', hashed_password='x', is_system_admin=True, is_active=True)
+        u = User(username='support_task', email='support_task@test.com', hashed_password='x', operational_role='agent', is_system_admin=True, is_active=True)
         test_session.add(u)
         await test_session.commit()
 
@@ -377,7 +377,7 @@ async def test_task_completion_triggers_next_step(client: AsyncClient, test_sess
     q = await test_session.execute(select(User).where(User.username == 'support_task'))
     u = q.scalar_one_or_none()
     if not u:
-        u = User(username='support_task', email='support_task@test.com', hashed_password='x', is_active=True)
+        u = User(username='support_task', email='support_task@test.com', hashed_password='x', operational_role='agent', is_active=True)
         test_session.add(u)
         await test_session.flush()
 
@@ -442,7 +442,7 @@ async def test_task_completion_denied_for_non_assignee(client: AsyncClient, test
         q = await fresh_s.execute(select(User).where(User.username == 'not_viewer'))
         u = q.scalar_one_or_none()
         if not u:
-            u = User(username='not_viewer', email='not_viewer@test.com', hashed_password='x', is_active=True)
+            u = User(username='not_viewer', email='not_viewer@test.com', hashed_password='x', operational_role='agent', is_active=True)
             fresh_s.add(u)
             await fresh_s.flush()
         

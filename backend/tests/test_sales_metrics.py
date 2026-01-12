@@ -8,7 +8,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_daily_sales_totals(client: AsyncClient, test_session):
     # create user and inventory
-    r = await client.post('/api/auth/register', json={'email': 'm1@example.com', 'password': 'Password123!', 'username': 'm1'})
+    r = await client.post('/api/auth/register', json={'email': 'm1@example.com', 'password': 'Password123!', 'username': 'm1', 'operational_role': 'agent'})
     assert r.status_code == 201
     login = await client.post('/api/auth/login', json={'identifier': 'm1@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
@@ -46,7 +46,7 @@ async def test_inventory_remaining_endpoint(client: AsyncClient, test_session):
     assert found and found[0]['remaining'] == 50
 
     # make a sale to reduce inventory
-    r = await client.post('/api/auth/register', json={'email': 'm2@example.com', 'password': 'Password123!', 'username': 'm2'})
+    r = await client.post('/api/auth/register', json={'email': 'm2@example.com', 'password': 'Password123!', 'username': 'm2', 'operational_role': 'agent'})
     login = await client.post('/api/auth/login', json={'identifier': 'm2@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
     await client.post('/api/sales/', json={'product_id': 30, 'quantity': 5, 'unit_price': 2.0, 'sale_channel': 'AGENT'}, headers={'Authorization': f'Bearer {token}'})
@@ -60,8 +60,8 @@ async def test_inventory_remaining_endpoint(client: AsyncClient, test_session):
 @pytest.mark.anyio
 async def test_sales_grouped_endpoints(client: AsyncClient, test_session):
     # create two users and sales
-    await client.post('/api/auth/register', json={'email': 'g1@example.com', 'password': 'Password123!', 'username': 'g1'})
-    await client.post('/api/auth/register', json={'email': 'g2@example.com', 'password': 'Password123!', 'username': 'g2'})
+    await client.post('/api/auth/register', json={'email': 'g1@example.com', 'password': 'Password123!', 'username': 'g1', 'operational_role': 'agent'})
+    await client.post('/api/auth/register', json={'email': 'g2@example.com', 'password': 'Password123!', 'username': 'g2', 'operational_role': 'agent'})
     l1 = await client.post('/api/auth/login', json={'identifier': 'g1@example.com', 'password': 'Password123!'})
     l2 = await client.post('/api/auth/login', json={'identifier': 'g2@example.com', 'password': 'Password123!'})
     t1 = l1.json()['access_token']

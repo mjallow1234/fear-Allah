@@ -24,6 +24,7 @@ async def test_order_creates_automation_task(
         username="auto_admin",
         email="auto_admin@example.com",
         hashed_password=get_password_hash("admin123"),
+        operational_role='agent',
         is_system_admin=True,
         is_active=True,
     )

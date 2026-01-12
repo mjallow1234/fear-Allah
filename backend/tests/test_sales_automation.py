@@ -463,6 +463,7 @@ async def test_user(db_session: AsyncSession):
         username='sales_test_user',
         email='sales_test@example.com',
         hashed_password=get_password_hash('testpass'),
+        operational_role='agent',
         is_active=True,
     )
     db_session.add(user)

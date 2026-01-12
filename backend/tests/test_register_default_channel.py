@@ -16,7 +16,7 @@ async def test_register_adds_user_to_general_and_can_fetch_messages(client: Asyn
     settings.APP_ENV = 'production'
 
     # Create a seed author and a general channel with a message
-    seed = User(email='seed@test.com', username='seed', hashed_password='x', is_active=True)
+    seed = User(email='seed@test.com', username='seed', hashed_password='x', operational_role='agent', is_active=True)
     test_session.add(seed)
     await test_session.commit()
     await test_session.refresh(seed)
@@ -32,7 +32,7 @@ async def test_register_adds_user_to_general_and_can_fetch_messages(client: Asyn
     await test_session.refresh(msg)
 
     # Register new user
-    r = await client.post('/api/auth/register', json={'email': 'newuser@example.com', 'password': 'Password123!', 'username': 'newuser'})
+    r = await client.post('/api/auth/register', json={'email': 'newuser@example.com', 'password': 'Password123!', 'username': 'newuser', 'operational_role': 'agent'})
     assert r.status_code == 201
     token = r.json()['access_token']
 
@@ -61,7 +61,7 @@ async def test_register_creates_general_if_missing_and_membership_is_single(clie
     await test_session.execute(delete(Channel))
     await test_session.commit()
 
-    r = await client.post('/api/auth/register', json={'email': 'solo@example.com', 'password': 'Password123!', 'username': 'solo'})
+    r = await client.post('/api/auth/register', json={'email': 'solo@example.com', 'password': 'Password123!', 'username': 'solo', 'operational_role': 'agent'})
     assert r.status_code == 201
     user_id = r.json()['user']['id']
 
@@ -85,7 +85,7 @@ async def test_non_member_cannot_access_private_channel(client: AsyncClient, tes
     settings.APP_ENV = 'production'
 
     # Create private channel and message
-    author = User(email='auth2@test.com', username='auth2', hashed_password='x', is_active=True)
+    author = User(email='auth2@test.com', username='auth2', hashed_password='x', operational_role='agent', is_active=True)
     test_session.add(author)
     await test_session.commit()
     await test_session.refresh(author)
@@ -101,7 +101,7 @@ async def test_non_member_cannot_access_private_channel(client: AsyncClient, tes
     await test_session.refresh(msg)
 
     # Register new user
-    r = await client.post('/api/auth/register', json={'email': 'outsider2@example.com', 'password': 'Password123!', 'username': 'outsider2'})
+    r = await client.post('/api/auth/register', json={'email': 'outsider2@example.com', 'password': 'Password123!', 'username': 'outsider2', 'operational_role': 'agent'})
     assert r.status_code == 201
     token = r.json()['access_token']
 

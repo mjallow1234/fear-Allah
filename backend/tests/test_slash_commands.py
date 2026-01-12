@@ -10,7 +10,7 @@ pytestmark = pytest.mark.integration
 async def register_and_login(client: AsyncClient, email: str, username: str, password: str = "testpass123"):
     await client.post(
         "/api/auth/register",
-        json={"email": email, "password": password, "username": username}
+        json={"email": email, "password": password, "username": username, "operational_role": "agent"}
     )
     login_resp = await client.post(
         "/api/auth/login",
@@ -32,7 +32,7 @@ async def create_channel_and_message(client: AsyncClient, headers: dict):
         buddy_username = f"slash_buddy"
         await client.post(
             "/api/auth/register",
-            json={"email": buddy_email, "password": "testpass123", "username": buddy_username}
+            json={"email": buddy_email, "password": "testpass123", "username": buddy_username, "operational_role": "agent"}
         )
         user_resp = await client.get(f"/api/users/by-username/{buddy_username}", headers=headers)
         buddy = user_resp.json()

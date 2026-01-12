@@ -10,8 +10,8 @@ async def test_channel_messages_pagination_first_page(client, test_session):
     from app.db.models import User, Channel, ChannelMember, Message
 
     # Create users and channel
-    author = User(username='author', email='author@example.com', hashed_password='x')
-    member = User(username='member', email='member@example.com', hashed_password='x')
+    author = User(username='author', email='author@example.com', hashed_password='x', operational_role='agent')
+    member = User(username='member', email='member@example.com', hashed_password='x', operational_role='agent')
     test_session.add_all([author, member])
     channel = Channel(name='ch-pag', display_name='Pag', type='public')
     test_session.add(channel)
@@ -48,8 +48,8 @@ async def test_channel_messages_pagination_cursor_pages(client, test_session):
     from app.db.models import User, Channel, ChannelMember, Message
 
     # Create users and channel
-    author = User(username='author2', email='author2@example.com', hashed_password='x')
-    member = User(username='member2', email='member2@example.com', hashed_password='x')
+    author = User(username='author2', email='author2@example.com', hashed_password='x', operational_role='agent')
+    member = User(username='member2', email='member2@example.com', hashed_password='x', operational_role='agent')
     test_session.add_all([author, member])
     channel = Channel(name='ch-pag-2', display_name='Pag2', type='public')
     test_session.add(channel)

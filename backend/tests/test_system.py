@@ -82,7 +82,7 @@ async def test_setup_initialize_creates_resources(client: AsyncClient, test_sess
 @pytest.mark.anyio
 async def test_initialize_rejected_if_users_or_teams_exist(client: AsyncClient, test_session):
     # Create an existing user and team to simulate a partially seeded DB
-    user = User(username="u_exist", email="u_exist@example.com", display_name="Existing", hashed_password="x", is_active=True)
+    user = User(username="u_exist", email="u_exist@example.com", display_name="Existing", hashed_password="x", operational_role='agent', is_active=True)
     team = Team(name="already", display_name="Already")
     test_session.add(user)
     test_session.add(team)

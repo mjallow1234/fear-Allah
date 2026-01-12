@@ -52,6 +52,7 @@ class AssignmentCreate(BaseModel):
     """Schema for creating a task assignment"""
     user_id: int
     role_hint: Optional[str] = Field(None, max_length=100)
+    operational_role: Optional[str] = None
     notes: Optional[str] = None
 
 

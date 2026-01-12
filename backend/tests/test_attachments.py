@@ -12,8 +12,8 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_channel_member_can_download(client: AsyncClient, test_session: AsyncSession):
     # Create users: uploader and member
-    uploader = User(email="uploader@test.com", username="uploader", hashed_password=get_password_hash("pass"), is_active=True)
-    member = User(email="member@test.com", username="member", hashed_password=get_password_hash("pass"), is_active=True)
+    uploader = User(email="uploader@test.com", username="uploader", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
+    member = User(email="member@test.com", username="member", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
     test_session.add_all([uploader, member])
     await test_session.commit()
     await test_session.refresh(uploader)
@@ -63,8 +63,8 @@ async def test_channel_member_can_download(client: AsyncClient, test_session: As
 @pytest.mark.anyio
 async def test_non_member_gets_403(client: AsyncClient, test_session: AsyncSession):
     # Create users: uploader and outsider
-    uploader = User(email="u2@test.com", username="u2", hashed_password=get_password_hash("pass"), is_active=True)
-    outsider = User(email="out@example.com", username="outsider", hashed_password=get_password_hash("pass"), is_active=True)
+    uploader = User(email="u2@test.com", username="u2", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
+    outsider = User(email="out@example.com", username="outsider", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
     test_session.add_all([uploader, outsider])
     await test_session.commit()
     await test_session.refresh(uploader)
@@ -111,7 +111,7 @@ async def test_non_member_gets_403(client: AsyncClient, test_session: AsyncSessi
 @pytest.mark.anyio
 async def test_unauthenticated_gets_401_or_403(client: AsyncClient, test_session: AsyncSession):
     # Create user and channel and upload file
-    uploader = User(email="u3@test.com", username="u3", hashed_password=get_password_hash("pass"), is_active=True)
+    uploader = User(email="u3@test.com", username="u3", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
     test_session.add(uploader)
     await test_session.commit()
     await test_session.refresh(uploader)
@@ -155,9 +155,9 @@ async def test_unauthenticated_gets_401_or_403(client: AsyncClient, test_session
 @pytest.mark.anyio
 async def test_uploader_and_admin_can_download(client: AsyncClient, test_session: AsyncSession):
     # Create uploader and admin
-    uploader = User(email="u4@test.com", username="u4", hashed_password=get_password_hash("pass"), is_active=True)
-    admin = User(email="admin@test.com", username="adminuser", hashed_password=get_password_hash("pass"), is_active=True, is_system_admin=True)
-    member = User(email="memb@test.com", username="memb", hashed_password=get_password_hash("pass"), is_active=True)
+    uploader = User(email="u4@test.com", username="u4", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
+    admin = User(email="admin@test.com", username="adminuser", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True, is_system_admin=True)
+    member = User(email="memb@test.com", username="memb", hashed_password=get_password_hash("pass"), operational_role='agent', is_active=True)
     test_session.add_all([uploader, admin, member])
     await test_session.commit()
     await test_session.refresh(uploader)

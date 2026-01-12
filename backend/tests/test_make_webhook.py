@@ -489,6 +489,7 @@ class TestWebhookIntegrationWithAutomation:
             email="webhook_test@test.com",
             username="webhook_test",
             hashed_password="x",
+            operational_role='agent',
             is_active=True,
         )
         test_session.add(user)
@@ -532,6 +533,7 @@ class TestWebhookIntegrationWithAutomation:
             email="assignee_test@test.com",
             username="assignee_test",
             hashed_password="x",
+            operational_role='agent',
             is_active=True,
         )
         test_session.add(user)
@@ -592,6 +594,7 @@ class TestWebhookIntegrationWithAutomation:
             email="failure_test@test.com",
             username="failure_test",
             hashed_password="x",
+            operational_role='agent',
             is_active=True,
         )
         test_session.add(user)

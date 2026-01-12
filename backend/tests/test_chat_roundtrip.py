@@ -7,9 +7,9 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_chat_roundtrip(client: AsyncClient, test_session):
     # Register two users
-    r1 = await client.post('/api/auth/register', json={'email': 'user1@example.com', 'password': 'Password123!', 'username': 'user1'})
+    r1 = await client.post('/api/auth/register', json={'email': 'user1@example.com', 'password': 'Password123!', 'username': 'user1', 'operational_role': 'agent'})
     assert r1.status_code == 201
-    r2 = await client.post('/api/auth/register', json={'email': 'user2@example.com', 'password': 'Password123!', 'username': 'user2'})
+    r2 = await client.post('/api/auth/register', json={'email': 'user2@example.com', 'password': 'Password123!', 'username': 'user2', 'operational_role': 'agent'})
     assert r2.status_code == 201
 
     # Login to get tokens

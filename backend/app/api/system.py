@@ -128,6 +128,7 @@ def serialize_user_state(user: User) -> dict:
         "is_active": user.is_active,
         "is_system_admin": user.is_system_admin,
         "role": user.role.value if hasattr(user.role, 'value') else str(user.role),
+        "operational_role": (user.operational_role.value if hasattr(user.operational_role, 'value') else str(user.operational_role)) if getattr(user, 'operational_role', None) else None,
         "is_banned": user.is_banned,
         "is_muted": user.is_muted,
     }
@@ -141,6 +142,7 @@ class UserListItem(BaseModel):
     email: str
     display_name: Optional[str]
     role: str
+    operational_role: Optional[str]
     is_active: bool
     is_system_admin: bool
     is_banned: bool
@@ -191,6 +193,7 @@ class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="Unique username (3-50 chars)")
     email: EmailStr = Field(..., description="Unique email address")
     role_id: int = Field(..., description="ID of the role to assign")
+    operational_role: Optional[str] = Field(None, description="Operational role: agent|foreman|delivery|storekeeper")
     is_system_admin: bool = Field(default=False, description="Whether user should be a system admin")
     active: bool = Field(default=True, description="Whether user should be active")
 
@@ -204,6 +207,7 @@ class CreatedUserInfo(BaseModel):
     is_system_admin: bool
     role_id: int
     role_name: str
+    operational_role: Optional[str] = None
 
 
 class CreateUserResponse(BaseModel):
@@ -474,7 +478,20 @@ async def create_system_user(
     else:
         user_role_enum = UserRole.member
     
-    # 6. Create user
+    # 6. Validate and apply operational_role
+    operational_role_value = None
+    if request.operational_role:
+        from app.db.enums import OperationalRole
+        try:
+            operational_role_value = OperationalRole(request.operational_role).value
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid operational_role")
+
+    # Require operational_role for non-admin users
+    if not request.is_system_admin and not operational_role_value:
+        raise HTTPException(status_code=400, detail="operational_role is required for non-admin users")
+
+    # 7. Create user
     new_user = User(
         username=request.username,
         email=request.email,
@@ -483,6 +500,7 @@ async def create_system_user(
         is_active=request.active,
         is_system_admin=request.is_system_admin,
         role=user_role_enum,
+        operational_role=operational_role_value,
     )
     
     db.add(new_user)
@@ -514,15 +532,18 @@ async def create_system_user(
             "email": new_user.email,
             "role_id": request.role_id,
             "role_name": role_obj.name,
+            "operational_role": new_user.operational_role,
             "is_system_admin": request.is_system_admin,
             "active": request.active,
             # Note: password is NEVER logged for security
-        },
+        },}
         user_id=admin.id,
         username=admin.username,
     )
     
     # 10. Return created user + temp password (shown once only)
+    # Include operational_role in response for UI and audits
+    await db.refresh(new_user)
     return CreateUserResponse(
         user=CreatedUserInfo(
             id=new_user.id,
@@ -532,6 +553,7 @@ async def create_system_user(
             is_system_admin=new_user.is_system_admin,
             role_id=request.role_id,
             role_name=role_obj.name,
+            operational_role=new_user.operational_role,
         ),
         temporary_password=temp_password,
     )

@@ -133,12 +133,24 @@ async def seed():
             if exists.scalar_one_or_none():
                 print(f"User exists: {u['username']}")
                 continue
+            # Determine operational_role based on username prefixes for realistic assignment
+            uname = u["username"].lower()
+            if uname.startswith('foreman'):
+                oper = 'foreman'
+            elif uname.startswith('delivery'):
+                oper = 'delivery'
+            elif uname.startswith('storekeeper') or uname.startswith('store'):
+                oper = 'storekeeper'
+            else:
+                oper = 'agent'
+
             user = User(
                 username=u["username"],
                 email=u["email"],
                 hashed_password=get_password_hash(PASSWORD),
                 display_name=u["username"].capitalize(),
                 is_active=True,
+                operational_role=oper,
             )
             db.add(user)
             await db.commit()

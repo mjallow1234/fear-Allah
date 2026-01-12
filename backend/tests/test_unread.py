@@ -7,8 +7,8 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_unread_increments_for_other_user(client: AsyncClient, test_session, monkeypatch):
     # Register two users
-    r1 = await client.post('/api/auth/register', json={'email': 'a@example.com', 'password': 'Password123!', 'username': 'a'})
-    r2 = await client.post('/api/auth/register', json={'email': 'b@example.com', 'password': 'Password123!', 'username': 'b'})
+    r1 = await client.post('/api/auth/register', json={'email': 'a@example.com', 'password': 'Password123!', 'username': 'a', 'operational_role': 'agent'})
+    r2 = await client.post('/api/auth/register', json={'email': 'b@example.com', 'password': 'Password123!', 'username': 'b', 'operational_role': 'agent'})
     assert r1.status_code == 201
     assert r2.status_code == 201
 
@@ -57,8 +57,8 @@ async def test_unread_increments_for_other_user(client: AsyncClient, test_sessio
 @pytest.mark.anyio
 async def test_mark_read_emits_zero_unread(client: AsyncClient, test_session, monkeypatch):
     # Register two users
-    r1 = await client.post('/api/auth/register', json={'email': 'c@example.com', 'password': 'Password123!', 'username': 'c'})
-    r2 = await client.post('/api/auth/register', json={'email': 'd@example.com', 'password': 'Password123!', 'username': 'd'})
+    r1 = await client.post('/api/auth/register', json={'email': 'c@example.com', 'password': 'Password123!', 'username': 'c', 'operational_role': 'agent'})
+    r2 = await client.post('/api/auth/register', json={'email': 'd@example.com', 'password': 'Password123!', 'username': 'd', 'operational_role': 'agent'})
     assert r1.status_code == 201
     assert r2.status_code == 201
 

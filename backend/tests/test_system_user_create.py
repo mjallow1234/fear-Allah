@@ -32,6 +32,7 @@ async def create_admin_user(client: AsyncClient) -> tuple[dict, str]:
             "email": "admin_creator@test.com",
             "password": "adminpass123",
             "username": "admin_creator",
+            "operational_role": "agent",
         },
     )
     assert reg_response.status_code == 201
@@ -58,6 +59,7 @@ async def create_regular_user(client: AsyncClient) -> tuple[dict, str]:
             "email": "regular@test.com",
             "password": "regularpass123",
             "username": "regular_user",
+            "operational_role": "agent",
         },
     )
     assert reg_response.status_code == 201
@@ -123,12 +125,7 @@ async def test_admin_can_create_user(client: AsyncClient, test_session: AsyncSes
             "username": "newuser",
             "email": "newuser@test.com",
             "role_id": role_id,
-            "is_system_admin": False,
-            "active": True,
-        },
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    
+            "operational_role": "agent",
     assert response.status_code == 201
     data = response.json()
     
@@ -140,6 +137,7 @@ async def test_admin_can_create_user(client: AsyncClient, test_session: AsyncSes
     assert data["user"]["active"] is True
     assert data["user"]["is_system_admin"] is False
     assert data["user"]["role_id"] == role_id
+    assert data["user"]["operational_role"] == "agent"
     
     # Verify password is reasonable
     temp_pass = data["temporary_password"]
@@ -167,12 +165,7 @@ async def test_non_admin_blocked(client: AsyncClient, test_session: AsyncSession
             "username": "blocked_user",
             "email": "blocked@test.com",
             "role_id": role_id,
-            "is_system_admin": False,
-            "active": True,
-        },
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    
+            "operational_role": "agent",
     assert response.status_code == 403
 
 
@@ -192,6 +185,7 @@ async def test_duplicate_username_rejected(client: AsyncClient, test_session: As
             "username": "duplicate_name",
             "email": "unique1@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -232,6 +226,7 @@ async def test_duplicate_email_rejected(client: AsyncClient, test_session: Async
             "username": "unique_name1",
             "email": "duplicate@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -246,6 +241,7 @@ async def test_duplicate_email_rejected(client: AsyncClient, test_session: Async
             "username": "unique_name2",
             "email": "duplicate@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -270,6 +266,7 @@ async def test_invalid_role_id_rejected(client: AsyncClient, test_session: Async
             "username": "invalid_role_user",
             "email": "invalid_role@test.com",
             "role_id": 99999,  # Non-existent role
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -305,6 +302,7 @@ async def test_role_assignment_works(client: AsyncClient, test_session: AsyncSes
             "username": "role_assigned_user",
             "email": "role_assigned@test.com",
             "role_id": test_role.id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -333,6 +331,7 @@ async def test_audit_log_created(client: AsyncClient, test_session: AsyncSession
             "username": "audit_test_user",
             "email": "audit_test@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -371,6 +370,7 @@ async def test_password_not_in_audit_log(client: AsyncClient, test_session: Asyn
             "username": "password_log_test",
             "email": "password_log@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -446,6 +446,7 @@ async def test_create_inactive_user(client: AsyncClient, test_session: AsyncSess
             "username": "inactive_user",
             "email": "inactive@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": False,
         },
@@ -469,6 +470,7 @@ async def test_unauthenticated_blocked(client: AsyncClient, test_session: AsyncS
             "username": "unauth_user",
             "email": "unauth@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },
@@ -494,6 +496,7 @@ async def test_new_user_can_login_with_temp_password(client: AsyncClient, test_s
             "username": "login_test_user",
             "email": "login_test@test.com",
             "role_id": role_id,
+            "operational_role": "agent",
             "is_system_admin": False,
             "active": True,
         },

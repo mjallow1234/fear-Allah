@@ -21,6 +21,14 @@ class UserRole(str, enum.Enum):
     customer = "customer"
 
 
+class OperationalRole(str, enum.Enum):
+    """Operational roles for workflow assignment (separate from permission roles)"""
+    agent = "agent"
+    foreman = "foreman"
+    delivery = "delivery"
+    storekeeper = "storekeeper"
+
+
 class ChannelType(str, enum.Enum):
     public = "public"
     private = "private"

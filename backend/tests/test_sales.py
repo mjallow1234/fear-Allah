@@ -7,7 +7,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_agent_sale(client: AsyncClient, test_session, monkeypatch):
     # Create user
-    r = await client.post('/api/auth/register', json={'email': 'agent1@example.com', 'password': 'Password123!', 'username': 'agent1'})
+    r = await client.post('/api/auth/register', json={'email': 'agent1@example.com', 'password': 'Password123!', 'username': 'agent1', 'operational_role': 'agent'})
     assert r.status_code == 201
     login = await client.post('/api/auth/login', json={'identifier': 'agent1@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
@@ -62,8 +62,8 @@ async def test_concurrent_double_sale(test_engine, monkeypatch):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c1, AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c2:
         # register two users
-        await c1.post('/api/auth/register', json={'email': 'r1@example.com', 'password': 'Password123!', 'username': 'r1'})
-        await c2.post('/api/auth/register', json={'email': 'r2@example.com', 'password': 'Password123!', 'username': 'r2'})
+        await c1.post('/api/auth/register', json={'email': 'r1@example.com', 'password': 'Password123!', 'username': 'r1', 'operational_role': 'agent'})
+        await c2.post('/api/auth/register', json={'email': 'r2@example.com', 'password': 'Password123!', 'username': 'r2', 'operational_role': 'agent'})
         l1 = await c1.post('/api/auth/login', json={'identifier': 'r1@example.com', 'password': 'Password123!'})
         l2 = await c2.post('/api/auth/login', json={'identifier': 'r2@example.com', 'password': 'Password123!'})
         t1 = l1.json()['access_token']
@@ -80,7 +80,7 @@ async def test_concurrent_double_sale(test_engine, monkeypatch):
 @pytest.mark.anyio
 async def test_idempotent_sale(client: AsyncClient, test_session):
     # register and login
-    r = await client.post('/api/auth/register', json={'email': 'idemp@example.com', 'password': 'Password123!', 'username': 'idemp'})
+    r = await client.post('/api/auth/register', json={'email': 'idemp@example.com', 'password': 'Password123!', 'username': 'idemp', 'operational_role': 'agent'})
     assert r.status_code == 201
     login = await client.post('/api/auth/login', json={'identifier': 'idemp@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
@@ -114,7 +114,7 @@ async def test_idempotent_sale(client: AsyncClient, test_session):
 @pytest.mark.anyio
 async def test_sale_linked_to_completed_order(client: AsyncClient, test_session):
     # register and login
-    r = await client.post('/api/auth/register', json={'email': 'ordok@example.com', 'password': 'Password123!', 'username': 'ordok'})
+    r = await client.post('/api/auth/register', json={'email': 'ordok@example.com', 'password': 'Password123!', 'username': 'ordok', 'operational_role': 'agent'})
     assert r.status_code == 201
     login = await client.post('/api/auth/login', json={'identifier': 'ordok@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
@@ -135,7 +135,7 @@ async def test_sale_linked_to_completed_order(client: AsyncClient, test_session)
 @pytest.mark.anyio
 async def test_sale_linked_to_non_completed_order_conflict(client: AsyncClient, test_session):
     # register and login
-    r = await client.post('/api/auth/register', json={'email': 'ordbad@example.com', 'password': 'Password123!', 'username': 'ordbad'})
+    r = await client.post('/api/auth/register', json={'email': 'ordbad@example.com', 'password': 'Password123!', 'username': 'ordbad', 'operational_role': 'agent'})
     assert r.status_code == 201
     login = await client.post('/api/auth/login', json={'identifier': 'ordbad@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']

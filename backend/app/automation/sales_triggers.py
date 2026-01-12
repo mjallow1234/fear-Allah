@@ -133,9 +133,9 @@ class SalesAutomationTriggers:
                 from app.db.models import User
                 from sqlalchemy import select as sel
                 
-                # Find a user with warehouse role or system_admin
+                # Find a user with operational role 'storekeeper' or system_admin fallback
                 warehouse_q = sel(User).where(
-                    (User.role == 'system_admin') | (User.is_system_admin == True)
+                    (User.operational_role == 'storekeeper') | (User.is_system_admin == True)
                 ).limit(1)
                 warehouse_res = await db.execute(warehouse_q)
                 warehouse_user = warehouse_res.scalar_one_or_none()

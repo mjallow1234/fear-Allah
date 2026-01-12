@@ -88,10 +88,12 @@ async def handle_slash_command(*, raw_text: str, user, channel, db: AsyncSession
             # Permission: system_admin, agent, storekeeper, or customer can create orders
             username = getattr(user, 'username', '')
             user_role = getattr(user, 'role', None)
+            operational_role = getattr(user, 'operational_role', None)
             allowed_roles = ['agent', 'storekeeper', 'customer']
             is_admin = getattr(user, 'is_system_admin', False)
-            has_allowed_role = user_role in allowed_roles
-            has_allowed_prefix = any(username.startswith(prefix) for prefix in allowed_roles)
+            has_allowed_role = operational_role in allowed_roles or user_role in allowed_roles
+            # Backwards-compat: fallback to username prefix if roles are not set (deprecated)
+            has_allowed_prefix = any(username.startswith(prefix) for prefix in allowed_roles) if not operational_role else False
             
             if not (is_admin or has_allowed_role or has_allowed_prefix):
                 result.error = '❌ Permission denied'
@@ -197,13 +199,16 @@ async def handle_slash_command(*, raw_text: str, user, channel, db: AsyncSession
             user_role = getattr(user, 'role', None)
             is_admin = getattr(user, 'is_system_admin', False)
             
-            # Determine effective role - check actual DB role first
+            # Determine effective role - prefer operational_role
+            operational_role = getattr(user, 'operational_role', None)
             if is_admin or user_role == 'system_admin' or user_role == 'team_admin':
                 effective_role = 'admin'
+            elif operational_role in ('storekeeper', 'agent', 'foreman', 'delivery', 'customer'):
+                effective_role = operational_role
             elif user_role in ('storekeeper', 'agent', 'foreman', 'delivery', 'customer'):
                 effective_role = user_role
             else:
-                # Fallback to username prefix for backwards compatibility
+                # Fallback to username prefix for backwards compatibility (deprecated)
                 username_lower = username.lower()
                 if username_lower.startswith('storekeeper'):
                     effective_role = 'storekeeper'

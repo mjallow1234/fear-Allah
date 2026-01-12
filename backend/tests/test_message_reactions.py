@@ -24,7 +24,7 @@ async def register_and_login(client: AsyncClient, email: str, username: str, pas
     """Register a user and return auth headers."""
     await client.post(
         "/api/auth/register",
-        json={"email": email, "password": password, "username": username}
+        json={"email": email, "password": password, "username": username, "operational_role": "agent"}
     )
     login_resp = await client.post(
         "/api/auth/login",
@@ -54,7 +54,7 @@ async def create_channel_and_message(client: AsyncClient, headers: dict, channel
         buddy_username = f"{channel_name}_buddy"
         await client.post(
             "/api/auth/register",
-            json={"email": buddy_email, "password": "testpass123", "username": buddy_username}
+            json={"email": buddy_email, "password": "testpass123", "username": buddy_username, "operational_role": "agent"}
         )
         # Fetch buddy id
         user_resp = await client.get(f"/api/users/by-username/{buddy_username}", headers=headers)

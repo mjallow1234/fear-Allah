@@ -82,7 +82,7 @@ async def test_presence_set_on_connect(client, test_session):
     ws_module.redis_client = fake
 
     # Create channel & register
-    r1 = await client.post('/api/auth/register', json={'email': 'p1@example.com', 'password': 'Password123!', 'username': 'p1'})
+    r1 = await client.post('/api/auth/register', json={'email': 'p1@example.com', 'password': 'Password123!', 'username': 'p1', 'operational_role': 'agent'})
     login = await client.post('/api/auth/login', json={'identifier': 'p1@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
     # Make p1 an admin so channel creation is allowed

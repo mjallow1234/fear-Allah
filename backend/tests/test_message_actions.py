@@ -21,7 +21,7 @@ async def register_and_login(client: AsyncClient, email: str, username: str, pas
         from app.core.security import get_password_hash, create_access_token
         from app.db.models import User
 
-        user = User(email=email, username=username, display_name=username, hashed_password=get_password_hash(password))
+        user = User(email=email, username=username, display_name=username, hashed_password=get_password_hash(password), operational_role='agent')
         test_session.add(user)
         await test_session.commit()
         await test_session.refresh(user)
@@ -32,7 +32,7 @@ async def register_and_login(client: AsyncClient, email: str, username: str, pas
     # Fallback to HTTP endpoints when no DB session is available (may hit rate limits)
     await client.post(
         "/api/auth/register",
-        json={"email": email, "password": password, "username": username}
+        json={"email": email, "password": password, "username": username, "operational_role": "agent"}
     )
     login_resp = await client.post(
         "/api/auth/login",

@@ -43,6 +43,7 @@ async def admin_user(db_session: AsyncSession):
             username="admin",
             email="admin@fearallah.com",
             hashed_password=get_password_hash("admin123"),
+            operational_role='agent',
             is_system_admin=True,
             is_active=True,
         )
@@ -64,6 +65,7 @@ async def regular_user(db_session: AsyncSession):
             username="testuser_roles",
             email="testuser_roles@test.com",
             hashed_password=get_password_hash("test123"),
+            operational_role='agent',
             is_system_admin=False,
             is_active=True,
         )

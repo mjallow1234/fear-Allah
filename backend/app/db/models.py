@@ -4,7 +4,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
 from app.db.enums import (
-    UserStatus, UserRole, ChannelType, NotificationType, 
+    UserStatus, UserRole, OperationalRole, ChannelType, NotificationType, 
     OrderStatus, TaskStatus, OrderType, SaleChannel,
     AutomationTaskType, AutomationTaskStatus, AssignmentStatus, TaskEventType,
     ProductType, FormFieldType, FormCategory,
@@ -28,6 +28,7 @@ class User(Base):
     avatar_url = Column(String(500))
     status = Column(SAEnum(UserStatus, name="userstatus", create_type=False), default=UserStatus.offline.value, nullable=False)
     role = Column(SAEnum(UserRole, name="userrole", create_type=False), default=UserRole.member.value, nullable=False)  # Global role
+    operational_role = Column(SAEnum(OperationalRole, name="operationalrole", create_type=False), nullable=True, index=True)  # Business operational role: agent/foreman/delivery/storekeeper
     is_active = Column(Boolean, default=True)
     is_system_admin = Column(Boolean, default=False)  # Legacy - use role instead
     is_banned = Column(Boolean, default=False)

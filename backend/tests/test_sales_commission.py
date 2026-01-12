@@ -7,7 +7,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.anyio
 async def test_commission_agent_eligible(client: AsyncClient, test_session):
     # setup: create user, inventory, and a sale via API
-    await client.post('/api/auth/register', json={'email': 'c1@example.com', 'password': 'Password123!', 'username': 'c1'})
+    await client.post('/api/auth/register', json={'email': 'c1@example.com', 'password': 'Password123!', 'username': 'c1', 'operational_role': 'agent'})
     login = await client.post('/api/auth/login', json={'identifier': 'c1@example.com', 'password': 'Password123!'})
     token = login.json()['access_token']
 
