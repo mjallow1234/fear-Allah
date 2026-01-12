@@ -30,12 +30,12 @@ def upgrade():
         UPDATE users
         SET operational_role = (
             CASE
-                WHEN lower(username) LIKE 'agent%' THEN 'agent'
-                WHEN lower(username) LIKE 'foreman%' THEN 'foreman'
-                WHEN lower(username) LIKE 'delivery%' THEN 'delivery'
-                WHEN lower(username) LIKE 'store%' THEN 'storekeeper'
-                WHEN is_system_admin = true THEN 'agent'
-                ELSE 'agent'
+                WHEN lower(username) LIKE 'agent%' THEN 'agent'::operationalrole
+                WHEN lower(username) LIKE 'foreman%' THEN 'foreman'::operationalrole
+                WHEN lower(username) LIKE 'delivery%' THEN 'delivery'::operationalrole
+                WHEN lower(username) LIKE 'store%' THEN 'storekeeper'::operationalrole
+                WHEN is_system_admin = true THEN 'agent'::operationalrole
+                ELSE 'agent'::operationalrole
             END
         )
         WHERE operational_role IS NULL
