@@ -77,3 +77,24 @@ async def test_setup_initialize_creates_resources(client: AsyncClient, test_sess
     )
     assert login_resp.status_code == 200
     assert "access_token" in login_resp.json()
+
+
+@pytest.mark.anyio
+async def test_initialize_rejected_if_users_or_teams_exist(client: AsyncClient, test_session):
+    # Create an existing user and team to simulate a partially seeded DB
+    user = User(username="u_exist", email="u_exist@example.com", display_name="Existing", hashed_password="x", is_active=True)
+    team = Team(name="already", display_name="Already")
+    test_session.add(user)
+    test_session.add(team)
+    await test_session.commit()
+
+    payload = {
+        "admin_name": "Admin User",
+        "admin_email": "admin2@example.com",
+        "admin_password": "strongpass123",
+        "team_name": "Acme Co",
+    }
+
+    resp = await client.post("/api/setup/initialize", json=payload)
+    assert resp.status_code == 409
+    assert resp.json().get("detail") == "System already has users or teams; cannot initialize"
