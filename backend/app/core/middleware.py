@@ -201,6 +201,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         '/docs',
         '/redoc',
         '/openapi.json',
+        '/api/system/status',
+        '/api/system/status/',
     }
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:

@@ -11,7 +11,8 @@ async def test_system_status_fresh_db(client: AsyncClient):
     resp = await client.get("/api/system/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["initialized"] is False
+    assert data["setup_completed"] is False
+    assert data["system_ready"] is False
 
 
 @pytest.mark.anyio
@@ -25,7 +26,8 @@ async def test_system_status_initialized(client: AsyncClient, test_session):
     resp = await client.get("/api/system/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["initialized"] is True
+    assert data["setup_completed"] is True
+    assert data["system_ready"] is True
 
 
 @pytest.mark.anyio
@@ -56,7 +58,7 @@ async def test_setup_initialize_creates_resources(client: AsyncClient, test_sess
     # After initialization, system status should be true and persisted
     resp2 = await client.get("/api/system/status")
     assert resp2.status_code == 200
-    assert resp2.json().get("initialized") is True
+    assert resp2.json().get("setup_completed") is True
 
     # Verify the persisted flag exists in DB
     from app.db.models import SystemState

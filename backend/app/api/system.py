@@ -53,17 +53,27 @@ router = APIRouter()
 
 @router.get("/status")
 async def system_status(db: AsyncSession = Depends(get_db)):
-    """Return whether the system is initialized.
+    """Return public system status used during bootstrap.
 
-    initialized is determined solely by a persisted `setup_completed` flag stored
-    in the `system_state` table. This endpoint is public and does not require authentication.
+    Contract (stable):
+    {
+        "setup_completed": bool,
+        "system_ready": bool
+    }
+
+    - No auth required
+    - No side effects
+    - Exempt from rate limiting (middleware skip)
+    - Returns fast
     """
     from app.db.models import SystemState
 
     result = await db.execute(select(SystemState))
     state = result.scalar_one_or_none()
-    initialized = bool(state.setup_completed) if state else False
-    return {"initialized": initialized}
+    setup_completed = bool(state.setup_completed) if state else False
+
+    # system_ready mirrors setup_completed for now — this can be extended later
+    return {"setup_completed": setup_completed, "system_ready": setup_completed}
 
 
 # === Safety Helpers (Phase 8.5.1) ===

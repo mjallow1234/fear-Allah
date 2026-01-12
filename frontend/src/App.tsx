@@ -28,19 +28,27 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function App() {
 
   // System gate: ensure system status is resolved BEFORE any route/PrivateRoute runs.
-  const [initialized, setInitialized] = useState<boolean | null>(null)
+  // Logic: setupCompleted is tri-state:
+  //  - undefined => unresolved (show splash)
+  //  - true/false => explicit value
+  //  - null => unknown (treat as 'unknown' and avoid redirecting to /setup)
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null | undefined>(undefined)
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
 
   useEffect(() => {
     let cancelled = false
     import('./services/system').then(({ fetchSystemStatus }) => {
       fetchSystemStatus()
         .then((data) => {
-          if (!cancelled) setInitialized(Boolean(data.initialized))
+          if (cancelled) return
+          // If server returned null (unknown), pass through as null
+          const sc = data.setup_completed
+          setSetupCompleted(sc === null ? null : Boolean(sc))
         })
         .catch((err) => {
-          // Fail open on transient fetch errors so app still functions.
-          if (!cancelled) setInitialized(true)
-          console.warn('Failed to resolve system status, allowing normal flow', err)
+          // On error treat as unknown (null) so unauthenticated users don't get redirected to /setup
+          if (!cancelled) setSetupCompleted(null)
+          console.warn('Failed to resolve system status, treating as unknown', err)
         })
     })
 
@@ -50,18 +58,38 @@ function App() {
   }, [])
 
   // While the system status is unresolved, render a blank screen / splash to avoid any routing
-  if (initialized === null) return null
+  if (setupCompleted === undefined) return null
 
 
   return (
     <Routes>
-      <Route path="/login" element={initialized === false ? <Navigate to="/setup" replace /> : <Login />} />
-      <Route path="/setup" element={!initialized ? <SetupPage /> : <Navigate to="/login" replace />} />
+      <Route
+        path="/login"
+        element={
+          isAuthenticated ? <Navigate to="/" replace /> : setupCompleted === false ? <Navigate to="/setup" replace /> : <Login />
+        }
+      />
+      <Route
+        path="/setup"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/" replace />
+          ) : setupCompleted === false ? (
+            <SetupPage />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
       <Route path="/register" element={<Register />} />      <Route path="setup" element={<SetupPage/>} />      <Route
         path="/"
         element={
-          initialized === false ? (
-            <Navigate to="/setup" replace />
+          !isAuthenticated ? (
+            setupCompleted === false ? (
+              <Navigate to="/setup" replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
           ) : (
             <PrivateRoute>
               <MainLayout />
