@@ -24,8 +24,9 @@ services:
   api-proxy:
     image: nginx:alpine
     volumes:
-      - ./deploy/api-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/api-proxy.conf:/etc/nginx/conf.d/default.conf:rw
     ports:
       - "18002:80"
     depends_on:
       - backend
+      - frontend
