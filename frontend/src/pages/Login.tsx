@@ -18,8 +18,8 @@ export default function Login() {
 
     try {
       const response = await api.post('/api/auth/login', {
-        identifier,
-        password,
+        identifier: identifier,
+        password: password,
       })
       login(response.data.access_token, response.data.user)
       navigate('/')
