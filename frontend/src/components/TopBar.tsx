@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { useTaskStore } from '../stores/taskStore'
-import { useOrderStore } from '../stores/orderStore'
-import { Hash, Users, Search, Settings, ClipboardList, ShoppingCart } from 'lucide-react'
+import { Hash, Users, Search, Settings } from 'lucide-react'
 import SearchModal from './SearchModal'
 import NotificationBell from './NotificationBell'
 import ChannelSettings from './ChannelSettings'
@@ -19,22 +17,6 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
   const navigate = useNavigate()
   const [searchOpen, setSearchOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  
-  // Task inbox badge count
-  const myAssignments = useTaskStore((state) => state.myAssignments)
-  const fetchMyAssignments = useTaskStore((state) => state.fetchMyAssignments)
-  const pendingTaskCount = myAssignments.filter(a => a.status === 'PENDING' || a.status === 'IN_PROGRESS').length
-  
-  // Orders count (active orders with automation)
-  const orders = useOrderStore((state) => state.orders)
-  const activeOrderCount = orders.filter(o => 
-    o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && o.automation?.has_automation
-  ).length
-  
-  // Fetch assignments on mount
-  useEffect(() => {
-    fetchMyAssignments()
-  }, [fetchMyAssignments])
 
   const handleSearchResultClick = (channelId: number, _messageId: number) => {
     navigate(`/channel/${channelId}`)
@@ -70,34 +52,6 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           
           {/* Notification Bell */}
           <NotificationBell />
-          
-          {/* Task Inbox */}
-          <button
-            onClick={() => navigate('/tasks')}
-            className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
-            title="Task Inbox"
-          >
-            <ClipboardList size={20} />
-            {pendingTaskCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#5865f2] text-white text-xs font-bold rounded-full flex items-center justify-center">
-                {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
-              </span>
-            )}
-          </button>
-          
-          {/* Orders */}
-          <button
-            onClick={() => navigate('/orders')}
-            className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
-            title="Orders"
-          >
-            <ShoppingCart size={20} />
-            {activeOrderCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                {activeOrderCount > 9 ? '9+' : activeOrderCount}
-              </span>
-            )}
-          </button>
           
           {onlineCount !== undefined && (
             <div className="flex items-center gap-1 text-sm text-[#949ba4]">

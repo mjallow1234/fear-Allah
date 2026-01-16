@@ -9,10 +9,6 @@ import MainLayout from './layouts/MainLayout'
 import ChannelView from './pages/ChannelView'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
-import NotificationsPage from './pages/NotificationsPage'
-import TaskInboxPage from './pages/TaskInboxPage'
-import OrdersPage from './pages/OrdersPage'
-import OrderDetailsPage from './pages/OrderDetailsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -55,10 +51,6 @@ function App() {
         <Route path="channels/:channelId" element={<ChannelView />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
-        <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="tasks" element={<TaskInboxPage />} />
-        <Route path="orders" element={<OrdersPage />} />
-        <Route path="orders/:id" element={<OrderDetailsPage />} />
       </Route>
       <Route path="*" element={<h1 style={{ padding: 40 }}>404 — Page not found</h1>} />
     </Routes>

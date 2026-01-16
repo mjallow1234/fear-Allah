@@ -24,17 +24,10 @@ const pendingHandlers: Map<string, Set<(data: any) => void>> = new Map()
 const masterListeners: Map<string, (data: any) => void> = new Map()
 
 /**
- * Get the Socket.IO server URL.
- * Uses VITE_API_URL (same as REST API) or falls back to same host:18002 proxy.
+ * Get the Socket.IO server URL (LAN-safe)
  */
 function getSocketUrl(): string {
-  // Use same URL as REST API - Socket.IO goes through the same proxy
-  const apiUrl = import.meta.env.VITE_API_URL
-  if (apiUrl) {
-    return apiUrl
-  }
-  // Fallback: same hostname, port 18002 (api-proxy)
-  return `http://${window.location.hostname}:18002`
+  return `http://${window.location.hostname}:8000`
 }
 
 /**

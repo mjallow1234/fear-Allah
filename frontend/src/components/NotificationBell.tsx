@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Bell, Check, CheckCheck, Trash2, Package, ShoppingCart, ClipboardList, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import clsx from 'clsx'
@@ -125,7 +125,6 @@ export default function NotificationBell() {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      // Chat notifications
       case 'mention':
         return '@'
       case 'reply':
@@ -134,27 +133,6 @@ export default function NotificationBell() {
         return '💬'
       case 'reaction':
         return '👍'
-      
-      // Automation notifications
-      case 'task_assigned':
-        return <ClipboardList size={14} />
-      case 'task_completed':
-        return <Check size={14} className="text-green-400" />
-      case 'task_auto_closed':
-        return <ClipboardList size={14} className="text-orange-400" />
-      case 'order_created':
-        return <ShoppingCart size={14} className="text-blue-400" />
-      case 'order_completed':
-        return <ShoppingCart size={14} className="text-green-400" />
-      case 'low_stock':
-        return <AlertTriangle size={14} className="text-yellow-400" />
-      case 'inventory_restocked':
-        return <RefreshCw size={14} className="text-green-400" />
-      case 'sale_recorded':
-        return <Package size={14} className="text-purple-400" />
-      case 'system':
-        return <Bell size={14} />
-      
       default:
         return '📢'
     }
