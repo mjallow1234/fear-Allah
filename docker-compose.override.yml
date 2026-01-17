@@ -11,15 +11,13 @@ services:
     # backend is accessed by other containers using the internal network (no host port published)
 
   frontend:
-    image: node:20
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     volumes:
       - ./frontend:/app:cached
-    working_dir: /app
-    ports:
-      - "3000:5173"
-    environment:
-      - VITE_API_URL=http://backend:8000
-    command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend
 
   api-proxy:
     image: nginx:alpine
