@@ -8,7 +8,7 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
   // A) Auth: use injected E2E token if available, otherwise perform API login as fallback
   let token = process.env.E2E_TOKEN
   if (!token) {
-    const loginResp = await request.post(`${API_BASE}/api/auth/login`, {
+    const loginResp = await request.post(`${API_BASE}/auth/login`, {
       data: { identifier: 'admin@fearallah.com', password: 'admin123' },
     })
     expect(loginResp.ok()).toBeTruthy()
@@ -20,7 +20,7 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
   // Also fetch /api/users/me and set a full `auth-storage` so the app knows the current user on load.
   let me: any = null
   try {
-    const meResp = await request.get(`${API_BASE}/api/users/me`, { headers: { authorization: `Bearer ${token}` } })
+    const meResp = await request.get(`${API_BASE}/users/me`, { headers: { authorization: `Bearer ${token}` } })
     if (meResp.ok()) me = await meResp.json()
   } catch (e) {}
 

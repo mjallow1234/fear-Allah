@@ -66,7 +66,7 @@ test('create channel flow (non-admin) - + button disabled', async ({ page, reque
   })
   expect(registerResp.ok()).toBeTruthy()
 
-  const loginResp = await request.post('http://localhost:18002/api/auth/login', {
+  const loginResp = await request.post('/api/auth/login', {
     data: { identifier: email, password: 'pass123' },
   })
   expect(loginResp.ok()).toBeTruthy()
