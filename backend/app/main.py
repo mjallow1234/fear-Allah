@@ -136,13 +136,14 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(users.router, prefix="/api/users", tags=["Users"])
-app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
-app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
-app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
-app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
-app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
-app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
+app.include_router(users.router, prefix="/users", tags=["Users"])
+app.include_router(teams.router, prefix="/teams", tags=["Teams"])
+app.include_router(channels.router, prefix="/channels", tags=["Channels"])
+app.include_router(messages.router, prefix="/messages", tags=["Messages"])
+app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+# Legacy WebSocket endpoints moved under /ws/legacy to avoid colliding with modern /ws router
+app.include_router(websocket.router, prefix="/ws/legacy", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
 # Backward-compatible alias for channel read endpoint (non-API root path)
@@ -171,20 +172,21 @@ app.include_router(health.router, prefix="", tags=["Health"])
 
 # Orders & Tasks
 from app.api import orders, tasks
-app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
-app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
+app.include_router(orders.router, prefix="/orders", tags=["Orders"])
+app.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 
 # Sales (event-based, not workflows)
 from app.api import sales
-app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
+app.include_router(sales.router, prefix="/sales", tags=["Sales"])
 
 # Inventory (Phase 6.3)
 from app.api import inventory
-app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+app.include_router(inventory.router, prefix="/inventory", tags=["Inventory"])
 
 # Automation Engine (Phase 6.1)
 from app.api import automation
-app.include_router(automation.router, prefix="/api", tags=["Automation"])
+# automation.router already defines prefix "/automation" internally; include it without an extra /api prefix
+app.include_router(automation.router, tags=["Automation"])
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "fear-Allah API"}
