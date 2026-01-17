@@ -61,7 +61,7 @@ export default function Sidebar() {
   const fetchTeams = useCallback(async () => {
     if (!token) return
     try {
-      const response = await api.get('/api/teams/')
+      const response = await api.get('/teams/')
       // Normalize to array to prevent .map() crashes if API returns unexpected shape
       const fetchedTeams = Array.isArray(response.data)
         ? response.data
@@ -83,7 +83,7 @@ export default function Sidebar() {
     if (!token) return
     try {
       // Use trailing slash to match backend route exactly and avoid 405
-      const response = await api.get('/api/channels/')
+      const response = await api.get('/channels/')
       // Normalize to array to prevent .map() crashes if API returns unexpected shape
       const fetchedChannels = Array.isArray(response.data)
         ? response.data
@@ -103,7 +103,7 @@ export default function Sidebar() {
   const fetchDMChannels = useCallback(async () => {
     if (!token) return
     try {
-      const response = await api.get('/api/channels/direct/list')
+      const response = await api.get('/channels/direct/list')
       // Normalize to array to prevent .map() crashes if API returns unexpected shape
       const dmData = Array.isArray(response.data)
         ? response.data
@@ -119,7 +119,7 @@ export default function Sidebar() {
   // Start a DM with a user
   const startDM = async (userId: string) => {
     try {
-      const response = await api.post('/api/channels/direct', { user_id: parseInt(userId) })
+      const response = await api.post('/channels/direct', { user_id: parseInt(userId) })
       const dmChannel = response.data
       // Refresh DM list and navigate to the channel
       await fetchDMChannels()
@@ -146,7 +146,7 @@ export default function Sidebar() {
   const fetchTeamMembers = useCallback(async () => {
     if (!token || !selectedTeam) return
     try {
-      const response = await api.get(`/api/teams/${selectedTeam.id}/members`)
+      const response = await api.get(`/teams/${selectedTeam.id}/members`)
       const members = Array.isArray(response.data) ? response.data : []
       setTeamMembers(members)
     } catch (error) {

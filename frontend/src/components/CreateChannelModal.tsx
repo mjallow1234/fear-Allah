@@ -51,7 +51,7 @@ export default function CreateChannelModal({ isOpen, onClose, onCreated }: Props
         display_name: displayName,
         type: isPrivate ? 'P' : 'O',
       }
-      const res = await api.post('/api/channels/', payload)
+      const res = await api.post('/channels/', payload)
       const channel = res.data
       onCreated?.(channel)
       onClose()

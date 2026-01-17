@@ -101,7 +101,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   fetchOrderById: async (orderId: number) => {
     set({ loadingOrder: true, error: null })
     try {
-      // Backend doesn't have GET /api/orders/{id} yet
+      // Backend doesn't have GET /orders/{id} yet
       // We can only get automation status
       // Create a minimal order object
       const existingOrder = get().orders.find(o => o.id === orderId)
@@ -138,7 +138,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   fetchOrderAutomation: async (orderId: number) => {
     set({ loadingAutomation: true })
     try {
-      const response = await api.get(`/api/orders/${orderId}/automation`)
+      const response = await api.get(`/orders/${orderId}/automation`)
       const automationStatus = response.data as OrderAutomationStatus
       
       set({ automationStatus, loadingAutomation: false })

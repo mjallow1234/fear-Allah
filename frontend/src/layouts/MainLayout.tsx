@@ -27,7 +27,7 @@ export default function MainLayout() {
       }
 
       // Fetch channel info
-      api.get(`/api/channels/${channelNum}`)
+      api.get(`/channels/${channelNum}`)
         .then(response => {
           setChannelName(response.data.display_name || response.data.name)
         })

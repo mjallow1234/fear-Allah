@@ -55,7 +55,7 @@ export function subscribeToReadReceipts(): () => void {
  */
 export async function fetchChannelReads(channelId: number): Promise<void> {
   try {
-    const response = await api.get(`/api/channels/${channelId}/reads`);
+    const response = await api.get(`/channels/${channelId}/reads`);
     const reads = response.data as Array<{ user_id: number; last_read_message_id: number | null }>;
     
     useReadReceiptStore.getState().setInitialReads(channelId, reads);
@@ -95,7 +95,7 @@ export function markChannelRead(channelId: number, lastReadMessageId: number): v
     const currentUserId = useAuthStore.getState().user?.id;
     
     try {
-      await api.post(`/api/channels/${pending.channelId}/read`, {
+      await api.post(`/channels/${pending.channelId}/read`, {
         last_read_message_id: pending.messageId,
       });
       

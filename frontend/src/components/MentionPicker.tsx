@@ -35,7 +35,7 @@ export default function MentionPicker({
     const fetchUsers = async () => {
       setIsLoading(true)
       try {
-        const response = await api.get('/api/users/')
+        const response = await api.get('/users/')
         setUsers(response.data)
       } catch (error) {
         console.error('Failed to fetch users:', error)

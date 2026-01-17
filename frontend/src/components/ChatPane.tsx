@@ -171,7 +171,7 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
       setMessages([])
       
       try {
-        const response = await api.get(`/api/messages/channel/${channelIdNum}`)
+        const response = await api.get(`/messages/channel/${channelIdNum}`)
         const fetchedMessages: ExtendedMessage[] = response.data.map((msg: any) => ({
           id: msg.id,
           content: msg.content,
@@ -224,7 +224,7 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     setActiveThread(messageId)
     setReplyingTo(null)
     try {
-      const response = await api.get(`/api/messages/${messageId}/replies`)
+      const response = await api.get(`/messages/${messageId}/replies`)
       setThreadReplies(response.data.map((msg: any) => ({
         id: msg.id,
         content: msg.content,
@@ -270,7 +270,7 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
       }
       
       // Use the dedicated reply endpoint
-      const response = await api.post(`/api/messages/${activeThread}/reply`, {
+      const response = await api.post(`/messages/${activeThread}/reply`, {
         content,
       })
       
@@ -337,7 +337,7 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     if (!editContent.trim()) return
     
     try {
-      await api.put(`/api/messages/${messageId}`, { content: editContent.trim() })
+      await api.put(`/messages/${messageId}`, { content: editContent.trim() })
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === messageId
@@ -356,7 +356,7 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     if (!confirm('Are you sure you want to delete this message?')) return
     
     try {
-      await api.delete(`/api/messages/${messageId}`)
+      await api.delete(`/messages/${messageId}`)
       setMessages((prev) => prev.filter((msg) => msg.id !== messageId))
     } catch (error) {
       console.error('Failed to delete message:', error)

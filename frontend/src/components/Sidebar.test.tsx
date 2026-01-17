@@ -33,9 +33,9 @@ describe('Sidebar presence events', () => {
 
   it('adds a channel when a channel_created presence event is received', async () => {
     mockedApi.get.mockImplementation((path: string) => {
-      if (path === '/api/teams/') return Promise.resolve({ data: [{ id: 1, name: 'team1', display_name: 'Team 1' }] })
-      if (path.startsWith('/api/channels/')) return Promise.resolve({ data: [{ id: 10, name: 'chan', display_name: 'Chan', type: 'O', team_id: 1 }] })
-      if (path === '/api/channels/?team_id=1') return Promise.resolve({ data: [{ id: 10, name: 'chan', display_name: 'Chan', type: 'O', team_id: 1 }] })
+      if (path === '/teams/') return Promise.resolve({ data: [{ id: 1, name: 'team1', display_name: 'Team 1' }] })
+      if (path.startsWith('/channels/')) return Promise.resolve({ data: [{ id: 10, name: 'chan', display_name: 'Chan', type: 'O', team_id: 1 }] })
+      if (path === '/channels/?team_id=1') return Promise.resolve({ data: [{ id: 10, name: 'chan', display_name: 'Chan', type: 'O', team_id: 1 }] })
       return Promise.resolve({ data: [] })
     })
 

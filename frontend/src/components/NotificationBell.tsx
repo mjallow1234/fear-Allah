@@ -35,8 +35,8 @@ export default function NotificationBell() {
   const fetchNotifications = useCallback(async () => {
     try {
       const [notifResponse, countResponse] = await Promise.all([
-        api.get('/api/notifications/?limit=10'),
-        api.get('/api/notifications/count')
+        api.get('/notifications/?limit=10'),
+        api.get('/notifications/count')
       ])
       setNotifications(notifResponse.data)
       setUnreadCount(countResponse.data.unread)
@@ -79,7 +79,7 @@ export default function NotificationBell() {
   const handleMarkRead = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
     try {
-      await api.post(`/api/notifications/${id}/read`)
+      await api.post(`/notifications/${id}/read`)
       setNotifications(prev =>
         prev.map(n => n.id === id ? { ...n, is_read: true } : n)
       )
@@ -91,7 +91,7 @@ export default function NotificationBell() {
 
   const handleMarkAllRead = async () => {
     try {
-      await api.post('/api/notifications/read-all')
+      await api.post('/notifications/read-all')
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
       setUnreadCount(0)
     } catch (error) {
@@ -102,7 +102,7 @@ export default function NotificationBell() {
   const handleDelete = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
     try {
-      await api.delete(`/api/notifications/${id}`)
+      await api.delete(`/notifications/${id}`)
       const notif = notifications.find(n => n.id === id)
       setNotifications(prev => prev.filter(n => n.id !== id))
       if (notif && !notif.is_read) {

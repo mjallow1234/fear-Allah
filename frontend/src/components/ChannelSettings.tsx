@@ -35,7 +35,7 @@ export default function ChannelSettings({ isOpen, onClose, channelId, channelNam
     if (!channelId) return
     setLoading(true)
     try {
-      const response = await api.get(`/api/channels/${channelId}/members`)
+      const response = await api.get(`/channels/${channelId}/members`)
       setMembers(response.data)
     } catch (error) {
       console.error('Failed to fetch members:', error)
@@ -46,7 +46,7 @@ export default function ChannelSettings({ isOpen, onClose, channelId, channelNam
 
   const fetchAllUsers = useCallback(async () => {
     try {
-      const response = await api.get('/api/users/')
+      const response = await api.get('/users/')
       setAllUsers(response.data)
     } catch (error) {
       console.error('Failed to fetch users:', error)
@@ -62,7 +62,7 @@ export default function ChannelSettings({ isOpen, onClose, channelId, channelNam
 
   const handleAddMember = async (userId: number) => {
     try {
-      await api.post(`/api/channels/${channelId}/members`, { user_id: userId })
+      await api.post(`/channels/${channelId}/members`, { user_id: userId })
       await fetchMembers()
       setShowAddUser(false)
       setSearchQuery('')
@@ -75,7 +75,7 @@ export default function ChannelSettings({ isOpen, onClose, channelId, channelNam
   const handleRemoveMember = async (userId: number) => {
     if (!confirm('Are you sure you want to remove this member?')) return
     try {
-      await api.delete(`/api/channels/${channelId}/members/${userId}`)
+      await api.delete(`/channels/${channelId}/members/${userId}`)
       await fetchMembers()
     } catch (error: any) {
       console.error('Failed to remove member:', error)

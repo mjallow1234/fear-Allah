@@ -32,7 +32,7 @@ export default function NewDMModal({ isOpen, onClose, onDMCreated }: NewDMModalP
   const fetchUsers = async () => {
     setIsLoading(true)
     try {
-      const response = await api.get('/api/users/')
+      const response = await api.get('/users/')
       // Filter out current user
       setUsers(response.data.filter((u: User) => u.id !== currentUser?.id))
     } catch (error) {
@@ -45,7 +45,7 @@ export default function NewDMModal({ isOpen, onClose, onDMCreated }: NewDMModalP
   const startDM = async (userId: number) => {
     setCreating(userId)
     try {
-      const response = await api.post('/api/channels/direct', { user_id: userId })
+      const response = await api.post('/channels/direct', { user_id: userId })
       onDMCreated(response.data.id)
       onClose()
     } catch (error) {

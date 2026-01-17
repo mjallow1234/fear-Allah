@@ -63,7 +63,7 @@ describe('Register Component', () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     // Check that the api.post was called with correct endpoint and payload
-    expect(api.post).toHaveBeenCalledWith('/api/auth/register', {
+    expect(api.post).toHaveBeenCalledWith('/auth/register', {
       email: 'test@example.com',
       username: 'testuser',
       password: 'secret',

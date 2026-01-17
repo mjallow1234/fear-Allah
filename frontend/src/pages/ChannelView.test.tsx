@@ -15,8 +15,8 @@ describe('ChannelView', () => {
 
   it('renders messages correctly', async () => {
     ;(api.get as any).mockImplementation((url: string) => {
-        if (url === '/api/channels/1') return Promise.resolve({ data: { id: 1, name: 'ch1', display_name: 'Ch 1' } })
-      if (url.startsWith('/api/channels/1/messages')) return Promise.resolve({ data: { channel_id: 1, messages: [{ id: 5, content: 'Hello', author_username: 'alice', created_at: new Date().toISOString() }], has_more: false } })
+        if (url === '/channels/1') return Promise.resolve({ data: { id: 1, name: 'ch1', display_name: 'Ch 1' } })
+      if (url.startsWith('/channels/1/messages')) return Promise.resolve({ data: { channel_id: 1, messages: [{ id: 5, content: 'Hello', author_username: 'alice', created_at: new Date().toISOString() }], has_more: false } })
       return Promise.reject(new Error('not found'))
     })
 
@@ -34,8 +34,8 @@ describe('ChannelView', () => {
 
   it('shows empty state when no messages', async () => {
     ;(api.get as any).mockImplementation((url: string) => {
-      if (url === '/api/channels/2') return Promise.resolve({ data: { id: 2, name: 'empty', display_name: 'Empty' } })
-      if (url.startsWith('/api/channels/2/messages')) return Promise.resolve({ data: { channel_id: 2, messages: [], has_more: false } })
+      if (url === '/channels/2') return Promise.resolve({ data: { id: 2, name: 'empty', display_name: 'Empty' } })
+      if (url.startsWith('/channels/2/messages')) return Promise.resolve({ data: { channel_id: 2, messages: [], has_more: false } })
       return Promise.reject(new Error('not found'))
     })
 
@@ -52,8 +52,8 @@ describe('ChannelView', () => {
 
   it('shows error state when messages load fails', async () => {
     ;(api.get as any).mockImplementation((url: string) => {
-      if (url === '/api/channels/3') return Promise.resolve({ data: { id: 3, name: 'err', display_name: 'Err' } })
-      if (url.startsWith('/api/channels/3/messages')) return Promise.reject(new Error('Network error'))
+      if (url === '/channels/3') return Promise.resolve({ data: { id: 3, name: 'err', display_name: 'Err' } })
+      if (url.startsWith('/channels/3/messages')) return Promise.reject(new Error('Network error'))
       return Promise.reject(new Error('not found'))
     })
 
@@ -70,11 +70,11 @@ describe('ChannelView', () => {
 
   it('loads older messages when Load older clicked', async () => {
     ;(api.get as any).mockImplementation((url: string) => {
-      if (url === '/api/channels/1') return Promise.resolve({ data: { id: 1, name: 'ch1', display_name: 'Ch 1' } })
-      if (url.startsWith('/api/channels/1/messages') && !url.includes('before')) {
+      if (url === '/channels/1') return Promise.resolve({ data: { id: 1, name: 'ch1', display_name: 'Ch 1' } })
+      if (url.startsWith('/channels/1/messages') && !url.includes('before')) {
         return Promise.resolve({ data: { channel_id: 1, messages: [{ id: 4, content: 'Newer', author_username: 'alice', created_at: new Date().toISOString() }, { id: 5, content: 'Newest', author_username: 'bob', created_at: new Date().toISOString() }], has_more: true } })
       }
-      if (url.startsWith('/api/channels/1/messages') && url.includes('before=4')) {
+      if (url.startsWith('/channels/1/messages') && url.includes('before=4')) {
         return Promise.resolve({ data: { channel_id: 1, messages: [{ id: 2, content: 'Older', author_username: 'carol', created_at: new Date().toISOString() }], has_more: false } })
       }
       return Promise.reject(new Error('not found'))

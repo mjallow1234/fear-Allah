@@ -27,7 +27,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
   useEffect(() => {
     setLoading(true)
     setError(null)
-    api.get(`/api/messages/${parentMessage.id}/replies`)
+    api.get(`/messages/${parentMessage.id}/replies`)
       .then(res => {
         setReplies(res.data || [])
         seenReplyIdsRef.current = new Set((res.data || []).map((r: any) => r.id))
@@ -45,7 +45,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
   useEffect(() => {
     if (!parentMessage.channel_id) return
     
-    api.get(`/api/channels/${parentMessage.channel_id}/members`)
+    api.get(`/channels/${parentMessage.channel_id}/members`)
       .then(res => {
         const members = Array.isArray(res.data) ? res.data : []
         const usernameMap: Record<number, string> = {}
@@ -113,7 +113,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
 
     setSending(true)
     try {
-      const response = await api.post(`/api/messages/${parentMessage.id}/reply`, {
+      const response = await api.post(`/messages/${parentMessage.id}/reply`, {
         content: newReply.trim()
       })
       const sentReply = response.data

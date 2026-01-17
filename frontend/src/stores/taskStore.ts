@@ -94,7 +94,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchMyAssignments: async () => {
     set({ loading: true, error: null })
     try {
-      const response = await api.get('/api/automation/my-assignments')
+      const response = await api.get('/automation/my-assignments')
       const assignments = Array.isArray(response.data) ? response.data : []
       set({ myAssignments: assignments, loading: false })
     } catch (error: unknown) {
@@ -110,7 +110,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchMyTasks: async () => {
     set({ loading: true, error: null })
     try {
-      const response = await api.get('/api/automation/tasks')
+      const response = await api.get('/automation/tasks')
       const data = response.data
       const tasks = Array.isArray(data) ? data : (data.tasks || [])
       set({ tasks, loading: false })
@@ -127,7 +127,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchTaskDetails: async (taskId: number) => {
     set({ loadingTask: true, error: null })
     try {
-      const response = await api.get(`/api/automation/tasks/${taskId}`)
+      const response = await api.get(`/automation/tasks/${taskId}`)
       set({ selectedTask: response.data, loadingTask: false })
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
@@ -141,7 +141,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   
   fetchTaskEvents: async (taskId: number) => {
     try {
-      const response = await api.get(`/api/automation/tasks/${taskId}/events`)
+      const response = await api.get(`/automation/tasks/${taskId}/events`)
       const events = Array.isArray(response.data) ? response.data : []
       set({ taskEvents: events })
     } catch (error) {
@@ -166,7 +166,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }))
     
     try {
-      await api.post(`/api/automation/tasks/${taskId}/complete`, { notes })
+      await api.post(`/automation/tasks/${taskId}/complete`, { notes })
       
       // Refresh data after completion
       await get().fetchMyAssignments()

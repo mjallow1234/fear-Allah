@@ -42,7 +42,7 @@ export default function SearchModal({ isOpen, onClose, onResultClick }: SearchMo
 
       setLoading(true)
       try {
-        const response = await api.post('/api/messages/search', {
+        const response = await api.post('/messages/search', {
           query: query.trim(),
           channel_id: channelFilter,
           user_id: userFilter,

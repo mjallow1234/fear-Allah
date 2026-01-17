@@ -70,7 +70,7 @@ export default function ChannelView() {
   useEffect(() => {
     if (!channelId) return
     setLoading(true)
-    api.get(`/api/channels/${channelId}`)
+    api.get(`/channels/${channelId}`)
       .then((res) => {
         setChannelName(res.data.display_name || res.data.name || `Channel ${channelId}`)
       })
@@ -78,7 +78,7 @@ export default function ChannelView() {
       .finally(() => setLoading(false))
     
     // Fetch channel members for presence count and usernames
-    api.get(`/api/channels/${channelId}/members`)
+    api.get(`/channels/${channelId}/members`)
       .then((res) => {
         const members = Array.isArray(res.data) ? res.data : []
         setChannelMembers(members)
@@ -333,7 +333,7 @@ export default function ChannelView() {
     
     setSending(true)
     try {
-      const response = await api.post('/api/messages/', {
+      const response = await api.post('/messages/', {
         content: newMessage.trim(),
         channel_id: Number(channelId)
       })

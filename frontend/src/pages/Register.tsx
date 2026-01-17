@@ -15,7 +15,7 @@ export default function Register() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.post('/api/auth/register', { email, password, username })
+      const res = await api.post('/auth/register', { email, password, username })
       if (res?.data?.access_token) {
         // navigate to login page
         navigate('/login')
