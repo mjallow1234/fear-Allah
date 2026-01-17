@@ -12,7 +12,9 @@ class UserRole(str, enum.Enum):
     system_admin = "system_admin"
     team_admin = "team_admin"
     member = "member"
+    agent = "agent"
     storekeeper = "storekeeper"
+    foreman = "foreman"
     guest = "guest"
 
 
