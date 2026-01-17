@@ -135,7 +135,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
 app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
@@ -144,6 +144,26 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["Not
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
+
+# Backward-compatible alias for channel read endpoint (non-API root path)
+from typing import Optional
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.database import get_db
+from app.core.security import get_current_user
+from app.api.channels import mark_channel_read as _mark_channel_read, MarkReadRequest
+
+@app.post("/channels/{channel_id}/read")
+async def alias_mark_channel_read(
+    channel_id: int,
+    request: Optional[MarkReadRequest] = None,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Backward-compatible wrapper for POST /channels/{channel_id}/read (non-/api path).
+    Delegates to the existing channels.mark_channel_read implementation.
+    """
+    return await _mark_channel_read(channel_id, request, current_user, db)
 
 # Health / readiness endpoints (Tier 2.3)
 from app.api import health
