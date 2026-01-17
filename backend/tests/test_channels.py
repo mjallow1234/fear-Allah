@@ -112,6 +112,29 @@ async def test_mark_channel_read_invalid_channel_returns_404(client: AsyncClient
 
 
 @pytest.mark.anyio
+async def test_alias_mark_channel_read_root_returns_200(client: AsyncClient, test_session):
+    from app.db.models import User, Channel, ChannelMember
+    from app.core.security import create_access_token
+
+    user = User(username='aliasreader', email='aliasreader@example.com', hashed_password='x')
+    test_session.add(user)
+    channel = Channel(name='alias-read-chan', display_name='Alias Read Chan', type='public')
+    test_session.add(channel)
+    await test_session.flush()
+
+    membership = ChannelMember(user_id=user.id, channel_id=channel.id)
+    test_session.add(membership)
+    await test_session.commit()
+
+    token = create_access_token({'sub': str(user.id), 'username': user.username})
+
+    resp = await client.post(f'/channels/{channel.id}/read', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    # Should return at least an empty JSON body or channel_id - permissive check
+    assert resp.json() is not None
+
+
+@pytest.mark.anyio
 async def test_list_dm_channels_returns_empty_for_user_with_no_dms(client: AsyncClient, test_session):
     from app.db.models import User
     from app.core.security import create_access_token
