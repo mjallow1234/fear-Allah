@@ -109,3 +109,54 @@ async def test_mark_channel_read_invalid_channel_returns_404(client: AsyncClient
     token = create_access_token({'sub': str(user.id), 'username': user.username})
     resp = await client.post('/api/channels/999999/read', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_list_dm_channels_returns_empty_for_user_with_no_dms(client: AsyncClient, test_session):
+    from app.db.models import User
+    from app.core.security import create_access_token
+
+    # Create a user with no DM channels
+    user = User(username='nodm', email='nodm@example.com', hashed_password='x')
+    test_session.add(user)
+    await test_session.commit()
+
+    token = create_access_token({'sub': str(user.id), 'username': user.username})
+
+    resp = await client.get('/api/channels/direct/list', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.anyio
+async def test_list_dm_channels_handles_channels_with_more_than_two_members(client: AsyncClient, test_session):
+    from app.db.models import User, Channel, ChannelMember
+    from app.core.security import create_access_token
+
+    # Create three users
+    u1 = User(username='u1', email='u1@example.com', hashed_password='x')
+    u2 = User(username='u2', email='u2@example.com', hashed_password='x')
+    u3 = User(username='u3', email='u3@example.com', hashed_password='x')
+    test_session.add_all([u1, u2, u3])
+    await test_session.flush()
+
+    # Create DM channel
+    channel = Channel(name='dm-1-2-3', display_name='DM Multi', type='direct')
+    test_session.add(channel)
+    await test_session.flush()
+
+    # Add all three as members (data anomaly)
+    m1 = ChannelMember(user_id=u1.id, channel_id=channel.id)
+    m2 = ChannelMember(user_id=u2.id, channel_id=channel.id)
+    m3 = ChannelMember(user_id=u3.id, channel_id=channel.id)
+    test_session.add_all([m1, m2, m3])
+    await test_session.commit()
+
+    token = create_access_token({'sub': str(u1.id), 'username': u1.username})
+
+    resp = await client.get('/api/channels/direct/list', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    data = resp.json()
+    # Ensure it's a list and contains at least one entry for the channel
+    assert isinstance(data, list)
+    assert any(d['id'] == channel.id for d in data)

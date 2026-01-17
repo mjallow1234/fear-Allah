@@ -14,6 +14,9 @@ from app.storage.minio_client import get_minio_storage
 from app.core.config import settings
 from app.permissions.constants import Permission
 from app.permissions.dependencies import require_permission
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -250,37 +253,53 @@ async def list_dm_channels(
     result = await db.execute(dm_query)
     dm_channels = result.scalars().all()
     
+    # If no DM channels, return empty list (regression guard)
+    if not dm_channels:
+        return []
+
     # For each channel, find the other user
     dm_list = []
     for channel in dm_channels:
-        # Get the other member
+        # Get members that are not the current user
         other_member_query = (
             select(ChannelMember)
-            .options()
             .where(
                 ChannelMember.channel_id == channel.id,
                 ChannelMember.user_id != my_user_id
             )
         )
         other_result = await db.execute(other_member_query)
-        other_member = other_result.scalar_one_or_none()
-        
-        if other_member:
-            # Get the other user's info
-            user_query = select(User).where(User.id == other_member.user_id)
-            user_result = await db.execute(user_query)
-            other_user = user_result.scalar_one_or_none()
-            
-            if other_user:
-                dm_list.append({
-                    "id": channel.id,
-                    "name": channel.name,
-                    "display_name": other_user.display_name or other_user.username,
-                    "type": channel.type,
-                    "other_user_id": other_user.id,
-                    "other_username": other_user.username,
-                })
-    
+        other_members = other_result.scalars().all()
+
+        if not other_members:
+            # No other member found; skip this channel (data might be inconsistent)
+            logger.warning("Channel %s has no other members when listing DMs for user %s", channel.id, my_user_id)
+            continue
+
+        if len(other_members) > 1:
+            # More than two members in a DM channel; log and pick the first other member
+            logger.warning("Channel %s has %d members (expected 2) when listing DMs for user %s", channel.id, len(other_members) + 1, my_user_id)
+
+        other_member = other_members[0]
+
+        # Get the other user's info
+        user_query = select(User).where(User.id == other_member.user_id)
+        user_result = await db.execute(user_query)
+        other_user = user_result.scalar_one_or_none()
+
+        if not other_user:
+            logger.warning("Other user %s not found for channel %s", other_member.user_id, channel.id)
+            continue
+
+        dm_list.append({
+            "id": channel.id,
+            "name": channel.name,
+            "display_name": other_user.display_name or other_user.username,
+            "type": channel.type,
+            "other_user_id": other_user.id,
+            "other_username": other_user.username,
+        })
+
     return dm_list
 
 
