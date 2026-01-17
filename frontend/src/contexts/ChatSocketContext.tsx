@@ -59,12 +59,7 @@ export const ChatSocketProvider: FC<{ children: ReactNode; channelId?: number | 
 
     channelRef.current = channelId
 
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
-    if (!import.meta.env.VITE_API_URL) {
-      console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
-    }
-    const wsBase = apiBase.replace(/^http/, 'ws')
-    const wsUrl = `${wsBase}/ws/chat/${channelId}?token=${encodeURIComponent(currentToken)}`
+    const wsUrl = `/ws/chat/${channelId}?token=${encodeURIComponent(currentToken)}`
 
     console.log('[ChatSocket] connect ->', wsUrl)
     setWsStatus('connecting')

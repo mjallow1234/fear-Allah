@@ -5,7 +5,7 @@ test('load older messages (U3.4)', async ({ page, request }) => {
   test.setTimeout(120000)
 
   // Login as admin
-  const loginResp = await request.post('http://localhost:18002/api/auth/login', {
+  const loginResp = await request.post('/api/auth/login', {
     data: { identifier: 'admin@fearallah.com', password: 'admin123' },
   })
   expect(loginResp.ok()).toBeTruthy()
@@ -14,7 +14,7 @@ test('load older messages (U3.4)', async ({ page, request }) => {
 
   // Create a fresh channel
   const chName = `u34-${Date.now()}`
-  const createResp = await request.post('http://localhost:18002/api/channels', {
+  const createResp = await request.post('/api/channels', {
     data: { name: chName, display_name: chName, type: 'O' },
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -25,7 +25,7 @@ test('load older messages (U3.4)', async ({ page, request }) => {
   // Post many messages to force pagination (more than default 50)
   for (let i = 1; i <= 55; i++) {
     const msg = { content: `msg-${i}`, channel_id: channelId }
-    const r = await request.post('http://localhost:18002/api/messages', { data: msg, headers: { Authorization: `Bearer ${token}` } })
+    const r = await request.post('/api/messages', { data: msg, headers: { Authorization: `Bearer ${token}` } })
     expect(r.ok()).toBeTruthy()
   }
 

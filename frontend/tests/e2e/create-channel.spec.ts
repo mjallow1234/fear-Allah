@@ -4,7 +4,7 @@ test('create channel flow (admin)', async ({ page, request }) => {
   test.setTimeout(120000)
 
   // Login via API and seed localStorage
-  const loginResp = await request.post('http://localhost:18002/api/auth/login', {
+  const loginResp = await request.post('/api/auth/login', {
     data: { identifier: 'admin@fearallah.com', password: 'admin123' },
   })
   expect(loginResp.ok()).toBeTruthy()
@@ -46,7 +46,7 @@ test('create channel flow (admin)', async ({ page, request }) => {
   const matches = url.match(/\/channels\/(\d+)/)
   expect(matches).toBeTruthy()
   const channelId = matches![1]
-  const chResp = await request.get(`http://localhost:18002/api/channels/${channelId}`, { headers: { Authorization: `Bearer ${token}` } })
+  const chResp = await request.get(`/api/channels/${channelId}`, { headers: { Authorization: `Bearer ${token}` } })
   console.log('GET channel status:', chResp.status())
   console.log('GET channel body:', await chResp.text())
   expect(chResp.ok()).toBeTruthy()
@@ -61,7 +61,7 @@ test('create channel flow (admin)', async ({ page, request }) => {
 test('create channel flow (non-admin) - + button disabled', async ({ page, request }) => {
   // Register a fresh non-admin user and seed localStorage
   const email = `user+${Date.now()}@example.com`
-  const registerResp = await request.post('http://localhost:18002/api/auth/register', {
+  const registerResp = await request.post('/api/auth/register', {
     data: { email, password: 'pass123', username: `user${Date.now()}` },
   })
   expect(registerResp.ok()).toBeTruthy()

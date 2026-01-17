@@ -176,20 +176,13 @@ export function useWebSocket({
       wsRef.current = null
     }
 
-    // Force WebSocket URL from VITE_API_URL (do not use window.location)
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
-    if (!import.meta.env.VITE_API_URL) {
-      console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
-    }
-
-    const wsBase = apiBase.replace(/^http/, 'ws')
-    // Prefer token auth for chat WebSocket (token required)
+    // Use same-origin WebSocket endpoint for chat
     const token = currentToken
     if (!token) {
       throw new Error('WebSocket requires an auth token')
     }
 
-    const wsUrl = `${wsBase}/ws/chat/${currentChannel}?token=${encodeURIComponent(token)}`
+    const wsUrl = `/ws/chat/${currentChannel}?token=${encodeURIComponent(token)}`
 
     console.log(`[WS ${connectionId.current}] connect -> ${wsUrl}`)
     setWsStatus('connecting')
@@ -477,13 +470,8 @@ export function usePresence() {
     if (startedRef.current) return // already started
 
     const start = () => {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
-      if (!import.meta.env.VITE_API_URL) {
-        console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
-      }
-
-      const wsBase = apiBase.replace(/^http/, 'ws')
-      const wsUrl = `${wsBase}/ws/presence?user_id=${user.id}&username=${encodeURIComponent(
+      // Use same-origin WebSocket endpoint for presence
+      const wsUrl = `/ws/presence?user_id=${user.id}&username=${encodeURIComponent(
         user.username || user.display_name || ''
       )}`
 

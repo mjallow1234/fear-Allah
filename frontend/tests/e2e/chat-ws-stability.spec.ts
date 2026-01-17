@@ -25,7 +25,7 @@ test('chat WS stability', async ({ page, request }) => {
   await page.evaluate(() => localStorage.clear())
   // Prefer API-based login to avoid flakiness from HMR or UI changes (Option A)
   // Use test.request fixture to POST login to backend
-  const loginResp = await request.post('http://localhost:18002/api/auth/login', {
+  const loginResp = await request.post('/api/auth/login', {
     data: { identifier: 'admin@fearallah.com', password: 'admin123' },
   })
   expect(loginResp.ok(), 'Login API call failed').toBeTruthy()

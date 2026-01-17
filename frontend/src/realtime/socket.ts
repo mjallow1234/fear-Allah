@@ -24,10 +24,11 @@ const pendingHandlers: Map<string, Set<(data: any) => void>> = new Map()
 const masterListeners: Map<string, (data: any) => void> = new Map()
 
 /**
- * Get the Socket.IO server URL (LAN-safe)
+ * Get the Socket.IO server URL (same-origin)
  */
 function getSocketUrl(): string {
-  return `http://${window.location.hostname}:8000`
+  // Use same-origin root; clients will use wss when page is served over https
+  return '/'
 }
 
 /**
@@ -65,10 +66,8 @@ export function connectSocket(): Socket | null {
   const url = getSocketUrl()
   console.log('[Socket.IO] Connecting to', url)
   
-  socket = io(url, {
-    // Backend mounts socket_app at /socket.io, with internal path socket.io
-    // Full path becomes /socket.io/socket.io/
-    path: '/socket.io/socket.io/',
+  socket = io("/", {
+    path: '/socket.io',
     auth: { token },
     autoConnect: true,
     reconnection: true,

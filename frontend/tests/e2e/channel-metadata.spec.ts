@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 // U3.2: Channel metadata loads correctly (sidebar list + single detail fetch, no websockets)
 
 test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
-  const API_BASE = 'http://localhost:18002'
+  const API_BASE = '/api'
 
   // A) Auth: use injected E2E token if available, otherwise perform API login as fallback
   let token = process.env.E2E_TOKEN

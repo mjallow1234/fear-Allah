@@ -1,9 +1,8 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
-// Use backend URL directly - always use current hostname for LAN access
-// Do NOT use VITE_API_URL to avoid stale ngrok URLs
-const API_BASE_URL = `http://${window.location.hostname}:8000`
+// Use same-origin API path to avoid explicit host/port and keep cookies/sessions working
+const API_BASE_URL = '/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
