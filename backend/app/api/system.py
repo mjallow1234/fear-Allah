@@ -1528,6 +1528,101 @@ async def assign_role_to_user(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_system_admin),
 ):
+    """
+    Assign a *system* role to a user (DB-driven role system).
+
+    Rules:
+    - Role must exist and be a system role
+    - Prevents last-admin downgrade (if role isn't system_admin)
+    - Logs before/after role
+    """
+    from app.db.models import UserRole as UserRoleModel
+
+    user = await get_user_or_404(db, user_id)
+    before_state = serialize_user_state(user)
+
+    # Get the role
+    role = await get_role_or_404(db, request.role_id)
+
+    # Role must be a system role for this endpoint
+    if not role.is_system:
+        raise HTTPException(status_code=400, detail="Role must be a system role for this endpoint")
+
+    # Last-admin protection
+    await ensure_not_last_admin_by_role(db, user_id, request.role_id)
+
+    # Get current system role assignment (if any)
+    result = await db.execute(
+        select(UserRoleModel)
+        .join(Role)
+        .options(selectinload(UserRoleModel.role))
+        .where(UserRoleModel.user_id == user_id, Role.is_system == True)
+    )
+    current_assignment = result.scalar_one_or_none()
+    old_role_name = current_assignment.role.name if current_assignment else None
+
+    # Same role - no change
+    if current_assignment and current_assignment.role_id == request.role_id:
+        return {
+            "message": f"User {user.username} already has role '{role.name}'",
+            "changed": False,
+        }
+
+    # Remove old system assignment if exists
+    if current_assignment:
+        await db.delete(current_assignment)
+
+    # Create new system assignment
+    new_assignment = UserRoleModel(user_id=user_id, role_id=request.role_id)
+    db.add(new_assignment)
+
+    # Sync is_system_admin flag
+    if role.name == "system_admin":
+        user.is_system_admin = True
+        user.role = UserRole.system_admin
+    else:
+        user.is_system_admin = False
+        # Map to nearest UserRole enum
+        if role.name in ('team_admin',):
+            user.role = UserRole.team_admin
+        elif role.name in ('guest',):
+            user.role = UserRole.guest
+        else:
+            user.role = UserRole.member
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+
+    # Log audit
+    await log_audit(
+        db=db,
+        action=AuditActions.USER_ROLE_CHANGE,
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Changed {user.username} role from '{old_role_name or 'none'}' to '{role.name}'",
+        meta={
+            "before": before_state,
+            "after": after_state,
+            "old_role": old_role_name,
+            "new_role": role.name,
+            "actor": admin.username,
+        },
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} assigned role '{role.name}' successfully",
+        "changed": True,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": role.name,
+            "is_system_admin": user.is_system_admin,
+        },
+    }
 
 
 @router.patch("/users/{user_id}/operational-role")
