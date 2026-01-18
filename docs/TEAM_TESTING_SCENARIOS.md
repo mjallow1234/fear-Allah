@@ -354,7 +354,6 @@ Tasks created: 3
 After making a sale in the field:
 
 ```
-/sale record product="Cement Bag 25kg" qty=10 price=500 channel=field
 ```
 
 **Expected Response:**
