@@ -447,7 +447,12 @@ async def create_system_user(
     elif role_obj.name == 'guest':
         user_role_enum = UserRole.guest
     else:
-        user_role_enum = UserRole.member
+        # For operational roles, try to map to the UserRole enum if it exists
+        try:
+            user_role_enum = UserRole(role_obj.name)
+        except ValueError:
+            # Role name not represented in UserRole enum (e.g., sales_agent), default to member
+            user_role_enum = UserRole.member
     
     # 6. Create user
     new_user = User(
