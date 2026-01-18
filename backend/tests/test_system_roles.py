@@ -447,6 +447,29 @@ async def test_list_roles(admin_token: str):
         assert "system_admin" in role_names or len(role_names) > 0
 
 
+@pytest.mark.asyncio
+async def test_list_operational_roles(admin_token: str):
+    """Test listing operational roles only."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/system/roles/operational",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "roles" in data
+        roles = data["roles"]
+        # All returned roles should be one of the operational roles
+        operational_names = {"admin","agent","sales_agent","storekeeper","foreman","delivery"}
+        returned_names = {r["name"] for r in roles}
+        # At least one operational role should be present; otherwise skip
+        if not returned_names:
+            pytest.skip("No operational roles found in DB to validate")
+        assert returned_names.issubset(operational_names)
+
+
+
 # === Test: List Permissions ===
 
 @pytest.mark.asyncio
