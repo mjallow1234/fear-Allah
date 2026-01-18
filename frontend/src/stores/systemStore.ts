@@ -112,8 +112,10 @@ interface SystemState {
   
   // Roles & Permissions
   roles: RoleInfo[]
+  operationalRoles: RoleInfo[]
   permissions: PermissionInfo[]
   rolesLoading: boolean
+  operationalRolesLoading: boolean
   
   // Settings
   settings: SystemSettings | null
@@ -213,8 +215,10 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   usersLoading: false,
   
   roles: [],
+  operationalRoles: [],
   permissions: [],
   rolesLoading: false,
+  operationalRolesLoading: false,
   
   settings: null,
   settingsLoading: false,
@@ -232,6 +236,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   _statsFetched: false,
   _usersFetched: false,
   _rolesFetched: false,
+  _operationalRolesFetched: false,
   _permissionsFetched: false,
   _settingsFetched: false,
   
@@ -239,6 +244,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   _fetchingStats: false,
   _fetchingUsers: false,
   _fetchingRoles: false,
+  _fetchingOperationalRoles: false,
   _fetchingPermissions: false,
   _fetchingSettings: false,
   
@@ -471,6 +477,58 @@ export const useSystemStore = create<SystemState>((set, get) => ({
         error: err instanceof Error ? err.message : 'Failed to fetch roles',
         rolesLoading: false,
         _fetchingRoles: false,
+      })
+    }
+  },
+
+  // New: fetch operational roles only (admin-only)
+  fetchOperationalRoles: async (force = false) => {
+    const { _operationalRolesFetched, _fetchingOperationalRoles, rateLimited } = get()
+
+    if (rateLimited && !force) {
+      console.log('[SystemStore] Skipping fetchOperationalRoles - rate limited')
+      return
+    }
+
+    if (_operationalRolesFetched && !force) {
+      console.log('[SystemStore] Skipping fetchOperationalRoles - already fetched')
+      return
+    }
+
+    if (_fetchingOperationalRoles) {
+      console.log('[SystemStore] Skipping fetchOperationalRoles - in-flight')
+      return
+    }
+
+    set({ operationalRolesLoading: true, _fetchingOperationalRoles: true, error: null })
+    try {
+      const response = await api.get('/api/system/roles/operational')
+      const rolesData = response.data.roles || response.data || []
+      set({
+        operationalRoles: rolesData,
+        operationalRolesLoading: false,
+        _fetchingOperationalRoles: false,
+        _operationalRolesFetched: true,
+        rateLimited: false,
+      })
+    } catch (err) {
+      console.error('[SystemStore] Failed to fetch operational roles:', err)
+      const rateLimit = isRateLimitError(err)
+      if (rateLimit) {
+        set({
+          rateLimited: true,
+          rateLimitRetryAt: Date.now() + rateLimit.retryAfter * 1000,
+          operationalRolesLoading: false,
+          _fetchingOperationalRoles: false,
+        })
+        return
+      }
+
+      set({
+        operationalRoles: [],
+        error: err instanceof Error ? err.message : 'Failed to fetch operational roles',
+        operationalRolesLoading: false,
+        _fetchingOperationalRoles: false,
       })
     }
   },

@@ -583,7 +583,7 @@ interface CreatedUserResult {
 }
 
 function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (result: CreatedUserResult) => void }) {
-  const { createUser, roles, fetchRoles } = useSystemStore()
+const { createUser, operationalRoles, fetchOperationalRoles } = useSystemStore()
   const [formData, setFormData] = useState<CreateUserFormData>({
     username: '',
     email: '',
@@ -595,15 +595,15 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   const [error, setError] = useState<string | null>(null)
   
   useEffect(() => {
-    fetchRoles()
-  }, [fetchRoles])
-
+    fetchOperationalRoles()
+  }, [fetchOperationalRoles])
+  
   useEffect(() => {
-    if (!formData.role_id && roles && roles.length) {
-      const agent = roles.find(r => r.name === 'agent')
+    if (!formData.role_id && operationalRoles && operationalRoles.length) {
+      const agent = operationalRoles.find(r => r.name === 'agent')
       if (agent) setFormData(d => ({ ...d, role_id: agent.id }))
     }
-  }, [roles])
+  }, [operationalRoles])
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -706,9 +706,9 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
               className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
             >
               <option value="">Select a role...</option>
-              {roles.map(role => (
+              {operationalRoles.map(role => (
                 <option key={role.id} value={role.id}>
-                  {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} {role.is_system && '(System)'}
+                  {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                 </option>
               ))}
             </select>

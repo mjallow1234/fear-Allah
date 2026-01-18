@@ -994,6 +994,12 @@ class UserRoleAssignRequest(BaseModel):
 
 # === Role Helper Functions ===
 
+# Operational roles used for user creation and operational assignment
+OPERATIONAL_ROLE_NAMES = [
+    'admin', 'agent', 'sales_agent', 'storekeeper', 'foreman', 'delivery'
+]
+
+
 async def get_role_or_404(db: AsyncSession, role_id: int) -> Role:
     """Fetch role by ID with permissions loaded, or raise 404."""
     result = await db.execute(
@@ -1123,6 +1129,41 @@ async def list_roles_db(
         for role in roles
     ]
     
+    return RoleListResponse(roles=role_list, total=len(role_list))
+
+
+@router.get("/roles/operational", response_model=RoleListResponse)
+async def list_operational_roles(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_system_admin),
+):
+    """
+    List operational roles only.
+
+    Returns roles seeded for operational use (admin, agent, sales_agent, storekeeper, foreman, delivery).
+    This endpoint excludes system/chat roles and is accessible only to system admins.
+    """
+    result = await db.execute(
+        select(Role)
+        .options(selectinload(Role.permissions).selectinload(RolePermission.permission))
+        .where(Role.name.in_(OPERATIONAL_ROLE_NAMES))
+        .order_by(Role.name)
+    )
+    roles = result.scalars().all()
+
+    role_list = [
+        RoleDetailOut(
+            id=role.id,
+            name=role.name,
+            description=role.description,
+            scope=role.scope,
+            is_system=role.is_system or False,
+            permissions=get_role_permission_keys(role),
+            created_at=role.created_at,
+        )
+        for role in roles
+    ]
+
     return RoleListResponse(roles=role_list, total=len(role_list))
 
 
