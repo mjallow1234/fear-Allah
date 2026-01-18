@@ -45,8 +45,33 @@ def decode_token(token: str) -> dict:
         )
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+class IntegrationActor:
+    """Marker object for integration actor authenticated by static token"""
+    is_integration = True
+    permissions = {"read": True, "write": True}
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request = None,
+):
+    """Authenticate request either via JWT (normal users) or Integration token.
+
+    If Authorization header contains Bearer <INTEGRATION_API_TOKEN>, return
+    a lightweight integration actor dict. Otherwise proceed with normal JWT
+    decoding and return user dict as before.
+    """
     token = credentials.credentials
+
+    # Integration token bypass (exact match)
+    if settings.INTEGRATION_API_TOKEN and token == settings.INTEGRATION_API_TOKEN:
+        # Mark request so other middleware/handlers can detect integration actor if needed
+        if request is not None:
+            setattr(request.state, "integration_actor", True)
+        # Return a minimal dict to indicate integration identity
+        return {"is_integration": True, "actor": "integration", "permissions": {"read": True, "write": True}}
+
+    # Normal JWT flow
     payload = decode_token(token)
     user_id = payload.get("sub")
     if user_id is None:

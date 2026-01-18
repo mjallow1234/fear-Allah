@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # Make.com Webhook Integration (Phase 6.5)
     # If unset, webhook integration is disabled
     MAKE_WEBHOOK_URL: str = os.getenv("MAKE_WEBHOOK_URL", "")
+
+    # Integration API token for external platforms (e.g., Make, Google Sheets)
+    # Format: fear_allah_integration_<32chars>
+    # If unset, integration access is disabled
+    INTEGRATION_API_TOKEN: str | None = None
     
     class Config:
         env_file = ".env"
