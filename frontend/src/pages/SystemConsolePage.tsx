@@ -597,6 +597,13 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   useEffect(() => {
     fetchRoles()
   }, [fetchRoles])
+
+  useEffect(() => {
+    if (!formData.role_id && roles && roles.length) {
+      const agent = roles.find(r => r.name === 'agent')
+      if (agent) setFormData(d => ({ ...d, role_id: agent.id }))
+    }
+  }, [roles])
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -701,7 +708,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
               <option value="">Select a role...</option>
               {roles.map(role => (
                 <option key={role.id} value={role.id}>
-                  {role.name.replace(/_/g, ' ')} {role.is_system && '(System)'}
+                  {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} {role.is_system && '(System)'}
                 </option>
               ))}
             </select>
