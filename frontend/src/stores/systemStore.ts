@@ -160,9 +160,12 @@ interface SystemState {
     username: string
     email: string | null
     role_id: number
+    operational_role_id?: number | null
     is_system_admin: boolean
     active: boolean
-  }) => Promise<{ user: { id: number; username: string; email: string; active: boolean; is_system_admin: boolean; role_id: number; role_name: string }; temporary_password: string }>
+  }) => Promise<{ user: { id: number; username: string; email: string; active: boolean; is_system_admin: boolean; role_id: number; role_name: string; operational_role_id?: number | null; operational_role_name?: string | null }; temporary_password: string }>
+  
+  assignOperationalRole: (userId: number, operationalRoleId: number | null) => Promise<{ changed: boolean; message: string }>
   
   // Phase 8.5.3: New user action methods
   setUserStatus: (userId: number, active: boolean) => Promise<{ changed: boolean; message: string }>
@@ -418,6 +421,17 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       return response.data
     } catch (err) {
       console.error('[SystemStore] Failed to create user:', err)
+      throw err
+    }
+  },
+
+  assignOperationalRole: async (userId, operationalRoleId) => {
+    try {
+      const response = await api.patch(`/api/system/users/${userId}/operational-role`, { operational_role_id: operationalRoleId })
+      await get().fetchUsers(true)
+      return { changed: response.data.changed, message: response.data.message }
+    } catch (err) {
+      console.error('[SystemStore] Failed to set operational role:', err)
       throw err
     }
   },

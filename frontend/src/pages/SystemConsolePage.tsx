@@ -49,6 +49,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useSystemStore, SystemUser, RoleInfo, PermissionInfo } from '../stores/systemStore'
 import { usePermissions, PERMISSIONS } from '../hooks/usePermissions'
 import { extractAxiosError } from '../utils/errorUtils'
+import api from '../services/api'
 
 // === Tab Types ===
 type TabId = 'overview' | 'users' | 'roles' | 'settings' | 'audit'
@@ -267,6 +268,40 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
       setConfirmAction(null)
     }
   }
+
+  // --- Operational Role management ---
+  const { operationalRoles, fetchOperationalRoles, assignOperationalRole } = useSystemStore()
+  const [showOpModal, setShowOpModal] = useState(false)
+  const [selectedOpRole, setSelectedOpRole] = useState<number | null>(null)
+  const openOpModal = async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      await fetchOperationalRoles(true)
+      // Fetch user detail to get current operational role
+      const resp = await api.get(`/api/system/users/${user.id}`)
+      setSelectedOpRole(resp.data.operational_role_id || null)
+      setShowOpModal(true)
+    } catch (err: unknown) {
+      setError(extractAxiosError(err, 'Failed to load operational roles'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSaveOperationalRole = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await assignOperationalRole(user.id, selectedOpRole)
+      setShowOpModal(false)
+      onClose()
+    } catch (err: unknown) {
+      setError(extractAxiosError(err, 'Failed to set operational role'))
+    } finally {
+      setLoading(false)
+    }
+  }
   
   const copyToClipboard = () => {
     if (tempPassword) {
@@ -477,7 +512,21 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
         <Key size={14} className="text-blue-400" />
         <span>Reset Password</span>
       </button>
-      
+
+      {/* Change Operational Role */}
+      <button
+        onClick={openOpModal}
+        disabled={!canManageUsers}
+        title={!canManageUsers ? "No permission" : undefined}
+        className={clsx(
+          'w-full px-3 py-2.5 text-left text-sm flex items-center gap-2 hover:bg-gray-700/50 transition-colors',
+          !canManageUsers && 'opacity-50 cursor-not-allowed'
+        )}
+      >
+        <Edit size={14} className="text-gray-400" />
+        <span>Change Operational Role</span>
+      </button>
+
       {/* Force Logout */}
       <button
         onClick={handleForceLogout}
@@ -491,6 +540,32 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
         <LogOut size={14} className="text-yellow-400" />
         <span>Force Logout</span>
       </button>
+
+      {/* Operational Role Modal */}
+      {showOpModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg border border-gray-700 w-full max-w-md overflow-hidden p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-gray-200">Change Operational Role</h3>
+              <button onClick={() => setShowOpModal(false)} className="text-gray-400 hover:text-white">Cancel</button>
+            </div>
+            {error && <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-sm text-red-400 mb-3">{error}</div>}
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-300 mb-1">Operational Role</label>
+              <select value={selectedOpRole || ''} onChange={e => setSelectedOpRole(e.target.value ? Number(e.target.value) : null)} className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+                <option value="">None</option>
+                {operationalRoles.map(r => (
+                  <option key={r.id} value={r.id}>{r.name.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowOpModal(false)} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">Cancel</button>
+              <button onClick={handleSaveOperationalRole} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -565,6 +640,7 @@ interface CreateUserFormData {
   username: string
   email: string
   role_id: number | null
+  operational_role_id: number | null
   is_system_admin: boolean
   active: boolean
 }
@@ -578,16 +654,19 @@ interface CreatedUserResult {
     is_system_admin: boolean
     role_id: number
     role_name: string
+    operational_role_id?: number | null
+    operational_role_name?: string | null
   }
   temporary_password: string
 }
 
 function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (result: CreatedUserResult) => void }) {
-const { createUser, operationalRoles, fetchOperationalRoles } = useSystemStore()
+const { createUser, roles, operationalRoles, fetchRoles, fetchOperationalRoles } = useSystemStore()
   const [formData, setFormData] = useState<CreateUserFormData>({
     username: '',
     email: '',
     role_id: null,
+    operational_role_id: null,
     is_system_admin: false,
     active: true,
   })
@@ -595,15 +674,20 @@ const { createUser, operationalRoles, fetchOperationalRoles } = useSystemStore()
   const [error, setError] = useState<string | null>(null)
   
   useEffect(() => {
+    fetchRoles()
     fetchOperationalRoles()
-  }, [fetchOperationalRoles])
+  }, [fetchRoles, fetchOperationalRoles])
   
   useEffect(() => {
-    if (!formData.role_id && operationalRoles && operationalRoles.length) {
+    if (!formData.operational_role_id && operationalRoles && operationalRoles.length) {
       const agent = operationalRoles.find(r => r.name === 'agent')
-      if (agent) setFormData(d => ({ ...d, role_id: agent.id }))
+      if (agent) setFormData(d => ({ ...d, operational_role_id: agent.id }))
     }
-  }, [operationalRoles])
+    // Default system role to the first available if not selected
+    if (!formData.role_id && roles && roles.length) {
+      setFormData(d => ({ ...d, role_id: roles[0].id }))
+    }
+  }, [operationalRoles, roles])
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -630,6 +714,7 @@ const { createUser, operationalRoles, fetchOperationalRoles } = useSystemStore()
         username: formData.username.trim(),
         email: formData.email.trim() || null,
         role_id: formData.role_id,
+        operational_role_id: formData.operational_role_id,
         is_system_admin: formData.is_system_admin,
         active: formData.active,
       })
@@ -695,17 +780,36 @@ const { createUser, operationalRoles, fetchOperationalRoles } = useSystemStore()
             <p className="text-xs text-gray-500 mt-1">Optional but recommended</p>
           </div>
           
-          {/* Role Dropdown */}
+          {/* System Role Dropdown (unchanged) */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              Role <span className="text-red-400">*</span>
+              System Role <span className="text-red-400">*</span>
             </label>
             <select
               value={formData.role_id || ''}
               onChange={e => setFormData({ ...formData, role_id: e.target.value ? Number(e.target.value) : null })}
               className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
             >
-              <option value="">Select a role...</option>
+              <option value="">Select a system role...</option>
+              {roles.map(role => (
+                <option key={role.id} value={role.id}>
+                  {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} {role.is_system && '(System)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Operational Role Dropdown (new) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Operational Role
+            </label>
+            <select
+              value={formData.operational_role_id || ''}
+              onChange={e => setFormData({ ...formData, operational_role_id: e.target.value ? Number(e.target.value) : null })}
+              className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+            >
+              <option value="">None</option>
               {operationalRoles.map(role => (
                 <option key={role.id} value={role.id}>
                   {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
@@ -847,9 +951,15 @@ function UserCreatedSuccessModal({ result, onClose }: { result: CreatedUserResul
               </div>
             )}
             <div className="flex items-center justify-between py-2 border-b border-gray-700">
-              <span className="text-gray-400">Role</span>
+              <span className="text-gray-400">System Role</span>
               <span className="text-gray-200">{result.user.role_name.replace(/_/g, ' ')}</span>
             </div>
+            {result.user.operational_role_name && (
+              <div className="flex items-center justify-between py-2 border-b border-gray-700">
+                <span className="text-gray-400">Operational Role</span>
+                <span className="text-gray-200">{result.user.operational_role_name.replace(/_/g, ' ')}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between py-2 border-b border-gray-700">
               <span className="text-gray-400">System Admin</span>
               <span className={result.user.is_system_admin ? 'text-purple-400' : 'text-gray-500'}>

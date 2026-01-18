@@ -469,6 +469,103 @@ async def test_list_operational_roles(admin_token: str):
         assert returned_names.issubset(operational_names)
 
 
+@pytest.mark.asyncio
+async def test_create_user_with_operational_role(admin_token: str, db_session: AsyncSession):
+    """Test creating a user with both system role and operational role assigned."""
+    # Grab a default system role
+    result = await db_session.execute(select(Role).where(Role.name == "default"))
+    system_role = result.scalar_one_or_none()
+    if not system_role:
+        pytest.skip("default system role not found")
+
+    # Grab an operational role (agent preferred)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        ops_resp = await client.get("/api/system/roles/operational", headers={"Authorization": f"Bearer {admin_token}"})
+        if ops_resp.status_code != 200:
+            pytest.skip("Operational roles endpoint not available")
+        ops = ops_resp.json().get("roles", [])
+        if not ops:
+            pytest.skip("No operational roles available to assign")
+        # Prefer agent
+        op_role = next((r for r in ops if r["name"] == "agent"), ops[0])
+
+        # Create user
+        import uuid
+        username = f"user_op_{uuid.uuid4().hex[:6]}"
+        resp = await client.post(
+            "/api/system/users",
+            json={
+                "username": username,
+                "email": f"{username}@test.com",
+                "role_id": system_role.id,
+                "operational_role_id": op_role["id"],
+                "is_system_admin": False,
+                "active": True
+            },
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["user"]["operational_role_id"] == op_role["id"]
+        assert data["user"]["operational_role_name"] == op_role["name"]
+
+        # Verify DB has an assignment for operational role
+        result = await db_session.execute(
+            select(UserRoleModel).where(UserRoleModel.user_id == data["user"]["id"], UserRoleModel.role_id == op_role["id"]) 
+        )
+        assignment = result.scalar_one_or_none()
+        assert assignment is not None
+
+
+@pytest.mark.asyncio
+async def test_assign_operational_role_endpoint(admin_token: str, db_session: AsyncSession, regular_user: User):
+    """Test assigning and removing an operational role via endpoint."""
+    # Ensure there's at least one operational role
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        ops_resp = await client.get("/api/system/roles/operational", headers={"Authorization": f"Bearer {admin_token}"})
+        if ops_resp.status_code != 200:
+            pytest.skip("Operational roles endpoint not available")
+        ops = ops_resp.json().get("roles", [])
+        if not ops:
+            pytest.skip("No operational roles available to assign")
+        op_role = ops[0]
+
+        # Assign operational role
+        resp = await client.patch(
+            f"/api/system/users/{regular_user.id}/operational-role",
+            json={"operational_role_id": op_role["id"]},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("changed") is True
+
+        # Verify db assignment exists
+        result = await db_session.execute(
+            select(UserRoleModel).where(UserRoleModel.user_id == regular_user.id, UserRoleModel.role_id == op_role["id"]) 
+        )
+        assignment = result.scalar_one_or_none()
+        assert assignment is not None
+
+        # Remove operational role
+        resp2 = await client.patch(
+            f"/api/system/users/{regular_user.id}/operational-role",
+            json={"operational_role_id": None},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert resp2.status_code == 200
+        assert resp2.json().get("changed") is True
+
+        # Verify db assignment removed
+        result = await db_session.execute(
+            select(UserRoleModel).where(UserRoleModel.user_id == regular_user.id, UserRoleModel.role_id == op_role["id"]) 
+        )
+        assignment = result.scalar_one_or_none()
+        assert assignment is None
+
+
 
 # === Test: List Permissions ===
 

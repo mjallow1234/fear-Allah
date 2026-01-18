@@ -165,7 +165,8 @@ class CreateUserRequest(BaseModel):
     """Request body for POST /system/users - admin creates new user."""
     username: str = Field(..., min_length=3, max_length=50, description="Unique username (3-50 chars)")
     email: EmailStr = Field(..., description="Unique email address")
-    role_id: int = Field(..., description="ID of the role to assign")
+    role_id: int = Field(..., description="ID of the system role to assign")
+    operational_role_id: Optional[int] = Field(default=None, description="Optional operational role ID to assign")
     is_system_admin: bool = Field(default=False, description="Whether user should be a system admin")
     active: bool = Field(default=True, description="Whether user should be active")
 
@@ -179,6 +180,8 @@ class CreatedUserInfo(BaseModel):
     is_system_admin: bool
     role_id: int
     role_name: str
+    operational_role_id: Optional[int] = None
+    operational_role_name: Optional[str] = None
 
 
 class CreateUserResponse(BaseModel):
@@ -327,6 +330,18 @@ async def get_system_user(
     """Get detailed user information."""
     user = await get_user_or_404(db, user_id)
     
+    # Fetch operational role assignment (if any)
+    from app.db.models import UserRole as UserRoleModel
+    op_result = await db.execute(
+        select(UserRoleModel)
+        .join(Role)
+        .options(selectinload(UserRoleModel.role))
+        .where(UserRoleModel.user_id == user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+    )
+    op_assignment = op_result.scalar_one_or_none()
+    op_role_id = op_assignment.role_id if op_assignment else None
+    op_role_name = op_assignment.role.name if op_assignment else None
+
     return {
         "id": user.id,
         "username": user.username,
@@ -344,6 +359,8 @@ async def get_system_user(
         "muted_reason": user.muted_reason,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "operational_role_id": op_role_id,
+        "operational_role_name": op_role_name,
     }
 
 
@@ -468,40 +485,59 @@ async def create_system_user(
     db.add(new_user)
     await db.flush()  # Get the ID without committing
     
-    # 7. Create UserRole assignment (DB-driven role)
+    # 7. Create UserRole assignment (DB-driven role) for system role
     from app.db.models import UserRole as UserRoleModel
     user_role_assignment = UserRoleModel(
         user_id=new_user.id,
         role_id=request.role_id,
     )
     db.add(user_role_assignment)
-    
+
+    # If an operational role was provided, create an additional assignment
+    operational_role_obj = None
+    if request.operational_role_id:
+        operational_role = await db.execute(select(Role).where(Role.id == request.operational_role_id))
+        operational_role_obj = operational_role.scalar_one_or_none()
+        if not operational_role_obj:
+            raise HTTPException(status_code=400, detail=f"Operational role with ID {request.operational_role_id} does not exist.")
+        # Ensure the role is one of the allowed operational names
+        if operational_role_obj.name not in OPERATIONAL_ROLE_NAMES:
+            raise HTTPException(status_code=400, detail="Provided role_id is not an operational role")
+        operational_assignment = UserRoleModel(
+            user_id=new_user.id,
+            role_id=request.operational_role_id,
+        )
+        db.add(operational_assignment)
+
     # 8. Commit transaction
     await db.commit()
     await db.refresh(new_user)
-    
+
     # 9. Audit logging - DO NOT log password
+    meta = {
+        "actor": admin.username,
+        "actor_id": admin.id,
+        "username": new_user.username,
+        "email": new_user.email,
+        "role_id": request.role_id,
+        "role_name": role_obj.name,
+        "is_system_admin": request.is_system_admin,
+        "active": request.active,
+    }
+    if operational_role_obj:
+        meta.update({"operational_role_id": operational_role_obj.id, "operational_role_name": operational_role_obj.name})
+
     await log_audit(
         db=db,
         action="user.create",
         target_type=AuditTargetTypes.USER,
         target_id=new_user.id,
         description=f"User {new_user.username} created by admin {admin.username}",
-        meta={
-            "actor": admin.username,
-            "actor_id": admin.id,
-            "username": new_user.username,
-            "email": new_user.email,
-            "role_id": request.role_id,
-            "role_name": role_obj.name,
-            "is_system_admin": request.is_system_admin,
-            "active": request.active,
-            # Note: password is NEVER logged for security
-        },
+        meta=meta,
         user_id=admin.id,
         username=admin.username,
     )
-    
+
     # 10. Return created user + temp password (shown once only)
     return CreateUserResponse(
         user=CreatedUserInfo(
@@ -512,6 +548,8 @@ async def create_system_user(
             is_system_admin=new_user.is_system_admin,
             role_id=request.role_id,
             role_name=role_obj.name,
+            operational_role_id=operational_role_obj.id if operational_role_obj else None,
+            operational_role_name=operational_role_obj.name if operational_role_obj else None,
         ),
         temporary_password=temp_password,
     )
@@ -995,6 +1033,11 @@ class RoleUpdatePermissionsRequest(BaseModel):
 class UserRoleAssignRequest(BaseModel):
     """Request body for assigning a role to a user."""
     role_id: int = Field(..., description="ID of the role to assign")
+
+
+class OperationalRoleAssignRequest(BaseModel):
+    """Request body for assigning an operational role to a user."""
+    operational_role_id: Optional[int] = Field(None, description="ID of the operational role to assign, or null to remove")
 
 
 # === Role Helper Functions ===
@@ -1485,49 +1528,147 @@ async def assign_role_to_user(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_system_admin),
 ):
+
+
+@router.patch("/users/{user_id}/operational-role")
+async def assign_operational_role(
+    user_id: int,
+    request: OperationalRoleAssignRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_system_admin),
+):
     """
-    Assign a role to a user (DB-driven role system).
-    
+    Assign or remove an operational role for a user (non-system role) without affecting system roles.
+
     Rules:
-    - Role must exist
+    - operational_role_id may be null to remove any existing operational role
+    - Provided role must exist and be one of OPERATIONAL_ROLE_NAMES
+    - Logs before/after state
+    """
+    from app.db.models import UserRole as UserRoleModel
+
+    user = await get_user_or_404(db, user_id)
+    before_state = serialize_user_state(user)
+
+    # If removing operational role
+    if request.operational_role_id is None:
+        # Find existing operational assignment(s)
+        result = await db.execute(
+            select(UserRoleModel)
+            .join(Role)
+            .options(selectinload(UserRoleModel.role))
+            .where(UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+        )
+        existing = result.scalars().all()
+        if not existing:
+            return {"message": "No operational role to remove", "changed": False}
+        for e in existing:
+            await db.delete(e)
+        await db.commit()
+        await db.refresh(user)
+
+        after_state = serialize_user_state(user)
+        await log_audit(
+            db=db,
+            action="user.operational_role_change",
+            target_type=AuditTargetTypes.USER,
+            target_id=user_id,
+            description=f"Removed operational role(s) for {user.username}",
+            meta={"before": before_state, "after": after_state, "actor": admin.username},
+            user_id=admin.id,
+            username=admin.username,
+        )
+        return {"message": "Operational role removed", "changed": True}
+
+    # Assigning/updating operational role
+    op_role = await db.execute(select(Role).where(Role.id == request.operational_role_id))
+    op_role_obj = op_role.scalar_one_or_none()
+    if not op_role_obj:
+        raise HTTPException(status_code=404, detail="Operational role not found")
+    if op_role_obj.name not in OPERATIONAL_ROLE_NAMES:
+        raise HTTPException(status_code=400, detail="Provided role is not a valid operational role")
+
+    # Find existing operational assignment
+    result2 = await db.execute(
+        select(UserRoleModel)
+        .join(Role)
+        .options(selectinload(UserRoleModel.role))
+        .where(UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+    )
+    existing_assignment = result2.scalar_one_or_none()
+
+    if existing_assignment and existing_assignment.role_id == request.operational_role_id:
+        return {"message": f"User already has operational role '{op_role_obj.name}'", "changed": False}
+
+    if existing_assignment:
+        await db.delete(existing_assignment)
+
+    new_assignment = UserRoleModel(user_id=user_id, role_id=request.operational_role_id)
+    db.add(new_assignment)
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.operational_role_change",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Set operational role for {user.username} to '{op_role_obj.name}'",
+        meta={"before": before_state, "after": after_state, "actor": admin.username, "new_operational_role": op_role_obj.name},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {"message": f"Operational role '{op_role_obj.name}' assigned", "changed": True, "role": op_role_obj.name}
+    """
+    Assign a *system* role to a user (DB-driven role system).
+
+    Rules:
+    - Role must exist and be a system role
     - Prevents last-admin downgrade (if role isn't system_admin)
     - Logs before/after role
     """
     from app.db.models import UserRole as UserRoleModel
-    
+
     user = await get_user_or_404(db, user_id)
     before_state = serialize_user_state(user)
-    
+
     # Get the role
     role = await get_role_or_404(db, request.role_id)
-    
+
+    # Role must be a system role for this endpoint
+    if not role.is_system:
+        raise HTTPException(status_code=400, detail="Role must be a system role for this endpoint")
+
     # Last-admin protection
     await ensure_not_last_admin_by_role(db, user_id, request.role_id)
-    
-    # Get current role assignment
+
+    # Get current system role assignment (if any)
     result = await db.execute(
         select(UserRoleModel)
+        .join(Role)
         .options(selectinload(UserRoleModel.role))
-        .where(UserRoleModel.user_id == user_id)
+        .where(UserRoleModel.user_id == user_id, Role.is_system == True)
     )
     current_assignment = result.scalar_one_or_none()
     old_role_name = current_assignment.role.name if current_assignment else None
-    
+
     # Same role - no change
     if current_assignment and current_assignment.role_id == request.role_id:
         return {
             "message": f"User {user.username} already has role '{role.name}'",
             "changed": False,
         }
-    
-    # Remove old assignment if exists
+
+    # Remove old system assignment if exists
     if current_assignment:
         await db.delete(current_assignment)
-    
-    # Create new assignment
+
+    # Create new system assignment
     new_assignment = UserRoleModel(user_id=user_id, role_id=request.role_id)
     db.add(new_assignment)
-    
+
     # Sync is_system_admin flag
     if role.name == "system_admin":
         user.is_system_admin = True
