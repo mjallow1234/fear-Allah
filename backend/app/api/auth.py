@@ -254,35 +254,29 @@ async def register(
     )
 
 
-@router.get("/me")
-async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Current_user is a DB User instance (resolved by app.api.deps.get_current_user)
+def serialize_user(user: User) -> dict:
+    """Return API-safe serialized user dict including operational role fields.
 
-    # Fetch operational role assignment (if any)
-    from app.db.models import UserRole as UserRoleModel, Role
-    from app.api.system import OPERATIONAL_ROLE_NAMES
-
-    op_result = await db.execute(
-        select(UserRoleModel)
-        .join(Role)
-        .options(selectinload(UserRoleModel.role))
-        .where(UserRoleModel.user_id == current_user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
-    )
-    op_assignment = op_result.scalar_one_or_none()
-    op_role_id = op_assignment.role_id if op_assignment else None
-    op_role_name = op_assignment.role.name if op_assignment else None
-
+    This intentionally reads attributes attached by `app.api.deps.get_current_user` so
+    we avoid extra DB calls here and keep the endpoint signature simple.
+    """
     return {
-        "id": current_user.id,
-        "username": current_user.username,
-        "email": current_user.email,
-        "display_name": current_user.display_name,
-        "avatar_url": current_user.avatar_url,
-        "is_system_admin": current_user.is_system_admin,
-        "role": current_user.role,
-        "operational_role_id": op_role_id,
-        "operational_role_name": op_role_name,
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
+        "is_system_admin": user.is_system_admin,
+        "role": user.role,
+        "operational_role_id": getattr(user, 'operational_role_id', None),
+        "operational_role_name": getattr(user, 'operational_role_name', None),
     }
+
+
+@router.get("/me")
+async def me(current_user: User = Depends(get_current_user)):
+    # current_user is a DB User instance, enriched by app.api.deps.get_current_user
+    return serialize_user(current_user)
 
 
 @router.post("/logout")
