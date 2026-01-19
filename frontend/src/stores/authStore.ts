@@ -32,7 +32,7 @@ let setRef: { set?: (partial: Partial<AuthState>) => void } = {}
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => {
+    (set) => {
       // capture set reference to avoid referencing the store before initialization
       setRef.set = set
       return {
