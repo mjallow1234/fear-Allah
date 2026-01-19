@@ -94,7 +94,7 @@ export const useAuthStore = create<AuthState>()(
             }
 
             try {
-              const resp = await api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+              const resp = await api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
               if (resp?.data) {
                 // Replace stored user with authoritative server copy (includes operational_role_name)
                 useAuthStore.getState().updateUser(resp.data)
