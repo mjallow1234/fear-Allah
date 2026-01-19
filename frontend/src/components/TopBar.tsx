@@ -147,6 +147,24 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
               <span>{onlineCount} online</span>
             </div>
           )}
+
+          {/* Operational role label (informational only) */}
+          {currentUser?.operational_role_name && (
+            <span
+              style={{
+                fontSize: "12px",
+                opacity: 0.8,
+                padding: "4px 8px",
+                borderRadius: "6px",
+                background: "#1f2937",
+                color: "#e5e7eb",
+                textTransform: "capitalize",
+              }}
+            >
+              Role: {currentUser.operational_role_name.replace("_", " ")}
+            </span>
+          )}
+
           <span className="text-sm text-[#949ba4]">
             {user?.display_name || user?.username}
           </span>
