@@ -1048,6 +1048,28 @@ OPERATIONAL_ROLE_NAMES = [
 ]
 
 
+async def ensure_operational_roles(db: AsyncSession):
+    """Safely ensure operational roles exist in the DB at runtime.
+
+    This helper is idempotent and can be called on startup or on-demand.
+    It only inserts missing operational roles and commits once.
+    """
+    from app.db.models import Role
+
+    result = await db.execute(select(Role.name).where(Role.name.in_(OPERATIONAL_ROLE_NAMES)))
+    rows = result.fetchall()
+    existing_names = {r[0] for r in rows}
+
+    added = False
+    for name in OPERATIONAL_ROLE_NAMES:
+        if name not in existing_names:
+            db.add(Role(name=name, is_system=False))
+            added = True
+
+    if added:
+        await db.commit()
+
+
 async def get_role_or_404(db: AsyncSession, role_id: int) -> Role:
     """Fetch role by ID with permissions loaded, or raise 404."""
     result = await db.execute(
@@ -1191,6 +1213,9 @@ async def list_operational_roles(
     Returns roles seeded for operational use (admin, agent, sales_agent, storekeeper, foreman, delivery).
     This endpoint excludes system/chat roles and is accessible only to system admins.
     """
+    # Ensure operational roles exist in the DB before listing
+    await ensure_operational_roles(db)
+
     result = await db.execute(
         select(Role)
         .options(selectinload(Role.permissions).selectinload(RolePermission.permission))
