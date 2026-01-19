@@ -10,6 +10,8 @@ from app.db.models import User
 from app.core.security import verify_password, get_password_hash, create_access_token
 # Use the lightweight JWT dependency from security and resolve to DB User via app.api.deps.get_current_user
 from app.api.deps import get_current_user
+# Use lower-level JWT dependency here to catch and handle unexpected errors during user resolution
+from app.core.security import get_current_user as jwt_get_current_user
 from app.core.rate_limiter import check_rate_limit, get_client_ip
 from app.core.rate_limit_config import AUTH_LIMITS, rate_limit_settings
 
@@ -274,9 +276,22 @@ def serialize_user(user: User) -> dict:
 
 
 @router.get("/me")
-async def me(current_user: User = Depends(get_current_user)):
-    # current_user is a DB User instance, enriched by app.api.deps.get_current_user
-    return serialize_user(current_user)
+async def me(
+    current_user_data: dict = Depends(jwt_get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Use lower-level JWT dependency above and resolve to DB User here so we can
+    # catch unexpected errors that might occur while resolving DB user or serializing.
+    try:
+        current_user = await get_current_user(current_user_data, db)
+        return serialize_user(current_user)
+    except HTTPException:
+        # Re-raise standard HTTP exceptions (e.g., 404/401 from get_current_user)
+        raise
+    except Exception as e:
+        from app.core.logging import api_logger
+        api_logger.exception(f"/api/auth/me failed during user resolution: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
 
 
 @router.post("/logout")

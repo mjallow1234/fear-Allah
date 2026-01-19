@@ -14,9 +14,16 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
+try:
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+except ImportError:
+    # APScheduler is an optional runtime dependency for AI scheduling; if it's not
+    # installed (e.g., in lightweight test environments), avoid failing import.
+    AsyncIOScheduler = None
+    CronTrigger = None
+    IntervalTrigger = None
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, update, delete, and_
