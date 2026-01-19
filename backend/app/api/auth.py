@@ -7,7 +7,7 @@ from typing import Optional
 
 from app.db.database import get_db
 from app.db.models import User
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import verify_password, get_password_hash, create_access_token, get_current_user
 from app.core.rate_limiter import check_rate_limit, get_client_ip
 from app.core.rate_limit_config import AUTH_LIMITS, rate_limit_settings
 
