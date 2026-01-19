@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useTaskStore } from '../stores/taskStore'
 import { useOrderStore } from '../stores/orderStore'
+import useOperationalPermissions from '../permissions/useOperationalPermissions'
 import { Hash, Users, Search, Settings, ClipboardList, ShoppingCart, DollarSign, FileText, Cog } from 'lucide-react'
 import SearchModal from './SearchModal'
 import NotificationBell from './NotificationBell'
@@ -16,6 +17,7 @@ interface TopBarProps {
 
 export default function TopBar({ channelName = 'general', channelId, onlineCount }: TopBarProps) {
   const user = useAuthStore((state) => state.user)
+  const currentUser = useAuthStore((state) => state.currentUser)
   const navigate = useNavigate()
   const [searchOpen, setSearchOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -30,6 +32,9 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
   const activeOrderCount = orders.filter(o => 
     o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && o.automation?.has_automation
   ).length
+
+  // Permissions based on operational role
+  const perms = useOperationalPermissions(currentUser ?? undefined)
   
   // Fetch assignments on mount
   useEffect(() => {
@@ -72,53 +77,47 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           <NotificationBell />
           
           {/* Task Inbox */}
-          <button
-            onClick={() => navigate('/tasks')}
-            className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
-            title="Task Inbox"
-          >
-            <ClipboardList size={20} />
-            {pendingTaskCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#5865f2] text-white text-xs font-bold rounded-full flex items-center justify-center">
-                {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
-              </span>
-            )}
-          </button>
+          {perms.tabs.includes('Tasks') && (
+            <button
+              onClick={() => navigate('/tasks')}
+              className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
+              title="Task Inbox"
+            >
+              <ClipboardList size={20} />
+              {pendingTaskCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#5865f2] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
+                </span>
+              )}
+            </button>
+          )}
           
-          {/* Orders - ONLY system_admin, agent, storekeeper can see */}
-          {(() => {
-            const role = user?.role ?? localStorage.getItem('user_role')
-            const canSeeOrders = user?.is_system_admin || ['agent', 'storekeeper'].includes(role ?? '')
-            return canSeeOrders ? (
-              <button
-                onClick={() => navigate('/orders')}
-                className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
-                title="Orders"
-              >
-                <ShoppingCart size={20} />
-                {activeOrderCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                    {activeOrderCount > 9 ? '9+' : activeOrderCount}
-                  </span>
-                )}
-              </button>
-            ) : null
-          })()}
+          {/* Orders - controlled by operational permissions */}
+          {perms.tabs.includes('Orders') && (
+            <button
+              onClick={() => navigate('/orders')}
+              className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
+              title="Orders"
+            >
+              <ShoppingCart size={20} />
+              {activeOrderCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  {activeOrderCount > 9 ? '9+' : activeOrderCount}
+                </span>
+              )}
+            </button>
+          )}
           
-          {/* Sales & Inventory - ONLY admin, storekeeper, agent can see */}
-          {(() => {
-            const role = user?.role ?? localStorage.getItem('user_role')
-            const canSeeSales = user?.is_system_admin || ['admin', 'storekeeper', 'agent'].includes(role ?? '')
-            return canSeeSales ? (
-              <button
-                onClick={() => navigate('/sales')}
-                className="p-2 text-[#949ba4] hover:text-white transition-colors"
-                title="Sales & Inventory"
-              >
-                <DollarSign size={20} />
-              </button>
-            ) : null
-          })()}
+          {/* Sales & Inventory - controlled by operational permissions */}
+          {perms.tabs.includes('Sales') && (
+            <button
+              onClick={() => navigate('/sales')}
+              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              title="Sales & Inventory"
+            >
+              <DollarSign size={20} />
+            </button>
+          )}
           
           {/* Audit Log - admin only, navigates to /system/audit */}
           {user?.is_system_admin && (
