@@ -661,7 +661,10 @@ interface CreatedUserResult {
 }
 
 function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (result: CreatedUserResult) => void }) {
-const { createUser, roles, operationalRoles, fetchRoles, fetchOperationalRoles } = useSystemStore()
+  const { createUser, roles, operationalRoles, fetchRoles, fetchOperationalRoles, rolesLoading, _rolesFetched } = useSystemStore()
+  const SYSTEM_ROLE_NAMES = ['guest', 'member', 'moderator', 'owner']
+  const systemRolesOnly = roles.filter(r => SYSTEM_ROLE_NAMES.includes(r.name))
+
   const [formData, setFormData] = useState<CreateUserFormData>({
     username: '',
     email: '',
@@ -679,15 +682,22 @@ const { createUser, roles, operationalRoles, fetchRoles, fetchOperationalRoles }
   }, [fetchRoles, fetchOperationalRoles])
   
   useEffect(() => {
+    // Default operational role to agent if available
     if (!formData.operational_role_id && operationalRoles && operationalRoles.length) {
       const agent = operationalRoles.find(r => r.name === 'agent')
       if (agent) setFormData(d => ({ ...d, operational_role_id: agent.id }))
     }
-    // Default system role to the first available if not selected
-    if (!formData.role_id && roles && roles.length) {
-      setFormData(d => ({ ...d, role_id: roles[0].id }))
+
+    // Default system role to Guest (preferred) or first available system role
+    if (!formData.role_id && systemRolesOnly && systemRolesOnly.length) {
+      const guest = systemRolesOnly.find(r => r.name === 'guest')
+      if (guest) {
+        setFormData(d => ({ ...d, role_id: guest.id }))
+      } else {
+        setFormData(d => ({ ...d, role_id: systemRolesOnly[0].id }))
+      }
     }
-  }, [operationalRoles, roles])
+  }, [operationalRoles, systemRolesOnly, formData.operational_role_id, formData.role_id])
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -788,14 +798,21 @@ const { createUser, roles, operationalRoles, fetchRoles, fetchOperationalRoles }
             <select
               value={formData.role_id || ''}
               onChange={e => setFormData({ ...formData, role_id: e.target.value ? Number(e.target.value) : null })}
+              disabled={rolesLoading && !_rolesFetched}
               className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
             >
-              <option value="">Select a system role...</option>
-              {roles.map(role => (
-                <option key={role.id} value={role.id}>
-                  {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} {role.is_system && '(System)'}
-                </option>
-              ))}
+              {rolesLoading && !_rolesFetched ? (
+                <option>Loading system roles...</option>
+              ) : (
+                <>
+                  <option value="">Select a system role...</option>
+                  {systemRolesOnly.map(role => (
+                    <option key={role.id} value={role.id}>
+                      {role.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} {role.is_system && '(System)'}
+                    </option>
+                  ))}
+                </>
+              )}
             </select>
           </div>
 
