@@ -7,7 +7,9 @@ from typing import Optional
 
 from app.db.database import get_db
 from app.db.models import User
-from app.core.security import verify_password, get_password_hash, create_access_token, get_current_user
+from app.core.security import verify_password, get_password_hash, create_access_token
+# Use the lightweight JWT dependency from security and resolve to DB User via app.api.deps.get_current_user
+from app.api.deps import get_current_user
 from app.core.rate_limiter import check_rate_limit, get_client_ip
 from app.core.rate_limit_config import AUTH_LIMITS, rate_limit_settings
 
@@ -253,14 +255,8 @@ async def register(
 
 
 @router.get("/me")
-async def me(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Return the current authenticated user's profile including operational role if assigned
-    query = select(User).where(User.id == current_user["user_id"])
-    result = await db.execute(query)
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Current_user is a DB User instance (resolved by app.api.deps.get_current_user)
 
     # Fetch operational role assignment (if any)
     from app.db.models import UserRole as UserRoleModel, Role
@@ -270,20 +266,20 @@ async def me(current_user: dict = Depends(get_current_user), db: AsyncSession = 
         select(UserRoleModel)
         .join(Role)
         .options(selectinload(UserRoleModel.role))
-        .where(UserRoleModel.user_id == user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+        .where(UserRoleModel.user_id == current_user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
     )
     op_assignment = op_result.scalar_one_or_none()
     op_role_id = op_assignment.role_id if op_assignment else None
     op_role_name = op_assignment.role.name if op_assignment else None
 
     return {
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "display_name": user.display_name,
-        "avatar_url": user.avatar_url,
-        "is_system_admin": user.is_system_admin,
-        "role": user.role,
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "display_name": current_user.display_name,
+        "avatar_url": current_user.avatar_url,
+        "is_system_admin": current_user.is_system_admin,
+        "role": current_user.role,
         "operational_role_id": op_role_id,
         "operational_role_name": op_role_name,
     }
