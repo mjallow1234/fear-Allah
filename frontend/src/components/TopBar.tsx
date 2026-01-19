@@ -34,7 +34,10 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
   ).length
 
   // Permissions based on operational role
-  const perms = useOperationalPermissions(currentUser ?? undefined)
+  // Use `currentUser` (authoritative hydrated user) when available, otherwise fall back
+  // to the session `user` object so authenticated users see tabs immediately.
+  const effectiveUser = currentUser ?? user ?? undefined
+  const perms = useOperationalPermissions(effectiveUser)
   
   // Fetch assignments on mount
   useEffect(() => {
