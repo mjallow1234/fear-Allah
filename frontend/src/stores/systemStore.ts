@@ -111,11 +111,14 @@ interface SystemState {
   usersLoading: boolean
   
   // Roles & Permissions
+  // Operational role fields (kept explicit to match UI usage)
   roles: RoleInfo[]
   operationalRoles: RoleInfo[]
   permissions: PermissionInfo[]
   rolesLoading: boolean
   operationalRolesLoading: boolean
+  fetchOperationalRoles: (force?: boolean) => Promise<void>
+  assignOperationalRole: (userId: string | number, roleId: number | null) => Promise<void>
   
   // Settings
   settings: SystemSettings | null
@@ -134,6 +137,7 @@ interface SystemState {
   
   // Phase 8.4.4: Once-per-session fetch guards (private flags)
   _statsFetched: boolean
+  _operationalRolesFetched: boolean
   _usersFetched: boolean
   _rolesFetched: boolean
   _permissionsFetched: boolean
@@ -143,6 +147,7 @@ interface SystemState {
   _fetchingStats: boolean
   _fetchingUsers: boolean
   _fetchingRoles: boolean
+  _fetchingOperationalRoles: boolean
   _fetchingPermissions: boolean
   _fetchingSettings: boolean
   
@@ -165,7 +170,6 @@ interface SystemState {
     active: boolean
   }) => Promise<{ user: { id: number; username: string; email: string; active: boolean; is_system_admin: boolean; role_id: number; role_name: string; operational_role_id?: number | null; operational_role_name?: string | null }; temporary_password: string }>
   
-  assignOperationalRole: (userId: number, operationalRoleId: number | null) => Promise<{ changed: boolean; message: string }>
   
   // Phase 8.5.3: New user action methods
   setUserStatus: (userId: number, active: boolean) => Promise<{ changed: boolean; message: string }>
@@ -427,9 +431,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
   assignOperationalRole: async (userId, operationalRoleId) => {
     try {
-      const response = await api.patch(`/api/system/users/${userId}/operational-role`, { operational_role_id: operationalRoleId })
+      await api.patch(`/api/system/users/${userId}/operational-role`, { operational_role_id: operationalRoleId })
       await get().fetchUsers(true)
-      return { changed: response.data.changed, message: response.data.message }
     } catch (err) {
       console.error('[SystemStore] Failed to set operational role:', err)
       throw err
