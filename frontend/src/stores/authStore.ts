@@ -28,48 +28,54 @@ interface AuthState {
   setCurrentUser: (user: User) => void
 }
 
+let setRef: { set?: (partial: Partial<AuthState>) => void } = {}
+
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
-      user: null,
-      currentUser: null,
-      token: null,
-      isAuthenticated: false,
-      _hasHydrated: false,
-      setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
-      login: (token, user) => {
-        // Persist role to localStorage for session recovery (back-compat)
-        if (user.role) {
-          localStorage.setItem('user_role', user.role)
-        }
-        set({
-          token,
-          user,
-          currentUser: user,
-          isAuthenticated: true,
-        })
-        // Connect Socket.IO after login
-        setTimeout(() => connectSocket(), 0)
-      },
-      logout: () => {
-        // Disconnect Socket.IO before clearing auth state
-        disconnectSocket()
-        // Clear persisted role
-        localStorage.removeItem('user_role')
-        set({
-          token: null,
-          user: null,
-          currentUser: null,
-          isAuthenticated: false,
-        })
-      },
-      updateUser: (userData) =>
-        set((state) => ({
-          user: state.user ? { ...state.user, ...userData } : null,
-          currentUser: state.currentUser ? { ...state.currentUser, ...userData } : null,
-        })),
-      setCurrentUser: (userData) => set({ user: userData, currentUser: userData }),
-    }),
+    (set, get) => {
+      // capture set reference to avoid referencing the store before initialization
+      setRef.set = set
+      return {
+        user: null,
+        currentUser: null,
+        token: null,
+        isAuthenticated: false,
+        _hasHydrated: false,
+        setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
+        login: (token, user) => {
+          // Persist role to localStorage for session recovery (back-compat)
+          if (user.role) {
+            localStorage.setItem('user_role', user.role)
+          }
+          set({
+            token,
+            user,
+            currentUser: user,
+            isAuthenticated: true,
+          })
+          // Connect Socket.IO after login
+          setTimeout(() => connectSocket(), 0)
+        },
+        logout: () => {
+          // Disconnect Socket.IO before clearing auth state
+          disconnectSocket()
+          // Clear persisted role
+          localStorage.removeItem('user_role')
+          set({
+            token: null,
+            user: null,
+            currentUser: null,
+            isAuthenticated: false,
+          })
+        },
+        updateUser: (userData) =>
+          set((state) => ({
+            user: state.user ? { ...state.user, ...userData } : null,
+            currentUser: state.currentUser ? { ...state.currentUser, ...userData } : null,
+          })),
+        setCurrentUser: (userData) => set({ user: userData, currentUser: userData }),
+      }
+    },
     {
       name: 'auth',
       storage: createJSONStorage(() => localStorage),
@@ -81,7 +87,8 @@ export const useAuthStore = create<AuthState>()(
       }),
       onRehydrateStorage: () => async (state) => {
         // Called after store is rehydrated from localStorage
-        useAuthStore.getState().setHasHydrated(true)
+        // Use captured setRef to avoid referencing the store value during initialization
+        setRef.set?.({ _hasHydrated: true })
         // If there's no token, nothing to hydrate
         if (!state?.token) return
 
@@ -89,11 +96,14 @@ export const useAuthStore = create<AuthState>()(
           const resp = await api.get('/api/auth/me', { headers: { Authorization: `Bearer ${state.token}` } })
           if (resp?.data) {
             // Replace stored user with authoritative server copy (includes operational_role_name)
-            useAuthStore.getState().setCurrentUser(resp.data)
+            setRef.set?.({ currentUser: resp.data, user: resp.data })
           }
         } catch (err) {
           // If token invalid or request fails, clear auth
-          useAuthStore.getState().logout()
+          // Replicate logout actions without calling the store methods (to avoid TDZ)
+          disconnectSocket()
+          localStorage.removeItem('user_role')
+          setRef.set?.({ token: null, user: null, currentUser: null, isAuthenticated: false })
         } finally {
           setTimeout(() => connectSocket(), 100)
         }
