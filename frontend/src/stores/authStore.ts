@@ -74,11 +74,29 @@ export const useAuthStore = create<AuthState>()(
         // Called after store is rehydrated from localStorage
         useAuthStore.getState().setHasHydrated(true)
         // If user is already authenticated (page refresh), fetch authoritative profile and connect socket
-        if (state?.isAuthenticated && state?.token) {
+        if (state?.isAuthenticated) {
           ;(async () => {
+            // Extract token from persisted store if not present on rehydrated state
+            let token: string | null = state?.token ?? null
+            if (!token) {
+              try {
+                const raw = localStorage.getItem('auth-storage')
+                token = raw ? JSON.parse(raw)?.state?.token ?? null : null
+              } catch (e) {
+                token = null
+              }
+            }
+
+            if (!token) {
+              // no token available -> force logout
+              useAuthStore.getState().logout()
+              return
+            }
+
             try {
-              const resp = await api.get('/auth/me', { headers: { Authorization: `Bearer ${state.token}` } })
+              const resp = await api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
               if (resp?.data) {
+                // Replace stored user with authoritative server copy (includes operational_role_name)
                 useAuthStore.getState().updateUser(resp.data)
               }
             } catch (err) {
