@@ -517,7 +517,11 @@ async def create_system_user(
             raise
         except Exception as e:
             # Log and return a clean 400 - never bubble as 500
-            api_logger.exception("Failed to assign operational role during user creation")
+            api_logger.error(
+                "Failed to assign operational role during user creation",
+                error=str(e),
+                exc_type=type(e).__name__,
+            )
             raise HTTPException(status_code=400, detail="Failed to assign operational role")
 
     # 8. Commit transaction

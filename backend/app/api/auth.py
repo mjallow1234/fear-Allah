@@ -290,7 +290,11 @@ async def me(
         raise
     except Exception as e:
         from app.core.logging import api_logger
-        api_logger.exception(f"/api/auth/me failed during user resolution: {e}")
+        api_logger.error(
+            "/api/auth/me failed during user resolution",
+            error=str(e),
+            exc_type=type(e).__name__,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
 
 

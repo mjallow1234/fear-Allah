@@ -46,5 +46,9 @@ async def get_current_user(
         # Log and convert unexpected errors into 401 so calling routes don't return 500
         from app.core.logging import api_logger
         from fastapi import status
-        api_logger.exception(f"get_current_user failed: {e}")
+        api_logger.error(
+            "get_current_user failed",
+            error=str(e),
+            exc_type=type(e).__name__,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
