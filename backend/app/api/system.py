@@ -496,18 +496,29 @@ async def create_system_user(
     # If an operational role was provided, create an additional assignment
     operational_role_obj = None
     if request.operational_role_id:
-        operational_role = await db.execute(select(Role).where(Role.id == request.operational_role_id))
-        operational_role_obj = operational_role.scalar_one_or_none()
-        if not operational_role_obj:
-            raise HTTPException(status_code=400, detail=f"Operational role with ID {request.operational_role_id} does not exist.")
-        # Ensure the role is one of the allowed operational names
-        if operational_role_obj.name not in OPERATIONAL_ROLE_NAMES:
-            raise HTTPException(status_code=400, detail="Provided role_id is not an operational role")
-        operational_assignment = UserRoleModel(
-            user_id=new_user.id,
-            role_id=request.operational_role_id,
-        )
-        db.add(operational_assignment)
+        try:
+            operational_role = await db.execute(select(Role).where(Role.id == request.operational_role_id))
+            operational_role_obj = operational_role.scalar_one_or_none()
+            if not operational_role_obj:
+                raise HTTPException(status_code=400, detail=f"Operational role with ID {request.operational_role_id} does not exist.")
+            # Ensure the role is one of the allowed operational names
+            if operational_role_obj.name not in OPERATIONAL_ROLE_NAMES:
+                raise HTTPException(status_code=400, detail="Provided role_id is not an operational role")
+
+            # Defensive: do NOT attempt to map operational role name to UserRole enum (system role mapping only)
+            # Only create a DB-driven user_roles assignment for the operational role
+            operational_assignment = UserRoleModel(
+                user_id=new_user.id,
+                role_id=request.operational_role_id,
+            )
+            db.add(operational_assignment)
+        except HTTPException:
+            # expected, re-raise for upstream handling
+            raise
+        except Exception as e:
+            # Log and return a clean 400 - never bubble as 500
+            api_logger.exception("Failed to assign operational role during user creation")
+            raise HTTPException(status_code=400, detail="Failed to assign operational role")
 
     # 8. Commit transaction
     await db.commit()
