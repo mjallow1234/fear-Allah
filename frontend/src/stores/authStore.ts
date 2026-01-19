@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { connectSocket, disconnectSocket } from '../realtime'
+import api from '../services/api'
 
 interface User {
   id: number
@@ -10,6 +11,8 @@ interface User {
   avatar_url: string | null
   is_system_admin: boolean
   role?: string  // Business role: agent, storekeeper, delivery, foreman, customer, member, guest
+  operational_role_id?: number
+  operational_role_name?: string
 }
 
 interface AuthState {
@@ -70,9 +73,21 @@ export const useAuthStore = create<AuthState>()(
       onRehydrateStorage: () => (state) => {
         // Called after store is rehydrated from localStorage
         useAuthStore.getState().setHasHydrated(true)
-        // If user is already authenticated (page refresh), connect socket
+        // If user is already authenticated (page refresh), fetch authoritative profile and connect socket
         if (state?.isAuthenticated && state?.token) {
-          setTimeout(() => connectSocket(), 100)
+          ;(async () => {
+            try {
+              const resp = await api.get('/auth/me', { headers: { Authorization: `Bearer ${state.token}` } })
+              if (resp?.data) {
+                useAuthStore.getState().updateUser(resp.data)
+              }
+            } catch (err) {
+              // If token invalid or request fails, clear auth
+              useAuthStore.getState().logout()
+            } finally {
+              setTimeout(() => connectSocket(), 100)
+            }
+          })()
         }
       },
     }

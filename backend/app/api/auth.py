@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
@@ -93,6 +94,20 @@ async def login(
         "is_system_admin": user.is_system_admin,
     })
     
+    # Fetch operational role assignment (if any)
+    from app.db.models import UserRole as UserRoleModel, Role
+    from app.api.system import OPERATIONAL_ROLE_NAMES
+
+    op_result = await db.execute(
+        select(UserRoleModel)
+        .join(Role)
+        .options(selectinload(UserRoleModel.role))
+        .where(UserRoleModel.user_id == user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+    )
+    op_assignment = op_result.scalar_one_or_none()
+    op_role_id = op_assignment.role_id if op_assignment else None
+    op_role_name = op_assignment.role.name if op_assignment else None
+
     return TokenResponse(
         access_token=access_token,
         user={
@@ -103,6 +118,8 @@ async def login(
             "avatar_url": user.avatar_url,
             "is_system_admin": user.is_system_admin,
             "role": user.role,
+            "operational_role_id": op_role_id,
+            "operational_role_name": op_role_name,
         }
     )
 
@@ -204,7 +221,21 @@ async def register(
         "username": user.username,
         "is_system_admin": user.is_system_admin,
     })
-    
+
+    # Fetch operational role assignment (if any) - keep consistent with /login
+    from app.db.models import UserRole as UserRoleModel, Role
+    from app.api.system import OPERATIONAL_ROLE_NAMES
+
+    op_result = await db.execute(
+        select(UserRoleModel)
+        .join(Role)
+        .options(selectinload(UserRoleModel.role))
+        .where(UserRoleModel.user_id == user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+    )
+    op_assignment = op_result.scalar_one_or_none()
+    op_role_id = op_assignment.role_id if op_assignment else None
+    op_role_name = op_assignment.role.name if op_assignment else None
+
     return TokenResponse(
         access_token=access_token,
         user={
@@ -215,8 +246,47 @@ async def register(
             "avatar_url": user.avatar_url,
             "is_system_admin": user.is_system_admin,
             "role": user.role,
+            "operational_role_id": op_role_id,
+            "operational_role_name": op_role_name,
         }
     )
+
+
+@router.get("/me")
+async def me(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Return the current authenticated user's profile including operational role if assigned
+    query = select(User).where(User.id == current_user["user_id"])
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Fetch operational role assignment (if any)
+    from app.db.models import UserRole as UserRoleModel, Role
+    from app.api.system import OPERATIONAL_ROLE_NAMES
+
+    op_result = await db.execute(
+        select(UserRoleModel)
+        .join(Role)
+        .options(selectinload(UserRoleModel.role))
+        .where(UserRoleModel.user_id == user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
+    )
+    op_assignment = op_result.scalar_one_or_none()
+    op_role_id = op_assignment.role_id if op_assignment else None
+    op_role_name = op_assignment.role.name if op_assignment else None
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
+        "is_system_admin": user.is_system_admin,
+        "role": user.role,
+        "operational_role_id": op_role_id,
+        "operational_role_name": op_role_name,
+    }
 
 
 @router.post("/logout")
