@@ -43,8 +43,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
   }, [fetchMyAssignments])
 
   // Permissions for click-time checks — always resolve from authoritative currentUser
-  const currentUserFromStore = useAuthStore((s) => s.currentUser)
-  const perms = useOperationalPermissions(currentUserFromStore)
+  const perms = useOperationalPermissions()
   const handleTabNavigate = (path: string, tabName: 'Orders' | 'Sales' | 'Tasks') => {
     // If user has no operational role, deny
     if (!currentUser?.operational_role_name) {

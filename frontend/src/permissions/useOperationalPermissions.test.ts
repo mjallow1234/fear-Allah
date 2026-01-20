@@ -1,20 +1,29 @@
-import { describe, it, expect } from 'vitest'
-import useOperationalPermissions, { resolveOperationalPermissions } from './useOperationalPermissions'
-import { UI_PERMISSIONS, NO_ACCESS } from './operationalPermissions'
+import { describe, it, expect, beforeEach } from 'vitest'
+import useOperationalPermissions from './useOperationalPermissions'
+import { UI_PERMISSIONS, NO_ACCESS } from './uiPermissions'
+import { useAuthStore } from '@/stores/authStore'
 
-describe('resolveOperationalPermissions', () => {
+beforeEach(() => {
+  // Reset auth store between tests
+  useAuthStore.setState({ currentUser: null })
+})
+
+describe('useOperationalPermissions', () => {
   it('returns NO_ACCESS if currentUser is undefined or has no operational_role_name', () => {
-    expect(resolveOperationalPermissions(undefined)).toEqual(NO_ACCESS)
-    expect(resolveOperationalPermissions({} as any)).toEqual(NO_ACCESS)
+    useAuthStore.setState({ currentUser: null })
+    expect(useOperationalPermissions()).toEqual(NO_ACCESS)
+
+    useAuthStore.setState({ currentUser: {} as any })
+    expect(useOperationalPermissions()).toEqual(NO_ACCESS)
   })
 
   it('returns the matching UI permissions for a known role', () => {
-    const perms = resolveOperationalPermissions({ operational_role_name: 'admin' } as any)
-    expect(perms).toEqual(UI_PERMISSIONS['admin'])
+    useAuthStore.setState({ currentUser: { operational_role_name: 'admin' } as any })
+    expect(useOperationalPermissions()).toEqual(UI_PERMISSIONS['admin'])
   })
 
-  it('default export calls resolver with provided user', () => {
-    const perms = useOperationalPermissions({ operational_role_name: 'agent' } as any)
-    expect(perms).toEqual(UI_PERMISSIONS['agent'])
+  it('returns the correct permissions for agent role', () => {
+    useAuthStore.setState({ currentUser: { operational_role_name: 'agent' } as any })
+    expect(useOperationalPermissions()).toEqual(UI_PERMISSIONS['agent'])
   })
 })

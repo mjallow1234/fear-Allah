@@ -8,7 +8,12 @@ interface OperationalGuardProps {
 
 export default function OperationalGuard({ tab }: OperationalGuardProps) {
   const currentUser = useAuthStore((s) => s.currentUser)
-  const perms = useOperationalPermissions(currentUser)
+  // Do NOT block while auth is loading — return null so UI can render a loading state / avoid lockout
+  if (!currentUser) {
+    return null
+  }
+
+  const perms = useOperationalPermissions()
 
   if (!currentUser?.operational_role_name) {
     // No operational role attached
