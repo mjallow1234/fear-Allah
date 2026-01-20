@@ -6,7 +6,7 @@
  * raw materials management, and transaction history.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate, Navigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   DollarSign,
@@ -29,7 +29,6 @@ import clsx from 'clsx'
 import { useSalesStore, DateRangeFilter, SalesChannel } from '../stores/salesStore'
 import { useInventoryStore, StockStatus } from '../stores/inventoryStore'
 import { useAuthStore } from '../stores/authStore'
-import useOperationalPermissions from '../permissions/useOperationalPermissions'
 import ProductDetailsDrawer from '../components/ProductDetailsDrawer'
 import RawMaterialDetailsDrawer from '../components/RawMaterialDetailsDrawer'
 import SalesForm from '../components/forms/SalesForm'
@@ -106,8 +105,6 @@ export default function SalesPage() {
   
   // Auth store for role check
   const user = useAuthStore((state) => state.user)
-  // Permissions resolver based on operational role (authoritative currentUser)
-  const perms = useOperationalPermissions()
   
   // Sales store
   const {
@@ -220,24 +217,20 @@ export default function SalesPage() {
         <div className="flex items-center gap-4">
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            {perms.sales?.salesForm && (
-              <button
-                onClick={() => setShowSalesForm(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-              >
-                <Plus size={14} />
-                Record Sale
-              </button>
-            )}
-            {perms.sales?.inventory && (
-              <button
-                onClick={() => setShowInventoryForm(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-              >
-                <Package size={14} />
-                Manage Inventory
-              </button>
-            )}
+            <button
+              onClick={() => setShowSalesForm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+            >
+              <Plus size={14} />
+              Record Sale
+            </button>
+            <button
+              onClick={() => setShowInventoryForm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              <Package size={14} />
+              Manage Inventory
+            </button>
           </div>
           
           {/* Date Range Filter */}
@@ -273,11 +266,11 @@ export default function SalesPage() {
       {/* Tabs - visible according to operational permissions */}
       <div className="border-b border-[#1f2023] flex px-4 flex-shrink-0">
         {[
-          { id: 'overview' as TabType, label: 'Overview', icon: TrendingUp, allowed: !!perms.sales?.overview },
-          { id: 'agents' as TabType, label: 'Agent Performance', icon: Users, allowed: !!perms.sales?.agentPerformance },
-          { id: 'inventory' as TabType, label: 'Inventory', icon: Package, allowed: !!perms.sales?.inventory },
-          { id: 'raw-materials' as TabType, label: 'Raw Materials', icon: Boxes, allowed: !!perms.sales?.inventory && isAdmin },
-          { id: 'transactions' as TabType, label: 'Transactions', icon: Calendar, allowed: !!perms.sales?.transactions }
+          { id: 'overview' as TabType, label: 'Overview', icon: TrendingUp, allowed: true },
+          { id: 'agents' as TabType, label: 'Agent Performance', icon: Users, allowed: true },
+          { id: 'inventory' as TabType, label: 'Inventory', icon: Package, allowed: true },
+          { id: 'raw-materials' as TabType, label: 'Raw Materials', icon: Boxes, allowed: isAdmin },
+          { id: 'transactions' as TabType, label: 'Transactions', icon: Calendar, allowed: true }
         ]
           .filter(tab => tab.allowed)
           .map(({ id, label, icon: Icon }) => (
@@ -297,18 +290,11 @@ export default function SalesPage() {
         ))}
       </div>
 
-      {/* Keep active tab valid when permissions change */}
+      {/* Keep active tab valid (no permission checks) */}
       {(() => {
-        // If current active tab is no longer allowed, switch to the first allowed tab
         const allowedTabs = ['overview','agents','inventory','raw-materials','transactions'].filter(t => {
-          const map: Record<string, boolean> = {
-            overview: !!perms.sales?.overview,
-            agents: !!perms.sales?.agentPerformance,
-            inventory: !!perms.sales?.inventory,
-            'raw-materials': !!perms.sales?.inventory && isAdmin,
-            transactions: !!perms.sales?.transactions,
-          }
-          return map[t]
+          if (t === 'raw-materials') return isAdmin
+          return true
         })
         if (allowedTabs.length > 0 && !allowedTabs.includes(activeTab)) {
           setActiveTab(allowedTabs[0] as TabType)
@@ -319,8 +305,6 @@ export default function SalesPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'overview' && (
-          // Overview requires overview permission
-          perms.sales?.overview ? (
             <OverviewTab
               summary={summary}
               loading={loadingSummary}
@@ -328,26 +312,16 @@ export default function SalesPage() {
               isAdmin={isAdmin}
               rawMaterialsOverview={rawMaterialsOverview}
             />
-          ) : (
-            <Navigate to="/unauthorized" replace />
-          )
         )}
         
         {activeTab === 'agents' && (
-          // Agent performance requires agentPerformance permission
-          perms.sales?.agentPerformance ? (
             <AgentsTab
               agents={agentPerformance}
               loading={loadingAgents}
             />
-          ) : (
-            <Navigate to="/unauthorized" replace />
-          )
         )}
         
         {activeTab === 'inventory' && (
-          // Inventory requires inventory permission
-          perms.sales?.inventory ? (
             <InventoryTab
               items={inventoryItems}
               lowStockItems={lowStockItems}
@@ -357,14 +331,11 @@ export default function SalesPage() {
                 setShowProductDrawer(true)
               }}
             />
-          ) : (
-            <Navigate to="/unauthorized" replace />
-          )
         )}
         
         {activeTab === 'raw-materials' && (
-          // Raw materials requires inventory permission and admin
-          perms.sales?.inventory && isAdmin ? (
+          // Raw materials are still admin-only
+          isAdmin ? (
             <RawMaterialsTab
               materials={rawMaterials}
               loading={loadingRawMaterials}
@@ -376,20 +347,15 @@ export default function SalesPage() {
               }}
             />
           ) : (
-            <Navigate to="/unauthorized" replace />
+            <div className="text-sm text-[#949ba4]">Raw Materials are restricted</div>
           )
         )}
         
         {activeTab === 'transactions' && (
-          // Transactions require transactions permission
-          perms.sales?.transactions ? (
             <TransactionsTab
               transactions={transactions}
               loading={loadingTransactions}
             />
-          ) : (
-            <Navigate to="/unauthorized" replace />
-          )
         )}
       </div>
       
