@@ -111,3 +111,16 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 )
+
+// Expose auth store state for runtime inspection and simple guards in the browser console
+if (typeof window !== "undefined") {
+  // @ts-ignore
+  window.__APP_STATE__ = window.__APP_STATE__ || {}
+  // @ts-ignore
+  window.__APP_STATE__.auth = useAuthStore.getState()
+
+  useAuthStore.subscribe((state) => {
+    // @ts-ignore
+    window.__APP_STATE__.auth = state
+  })
+}
