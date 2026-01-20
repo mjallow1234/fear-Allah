@@ -10,28 +10,10 @@ export const NO_ACCESS = {
 }
 
 export const UI_PERMISSIONS: Record<string, any> = {
-  admin: {
-    tabs: ['Orders', 'Sales', 'Tasks'],
-    sales: { salesForm: true, overview: true, inventory: true, transactions: true, agentPerformance: true },
-  },
-  agent: {
-    tabs: ['Sales'],
-    sales: { salesForm: false, overview: true, inventory: false, transactions: false, agentPerformance: false },
-  },
-  sales_agent: {
-    tabs: ['Sales'],
-    sales: { salesForm: true, overview: true, inventory: false, transactions: true, agentPerformance: false },
-  },
-  storekeeper: {
-    tabs: [],
-    sales: { salesForm: false, overview: false, inventory: true, transactions: false, agentPerformance: false },
-  },
-  foreman: {
-    tabs: ['Tasks'],
-    sales: { salesForm: false, overview: false, inventory: false, transactions: false, agentPerformance: false },
-  },
-  delivery: {
-    tabs: [],
-    sales: { salesForm: false, overview: false, inventory: false, transactions: false, agentPerformance: false },
-  },
-}
+  admin: { tabs: ["orders", "sales", "tasks"] },
+  agent: { tabs: ["orders", "tasks"] },
+  sales_agent: { tabs: ["orders", "sales", "tasks"] },
+  storekeeper: { tabs: ["orders", "sales", "tasks"] },
+  foreman: { tabs: ["sales", "tasks"] },
+  delivery: { tabs: ["tasks"] },
+} as const;
