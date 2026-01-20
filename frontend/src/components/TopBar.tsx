@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useTaskStore } from '../stores/taskStore'
 import { useOrderStore } from '../stores/orderStore'
+import useOperationalPermissions from '../permissions/useOperationalPermissions'
 
 import { Hash, Users, Search, Settings, ClipboardList, ShoppingCart, DollarSign, FileText, Cog } from 'lucide-react'
 import SearchModal from './SearchModal'
@@ -40,6 +41,23 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
   useEffect(() => {
     fetchMyAssignments()
   }, [fetchMyAssignments])
+
+  // Permissions for click-time checks
+  const perms = useOperationalPermissions(currentUser ?? undefined)
+
+  const handleTabNavigate = (path: string, tabName: 'Orders' | 'Sales' | 'Tasks') => {
+    // If user has no operational role, deny
+    if (!currentUser?.operational_role_name) {
+      navigate('/unauthorized')
+      return
+    }
+    // Check permission via resolver
+    if (!perms.tabs.includes(tabName)) {
+      navigate('/unauthorized')
+      return
+    }
+    navigate(path)
+  }
 
   const handleSearchResultClick = (channelId: number, _messageId: number) => {
     navigate(`/channel/${channelId}`)
@@ -81,7 +99,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             <>
               {/* Task Inbox */}
               <button
-                onClick={() => navigate('/tasks')}
+                onClick={() => handleTabNavigate('/tasks', 'Tasks')}
                 className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
                 title="Task Inbox"
               >
@@ -95,7 +113,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
 
               {/* Orders */}
               <button
-                onClick={() => navigate('/orders')}
+                onClick={() => handleTabNavigate('/orders', 'Orders')}
                 className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
                 title="Orders"
               >
@@ -109,7 +127,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
 
               {/* Sales & Inventory */}
               <button
-                onClick={() => navigate('/sales')}
+                onClick={() => handleTabNavigate('/sales', 'Sales')}
                 className="p-2 text-[#949ba4] hover:text-white transition-colors"
                 title="Sales & Inventory"
               >

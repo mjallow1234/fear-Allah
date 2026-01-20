@@ -1,0 +1,24 @@
+import { Outlet, Navigate } from 'react-router-dom'
+import { useAuthStore } from '../stores/authStore'
+import useOperationalPermissions from '../permissions/useOperationalPermissions'
+
+interface OperationalGuardProps {
+  tab: 'Orders' | 'Sales' | 'Tasks'
+}
+
+export default function OperationalGuard({ tab }: OperationalGuardProps) {
+  const currentUser = useAuthStore((s) => s.currentUser)
+  const perms = useOperationalPermissions(currentUser ?? undefined)
+
+  if (!currentUser?.operational_role_name) {
+    // No operational role attached
+    return <Navigate to="/unauthorized" replace />
+  }
+
+  if (!perms.tabs.includes(tab)) {
+    // Role does not have this tab permission
+    return <Navigate to="/unauthorized" replace />
+  }
+
+  return <Outlet />
+}

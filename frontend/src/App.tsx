@@ -18,6 +18,8 @@ import AdminAuditPage from './pages/AdminAuditPage'
 import SystemConsolePage from './pages/SystemConsolePage'
 import AdminFormBuilderPage from './pages/AdminFormBuilderPage'
 import AIInsightsPage from './pages/AIInsightsPage'
+import OperationalGuard from './components/OperationalGuard'
+import Unauthorized from './pages/Unauthorized'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -61,12 +63,25 @@ function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="tasks" element={<TaskInboxPage />} />
-        <Route path="orders" element={<OrdersPage />} />
-        <Route path="orders/:id" element={<OrderDetailsPage />} />
-        <Route path="sales" element={<SalesPage />} />
+
+        {/* Protected sections: use OperationalGuard to enforce tab-level access */}
+        <Route path="tasks/*" element={<OperationalGuard tab="Tasks" />}>
+          <Route index element={<TaskInboxPage />} />
+        </Route>
+
+        <Route path="orders/*" element={<OperationalGuard tab="Orders" />}>
+          <Route index element={<OrdersPage />} />
+          <Route path=":id" element={<OrderDetailsPage />} />
+        </Route>
+
+        <Route path="sales/*" element={<OperationalGuard tab="Sales" />}>
+          <Route index element={<SalesPage />} />
+        </Route>
+
         <Route path="system/audit" element={<AdminAuditPage />} />
         <Route path="system/*" element={<SystemConsolePage />} />
+
+        <Route path="unauthorized" element={<Unauthorized />} />
         {/* Admin Form Builder routes */}
         <Route path="admin/forms" element={<AdminFormBuilderPage />} />
         <Route path="admin/forms/:formId" element={<AdminFormBuilderPage />} />
