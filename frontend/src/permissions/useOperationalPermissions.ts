@@ -1,4 +1,4 @@
-import { UI_PERMISSIONS, NO_ACCESS } from './operationalPermissions'
+import { UI_PERMISSIONS, NO_ACCESS } from './uiPermissions'
 
 export function resolveOperationalPermissions(currentUser?: { operational_role_name?: string, operational_role?: string }) {
   const role = currentUser?.operational_role_name ?? currentUser?.operational_role ?? null

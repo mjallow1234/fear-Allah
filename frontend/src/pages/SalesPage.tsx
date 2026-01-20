@@ -6,7 +6,7 @@
  * raw materials management, and transaction history.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import {
   ArrowLeft,
   DollarSign,
@@ -320,52 +320,77 @@ export default function SalesPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'overview' && (
-          <OverviewTab
-            summary={summary}
-            loading={loadingSummary}
-            lowStockCount={lowStockItems.length}
-            isAdmin={isAdmin}
-            rawMaterialsOverview={rawMaterialsOverview}
-          />
+          // Overview requires overview permission
+          perms.sales?.overview ? (
+            <OverviewTab
+              summary={summary}
+              loading={loadingSummary}
+              lowStockCount={lowStockItems.length}
+              isAdmin={isAdmin}
+              rawMaterialsOverview={rawMaterialsOverview}
+            />
+          ) : (
+            <Navigate to="/unauthorized" replace />
+          )
         )}
         
         {activeTab === 'agents' && (
-          <AgentsTab
-            agents={agentPerformance}
-            loading={loadingAgents}
-          />
+          // Agent performance requires agentPerformance permission
+          perms.sales?.agentPerformance ? (
+            <AgentsTab
+              agents={agentPerformance}
+              loading={loadingAgents}
+            />
+          ) : (
+            <Navigate to="/unauthorized" replace />
+          )
         )}
         
         {activeTab === 'inventory' && (
-          <InventoryTab
-            items={inventoryItems}
-            lowStockItems={lowStockItems}
-            loading={loadingItems}
-            onItemClick={(productId) => {
-              setSelectedProductId(productId)
-              setShowProductDrawer(true)
-            }}
-          />
+          // Inventory requires inventory permission
+          perms.sales?.inventory ? (
+            <InventoryTab
+              items={inventoryItems}
+              lowStockItems={lowStockItems}
+              loading={loadingItems}
+              onItemClick={(productId) => {
+                setSelectedProductId(productId)
+                setShowProductDrawer(true)
+              }}
+            />
+          ) : (
+            <Navigate to="/unauthorized" replace />
+          )
         )}
         
         {activeTab === 'raw-materials' && (
-          <RawMaterialsTab
-            materials={rawMaterials}
-            loading={loadingRawMaterials}
-            onAddClick={() => setShowRawMaterialForm(true)}
-            onRefresh={fetchRawMaterials}
-            onItemClick={(materialId) => {
-              setSelectedMaterialId(materialId)
-              setShowMaterialDrawer(true)
-            }}
-          />
+          // Raw materials requires inventory permission and admin
+          perms.sales?.inventory && isAdmin ? (
+            <RawMaterialsTab
+              materials={rawMaterials}
+              loading={loadingRawMaterials}
+              onAddClick={() => setShowRawMaterialForm(true)}
+              onRefresh={fetchRawMaterials}
+              onItemClick={(materialId) => {
+                setSelectedMaterialId(materialId)
+                setShowMaterialDrawer(true)
+              }}
+            />
+          ) : (
+            <Navigate to="/unauthorized" replace />
+          )
         )}
         
         {activeTab === 'transactions' && (
-          <TransactionsTab
-            transactions={transactions}
-            loading={loadingTransactions}
-          />
+          // Transactions require transactions permission
+          perms.sales?.transactions ? (
+            <TransactionsTab
+              transactions={transactions}
+              loading={loadingTransactions}
+            />
+          ) : (
+            <Navigate to="/unauthorized" replace />
+          )
         )}
       </div>
       
