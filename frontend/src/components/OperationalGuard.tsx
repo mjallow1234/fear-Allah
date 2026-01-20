@@ -15,11 +15,7 @@ export default function OperationalGuard({ tab }: OperationalGuardProps) {
 
   const perms = useOperationalPermissions()
 
-  if (!currentUser?.operational_role_name) {
-    // No operational role attached
-    return <Navigate to="/unauthorized" replace />
-  }
-
+  // Validate access strictly at the tab level using perms.tabs
   const tabKey = tab.toLowerCase() as 'orders' | 'sales' | 'tasks'
   if (!perms.tabs.includes(tabKey)) {
     // Role does not have this tab permission
