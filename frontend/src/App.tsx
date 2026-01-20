@@ -48,16 +48,23 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route element={<PrivateRoute><MainLayout /></PrivateRoute>}>
+      <Route
+        path="/"
+        element={
+          <PrivateRoute>
+            <MainLayout />
+          </PrivateRoute>
+        }
+      >
         <Route index element={<ChannelView />} />
-        <Route path="channels/*" element={<ChannelView />} />
+        <Route path="channels/:channelId" element={<ChannelView />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="tasks/*" element={<TaskInboxPage />} />
-        <Route path="orders/*" element={<OrdersPage />} />
+        <Route path="tasks" element={<TaskInboxPage />} />
+        <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:id" element={<OrderDetailsPage />} />
-        <Route path="sales/*" element={<SalesPage />} />
+        <Route path="sales" element={<SalesPage />} />
         <Route path="system/audit" element={<AdminAuditPage />} />
         <Route path="system/*" element={<SystemConsolePage />} />
         {/* Admin Form Builder routes */}
