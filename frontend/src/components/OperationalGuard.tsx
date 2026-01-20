@@ -8,7 +8,7 @@ interface OperationalGuardProps {
 
 export default function OperationalGuard({ tab }: OperationalGuardProps) {
   const currentUser = useAuthStore((s) => s.currentUser)
-  const perms = useOperationalPermissions(currentUser ?? undefined)
+  const perms = useOperationalPermissions(currentUser)
 
   if (!currentUser?.operational_role_name) {
     // No operational role attached

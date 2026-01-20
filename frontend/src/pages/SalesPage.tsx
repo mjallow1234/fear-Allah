@@ -107,8 +107,8 @@ export default function SalesPage() {
   // Auth store for role check
   const user = useAuthStore((state) => state.user)
   const currentUser = useAuthStore((state) => state.currentUser)
-  // Permissions resolver based on operational role
-  const perms = useOperationalPermissions(currentUser ?? undefined)
+  // Permissions resolver based on operational role (authoritative currentUser)
+  const perms = useOperationalPermissions(currentUser)
   
   // Sales store
   const {
