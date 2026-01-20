@@ -1,25 +1,19 @@
 import { Outlet, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import useOperationalPermissions from '../permissions/useOperationalPermissions'
+import { NO_ACCESS } from '../permissions/uiPermissions'
 
 interface OperationalGuardProps {
   tab: 'Orders' | 'Sales' | 'Tasks'
 }
 
 export default function OperationalGuard({ tab }: OperationalGuardProps) {
-  const currentUser = useAuthStore((s) => s.currentUser)
-  const hasHydrated = useAuthStore((s) => s._hasHydrated)
+  const auth = useAuthStore((s) => ({ _hasHydrated: s._hasHydrated, currentUser: s.currentUser }))
   const perms = useOperationalPermissions()
 
-  // Timing guard: while auth is hydrating or permissions are not yet resolved for a user with a role, DO NOT redirect
-  if (!currentUser || !hasHydrated) {
-    return null
-  }
-
-  if (currentUser.operational_role_name && (!perms?.tabs || perms.tabs.length === 0)) {
-    // Permissions not yet resolved for this role; avoid premature redirect
-    return null
-  }
+  // BEFORE redirecting: wait until auth has hydrated and permissions have resolved
+  if (!auth._hasHydrated) return null
+  if (!perms || perms === NO_ACCESS) return null
 
   // Validate access strictly at the tab level using perms.tabs
   const tabKey = tab.toLowerCase() as 'orders' | 'sales' | 'tasks'
