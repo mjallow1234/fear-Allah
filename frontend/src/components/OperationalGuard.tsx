@@ -18,11 +18,7 @@ export default function OperationalGuard({ tab }: OperationalGuardProps) {
   // Validate access strictly at the tab level using perms.tabs
   const tabKey = tab.toLowerCase() as 'orders' | 'sales' | 'tasks'
 
-  // TEMP: Do not enforce OperationalGuard for sales routes during stabilization
-  if (tabKey === 'sales') {
-    return <Outlet />
-  }
-
+  // Enforce tab-level permission for all tabs including 'sales'
   if (!perms.tabs.includes(tabKey)) {
     // Role does not have this tab permission
     return <Navigate to="/unauthorized" replace />
