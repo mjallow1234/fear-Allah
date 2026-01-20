@@ -20,7 +20,8 @@ export default function OperationalGuard({ tab }: OperationalGuardProps) {
     return <Navigate to="/unauthorized" replace />
   }
 
-  if (!perms.tabs.includes(tab)) {
+  const tabKey = tab.toLowerCase() as 'orders' | 'sales' | 'tasks'
+  if (!perms.tabs.includes(tabKey)) {
     // Role does not have this tab permission
     return <Navigate to="/unauthorized" replace />
   }

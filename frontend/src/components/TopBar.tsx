@@ -42,16 +42,11 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
     fetchMyAssignments()
   }, [fetchMyAssignments])
 
-  // Permissions for click-time checks — always resolve from authoritative currentUser
+  // Permissions for click-time checks — authoritative single source
   const perms = useOperationalPermissions()
-  const handleTabNavigate = (path: string, tabName: 'Orders' | 'Sales' | 'Tasks') => {
-    // If user has no operational role, deny
-    if (!currentUser?.operational_role_name) {
-      navigate('/unauthorized')
-      return
-    }
-    // Check permission via resolver
-    if (!perms.tabs.includes(tabName)) {
+  const handleTabNavigate = (path: string, tabKey: 'orders' | 'sales' | 'tasks') => {
+    // Only allow navigation when tab is explicitly permitted
+    if (!perms.tabs.includes(tabKey)) {
       navigate('/unauthorized')
       return
     }
@@ -93,46 +88,48 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {/* Notification Bell */}
           <NotificationBell />
           
-          {/* Operational tabs — shown whenever an operational role exists on currentUser */}
-          {currentUser?.operational_role_name && (
-            <>
-              {/* Task Inbox */}
-              <button
-                onClick={() => handleTabNavigate('/tasks', 'Tasks')}
-                className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
-                title="Task Inbox"
-              >
-                <ClipboardList size={20} />
-                {pendingTaskCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#5865f2] text-white text-xs font-bold rounded-full flex items-center justify-center">
-                    {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
-                  </span>
-                )}
-              </button>
+          {/* Operational tabs — visibility controlled *only* by permissions */}
+          {/* Task Inbox */}
+          {perms.tabs.includes('tasks') && (
+            <button
+              onClick={() => handleTabNavigate('/tasks', 'tasks')}
+              className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
+              title="Task Inbox"
+            >
+              <ClipboardList size={20} />
+              {pendingTaskCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#5865f2] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
+                </span>
+              )}
+            </button>
+          )}
 
-              {/* Orders */}
-              <button
-                onClick={() => handleTabNavigate('/orders', 'Orders')}
-                className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
-                title="Orders"
-              >
-                <ShoppingCart size={20} />
-                {activeOrderCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                    {activeOrderCount > 9 ? '9+' : activeOrderCount}
-                  </span>
-                )}
-              </button>
+          {/* Orders */}
+          {perms.tabs.includes('orders') && (
+            <button
+              onClick={() => handleTabNavigate('/orders', 'orders')}
+              className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
+              title="Orders"
+            >
+              <ShoppingCart size={20} />
+              {activeOrderCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  {activeOrderCount > 9 ? '9+' : activeOrderCount}
+                </span>
+              )}
+            </button>
+          )}
 
-              {/* Sales & Inventory */}
-              <button
-                onClick={() => handleTabNavigate('/sales', 'Sales')}
-                className="p-2 text-[#949ba4] hover:text-white transition-colors"
-                title="Sales & Inventory"
-              >
-                <DollarSign size={20} />
-              </button>
-            </>
+          {/* Sales & Inventory */}
+          {perms.tabs.includes('sales') && (
+            <button
+              onClick={() => handleTabNavigate('/sales', 'sales')}
+              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              title="Sales & Inventory"
+            >
+              <DollarSign size={20} />
+            </button>
           )}
           
           {/* Audit Log - admin only, navigates to /system/audit */}
