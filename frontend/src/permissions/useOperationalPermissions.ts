@@ -21,5 +21,8 @@ export default function useOperationalPermissions() {
     return NO_ACCESS
   }
 
-  return perms
+  return {
+    tabs: perms.tabs ?? [],
+    sales: perms.sales ?? {},
+  }
 }
