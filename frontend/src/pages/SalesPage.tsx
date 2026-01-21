@@ -256,13 +256,15 @@ export default function SalesPage() {
         <div className="flex items-center gap-4">
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowSalesForm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-            >
-              <Plus size={14} />
-              Record Sale
-            </button>
+            {(["admin","sales_agent","storekeeper"].includes(currentUser?.operational_role_name || '')) && (
+              <button
+                onClick={() => setShowSalesForm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                <Plus size={14} />
+                Record Sale
+              </button>
+            )}
             {isAdmin && (
               <button
                 onClick={() => setShowInventoryForm(true)}
