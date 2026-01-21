@@ -28,6 +28,7 @@ type FormMode = 'create' | 'adjust' | 'threshold'
 
 export default function InventoryForm({ isOpen, onClose, onSuccess, editItem }: InventoryFormProps) {
   const user = useAuthStore((state) => state.user)
+  const isAdmin = user?.is_system_admin === true || user?.operational_role_name === 'admin'
   
   // Form mode
   const [mode, setMode] = useState<FormMode>('create')
@@ -57,12 +58,10 @@ export default function InventoryForm({ isOpen, onClose, onSuccess, editItem }: 
   const [success, setSuccess] = useState<string | null>(null)
   
   // Get effective role
-  const effectiveRole = user?.is_system_admin 
-    ? 'admin' 
-    : (user?.role || 'member')
+  const effectiveRole = isAdmin ? 'admin' : (user?.role || 'member')
   
   // Only system administrators may manage inventory (UI-level gating). Backend still enforces ACLs.
-  const canManageInventory = user?.is_system_admin === true
+  const canManageInventory = isAdmin
   
   // Fetch inventory on open
   useEffect(() => {

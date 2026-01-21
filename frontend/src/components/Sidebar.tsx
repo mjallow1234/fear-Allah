@@ -40,6 +40,7 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const token = useAuthStore((state) => state.token)
+  const isAdmin = user?.is_system_admin === true || user?.operational_role_name === 'admin'
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
@@ -228,9 +229,9 @@ export default function Sidebar() {
           </span>
           <button 
             onClick={() => setShowCreateChannelModal(true)}
-            className={clsx('p-1 transition-colors', user?.is_system_admin ? 'text-[#949ba4] hover:text-white' : 'text-[#949ba4] opacity-50 cursor-not-allowed')}
-            title={user?.is_system_admin ? 'Add Channel' : 'Only admins can create channels'}
-            disabled={!user?.is_system_admin}
+            className={clsx('p-1 transition-colors', isAdmin ? 'text-[#949ba4] hover:text-white' : 'text-[#949ba4] opacity-50 cursor-not-allowed')}
+            title={isAdmin ? 'Add Channel' : 'Only admins can create channels'}
+            disabled={!isAdmin}
           >
             <Plus size={14} />
           </button>
@@ -332,8 +333,8 @@ export default function Sidebar() {
             })
         )}
 
-        {/* Admin Section - Only visible to system admins */}
-        {user?.is_system_admin && (
+        {/* Admin Section - Only visible to system admins or operational admins */}
+        {isAdmin && (
           <>
             <div className="px-2 mt-6 mb-2">
               <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">

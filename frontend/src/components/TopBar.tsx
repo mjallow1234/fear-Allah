@@ -44,6 +44,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
 
   // Permissions for click-time checks — authoritative single source
   const perms = useOperationalPermissions()
+  const isAdmin = currentUser?.is_system_admin === true || currentUser?.operational_role_name === 'admin'
   const handleTabNavigate = (path: string, tabKey: 'orders' | 'sales' | 'tasks') => {
     // Only allow navigation when tab is explicitly permitted
     if (!perms.tabs.includes(tabKey)) {
@@ -133,7 +134,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           )}
           
           {/* Audit Log - admin only, navigates to /system/audit */}
-          {user?.is_system_admin && (
+          {isAdmin && (
             <button
               onClick={() => navigate('/system/audit')}
               className="p-2 text-[#949ba4] hover:text-white transition-colors"
@@ -144,7 +145,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           )}
           
           {/* System Console (admin only) */}
-          {user?.is_system_admin && (
+          {isAdmin && (
             <button
               onClick={() => navigate('/system')}
               className="p-2 text-purple-400 hover:text-purple-300 transition-colors"
@@ -152,7 +153,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             >
               <Cog size={20} />
             </button>
-          )}
+          )} 
           
           {onlineCount !== undefined && (
             <div className="flex items-center gap-1 text-sm text-[#949ba4]">

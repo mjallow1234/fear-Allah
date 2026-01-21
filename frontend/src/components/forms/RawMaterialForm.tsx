@@ -36,7 +36,7 @@ export default function RawMaterialForm({
   selectedMaterial = null 
 }: RawMaterialFormProps) {
   const { currentUser } = useAuthStore()
-  const isAdmin = currentUser?.is_system_admin === true
+  const isAdmin = currentUser?.is_system_admin === true || currentUser?.operational_role_name === 'admin'
   const canEdit = isAdmin
   
   // Tab state

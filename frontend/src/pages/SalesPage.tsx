@@ -109,8 +109,8 @@ export default function SalesPage() {
   
   // Auth store for role check
   const { currentUser } = useAuthStore()
-  const isAdmin = currentUser?.is_system_admin === true
-  const canManageRawMaterials = currentUser?.is_system_admin === true
+  const isAdmin = currentUser?.is_system_admin === true || currentUser?.operational_role_name === 'admin'
+  const canManageRawMaterials = isAdmin
   // Permissions for Sales sub-views
   const perms = useOperationalPermissions()
   
