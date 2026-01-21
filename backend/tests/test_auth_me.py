@@ -37,3 +37,41 @@ async def test_auth_me_returns_operational_role(client, test_session, user_token
     data = resp.json()
     assert 'operational_role_name' in data
     assert data['operational_role_name'] == 'agent'
+
+
+@pytest.mark.asyncio
+async def test_auth_me_system_admin_gets_operational_admin(client, test_session):
+    """System administrators should be treated as operational admins at runtime.
+
+    This test ensures that a user with is_system_admin=True receives an
+    operational_role_name of 'admin' and a valid operational_role_id.
+    """
+    from app.db.models import Role, User
+    from app.core.security import create_access_token, get_password_hash
+
+    # Ensure admin role exists
+    role = Role(name='admin', is_system=False)
+    test_session.add(role)
+    await test_session.commit()
+    await test_session.refresh(role)
+
+    # Create a system admin user
+    user = User(
+        email='sysadmin@example.com',
+        username='sysadmin',
+        display_name='System Admin',
+        hashed_password=get_password_hash('adminpass'),
+        is_active=True,
+        is_system_admin=True,
+    )
+    test_session.add(user)
+    await test_session.commit()
+    await test_session.refresh(user)
+
+    token = create_access_token({"sub": str(user.id), "username": user.username, "is_system_admin": True})
+    resp = await client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get('operational_role_name') == 'admin'
+    assert data.get('operational_role_id') == role.id
+

@@ -284,6 +284,15 @@ async def me(
     # catch unexpected errors that might occur while resolving DB user or serializing.
     try:
         current_user = await get_current_user(current_user_data, db)
+        # If the user is a system administrator, ensure they behave as an operational admin
+        # at runtime (without modifying the DB). This grants them operational 'admin' role
+        # for UI and permission resolution across services.
+        if getattr(current_user, 'is_system_admin', False):
+            from app.db.models import Role
+            role_result = await db.execute(select(Role).where(Role.name == 'admin'))
+            admin_role = role_result.scalar_one_or_none()
+            current_user.operational_role_name = 'admin'
+            current_user.operational_role_id = admin_role.id if admin_role else None
         return serialize_user(current_user)
     except HTTPException:
         # Re-raise standard HTTP exceptions (e.g., 404/401 from get_current_user)
