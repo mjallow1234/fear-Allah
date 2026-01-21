@@ -201,6 +201,33 @@ export default function SalesPage() {
       fetchTransactions()
     }
   }
+
+  // Raw material action handlers (admin only)
+  const handleAddRawMaterial = () => {
+    setSelectedMaterialId(null)
+    setShowRawMaterialForm(true)
+  }
+
+  const handleEditRawMaterial = (id: number) => {
+    setSelectedMaterialId(id)
+    setShowRawMaterialForm(true)
+  }
+
+  const handleAdjustRawMaterial = (id: number) => {
+    // Adjust flow handled inside RawMaterialForm when selectedMaterialId is set
+    setSelectedMaterialId(id)
+    setShowRawMaterialForm(true)
+  }
+
+  const handleDeleteRawMaterial = async (id: number) => {
+    if (!confirm('Delete this raw material?')) return
+    try {
+      await api.delete(`/api/inventory/raw-materials/${id}`)
+      fetchRawMaterials()
+    } catch (err) {
+      console.error('Failed to delete raw material:', err)
+    }
+  }
   
   // Date range filter buttons
   const dateRanges: { value: DateRangeFilter; label: string }[] = [
@@ -363,18 +390,13 @@ export default function SalesPage() {
             <RawMaterialsTab
               materials={rawMaterials}
               loading={loadingRawMaterials}
-              onAddClick={isAdmin ? () => setShowRawMaterialForm(true) : undefined}
-              onEdit={isAdmin ? (id: number) => { setSelectedMaterialId(id); setShowRawMaterialForm(true) } : undefined}
-              onAdjust={isAdmin ? (id: number) => { setSelectedMaterialId(id); setShowRawMaterialForm(true); /* adjust tab handled inside form */ } : undefined}
-              onDelete={isAdmin ? async (id: number) => {
-                if (!confirm('Delete this raw material?')) return
-                try {
-                  await api.delete(`/api/inventory/raw-materials/${id}`)
-                  fetchRawMaterials()
-                } catch (err) {
-                  console.error('Failed to delete raw material:', err)
-                }
-              } : undefined}
+
+              /* ✅ ADMIN-ONLY ACTIONS */
+              onAddClick={isAdmin ? handleAddRawMaterial : undefined}
+              onEdit={isAdmin ? handleEditRawMaterial : undefined}
+              onAdjust={isAdmin ? handleAdjustRawMaterial : undefined}
+              onDelete={isAdmin ? handleDeleteRawMaterial : undefined}
+
               onRefresh={fetchRawMaterials}
               onItemClick={(materialId) => {
                 setSelectedMaterialId(materialId)
