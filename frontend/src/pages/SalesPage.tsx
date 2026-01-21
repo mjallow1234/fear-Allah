@@ -109,7 +109,8 @@ export default function SalesPage() {
   
   // Auth store for role check
   const { currentUser } = useAuthStore()
-  const isAdmin = currentUser?.is_system_admin === true || currentUser?.operational_role_name === 'admin'
+  // Operational admin (operational_role_name === 'admin') controls Raw Materials, Inventory, Sales overview, and Transactions
+  const isAdmin = currentUser?.operational_role_name === 'admin'
   const canManageRawMaterials = isAdmin
   // Permissions for Sales sub-views
   const perms = useOperationalPermissions()

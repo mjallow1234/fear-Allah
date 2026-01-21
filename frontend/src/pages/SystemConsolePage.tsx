@@ -2053,8 +2053,6 @@ function AuditTab() {
 
 export default function SystemConsolePage() {
   const navigate = useNavigate()
-  const user = useAuthStore(s => s.user)
-  const isAdmin = user?.is_system_admin === true || user?.operational_role_name === 'admin'
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   
   // Phase 8.6: Permission enforcement
@@ -2094,10 +2092,10 @@ export default function SystemConsolePage() {
   
   // Check admin access - system admins always allowed, others need at least one permission
   useEffect(() => {
-    if (!isAdmin && permissionsLoaded && availableTabs.length <= 1) {
+    if (!isSystemAdmin && permissionsLoaded && availableTabs.length <= 1) {
       navigate('/')
     }
-  }, [isAdmin, navigate, permissionsLoaded, availableTabs])
+  }, [isSystemAdmin, navigate, permissionsLoaded, availableTabs])
   
   // Phase 8.6: If active tab is no longer available, switch to first available
   useEffect(() => {

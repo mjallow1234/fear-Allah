@@ -14,10 +14,9 @@ export default function AdminFormBuilderPage() {
   const navigate = useNavigate()
   const { formId } = useParams<{ formId: string }>()
   const user = useAuthStore((state) => state.user)
-  const isAdmin = user?.is_system_admin === true || user?.operational_role_name === 'admin'
   
-  // Admin-only access check
-  if (!isAdmin) {
+  // Admin-only access check (system admins only)
+  if (!user?.is_system_admin) {
     return (
       <div className="flex items-center justify-center h-full bg-[#313338]">
         <div className="text-center">
