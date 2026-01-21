@@ -110,6 +110,7 @@ export default function SalesPage() {
   // Auth store for role check
   const { currentUser } = useAuthStore()
   const isAdmin = currentUser?.is_system_admin === true
+  const canManageRawMaterials = currentUser?.is_system_admin === true
   // Permissions for Sales sub-views
   const perms = useOperationalPermissions()
   
@@ -402,6 +403,9 @@ export default function SalesPage() {
                 setSelectedMaterialId(materialId)
                 setShowMaterialDrawer(true)
               }}
+
+              /* Control empty-state rendering for admins */
+              canManageRawMaterials={canManageRawMaterials}
             />
           ) : (
             <RestrictedSection message="Raw Materials are restricted" />
@@ -1026,7 +1030,8 @@ function RawMaterialsTab({
   onItemClick,
   onEdit,
   onAdjust,
-  onDelete
+  onDelete,
+  canManageRawMaterials
 }: {
   materials: RawMaterial[]
   loading: boolean
@@ -1036,6 +1041,7 @@ function RawMaterialsTab({
   onEdit?: (materialId: number) => void
   onAdjust?: (materialId: number) => void
   onDelete?: (materialId: number) => void
+  canManageRawMaterials?: boolean
 }) {
   if (loading) {
     return (
@@ -1076,7 +1082,7 @@ function RawMaterialsTab({
       </div>
       
       {/* Empty State */}
-      {materials.length === 0 ? (
+      {(materials.length === 0 && !canManageRawMaterials) ? (
         <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] p-8 text-center">
           <Boxes size={48} className="mx-auto text-[#949ba4] mb-4" />
           <p className="text-white font-medium mb-2">No Raw Materials</p>
