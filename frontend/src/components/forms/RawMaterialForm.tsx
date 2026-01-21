@@ -223,30 +223,7 @@ export default function RawMaterialForm({
   }
   
   if (!isOpen) return null
-  
-  // Admin check - only allow editing for admins; non-admins cannot open the form
-  if (!canEdit) {
-    return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-[#313338] rounded-lg w-full max-w-md mx-4 p-6">
-          <div className="flex items-center gap-2 text-red-400 mb-4">
-            <AlertCircle size={24} />
-            <h2 className="text-lg font-semibold">Access Denied</h2>
-          </div>
-          <p className="text-[#b5bac1] mb-4">
-            Only system administrators can manage raw materials.
-          </p>
-          <button
-            onClick={onClose}
-            className="w-full bg-[#4f545c] hover:bg-[#5d6269] text-white py-2 px-4 rounded transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    )
-  }
-  
+
   const selectedMaterialData = materials.find(m => m.id === selectedMaterialId)
   
   return (
