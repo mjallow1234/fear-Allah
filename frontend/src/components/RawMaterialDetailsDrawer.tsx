@@ -1,4 +1,4 @@
-import { X, Boxes, BarChart3, TrendingDown, TrendingUp, Building2 } from 'lucide-react'
+import { X, Boxes, BarChart3, TrendingDown, TrendingUp, Building2, Pencil, Minus, Trash } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 import clsx from 'clsx'
 import api from '../services/api'
@@ -25,9 +25,13 @@ interface RawMaterialDetailsDrawerProps {
   materialId: number | null
   isOpen: boolean
   onClose: () => void
+  isAdmin?: boolean
+  onEdit?: (id: number) => void
+  onAdjust?: (id: number) => void
+  onDelete?: (id: number) => void
 }
 
-export default function RawMaterialDetailsDrawer({ materialId, isOpen, onClose }: RawMaterialDetailsDrawerProps) {
+export default function RawMaterialDetailsDrawer({ materialId, isOpen, onClose, isAdmin, onEdit, onAdjust, onDelete }: RawMaterialDetailsDrawerProps) {
   const [material, setMaterial] = useState<RawMaterialDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -98,12 +102,41 @@ export default function RawMaterialDetailsDrawer({ materialId, isOpen, onClose }
             <Boxes size={20} className="text-amber-400" />
             Raw Material Details
           </h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-[#949ba4] hover:text-white transition-colors rounded"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && onEdit && (
+              <button
+                onClick={() => onEdit(materialId as number)}
+                className="px-3 py-1.5 text-sm bg-[#4f545c] hover:bg-[#5d6269] text-white rounded transition-colors"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
+            {isAdmin && onAdjust && (
+              <button
+                onClick={() => onAdjust(materialId as number)}
+                className="px-3 py-1.5 text-sm bg-[#4f545c] hover:bg-[#5d6269] text-white rounded transition-colors"
+                title="Adjust"
+              >
+                <Minus size={14} />
+              </button>
+            )}
+            {isAdmin && onDelete && (
+              <button
+                onClick={() => onDelete(materialId as number)}
+                className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                title="Delete"
+              >
+                <Trash size={14} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1 text-[#949ba4] hover:text-white transition-colors rounded"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
         
         {/* Content */}

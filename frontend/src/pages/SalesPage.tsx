@@ -23,7 +23,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Plus,
-  Boxes
+  Boxes,
+  Pencil,
+  Minus,
+  Trash
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useSalesStore, DateRangeFilter, SalesChannel } from '../stores/salesStore'
@@ -361,6 +364,17 @@ export default function SalesPage() {
               materials={rawMaterials}
               loading={loadingRawMaterials}
               onAddClick={isAdmin ? () => setShowRawMaterialForm(true) : undefined}
+              onEdit={isAdmin ? (id: number) => { setSelectedMaterialId(id); setShowRawMaterialForm(true) } : undefined}
+              onAdjust={isAdmin ? (id: number) => { setSelectedMaterialId(id); setShowRawMaterialForm(true); /* adjust tab handled inside form */ } : undefined}
+              onDelete={isAdmin ? async (id: number) => {
+                if (!confirm('Delete this raw material?')) return
+                try {
+                  await api.delete(`/api/inventory/raw-materials/${id}`)
+                  fetchRawMaterials()
+                } catch (err) {
+                  console.error('Failed to delete raw material:', err)
+                }
+              } : undefined}
               onRefresh={fetchRawMaterials}
               onItemClick={(materialId) => {
                 setSelectedMaterialId(materialId)
@@ -502,6 +516,20 @@ export default function SalesPage() {
           setShowMaterialDrawer(false)
           setSelectedMaterialId(null)
         }}
+        isAdmin={isAdmin}
+        onEdit={isAdmin ? (id: number) => { setSelectedMaterialId(id); setShowRawMaterialForm(true) } : undefined}
+        onAdjust={isAdmin ? (id: number) => { setSelectedMaterialId(id); setShowRawMaterialForm(true); } : undefined}
+        onDelete={isAdmin ? async (id: number) => {
+          if (!confirm('Delete this raw material?')) return
+          try {
+            await api.delete(`/api/inventory/raw-materials/${id}`)
+            fetchRawMaterials()
+            setShowMaterialDrawer(false)
+            setSelectedMaterialId(null)
+          } catch (err) {
+            console.error('Failed to delete raw material:', err)
+          }
+        } : undefined}
       />
     </div>
   )
@@ -974,12 +1002,18 @@ function RawMaterialsTab({
   onAddClick,
   onRefresh,
   onItemClick,
+  onEdit,
+  onAdjust,
+  onDelete
 }: {
   materials: RawMaterial[]
   loading: boolean
   onAddClick?: () => void
   onRefresh?: () => void
   onItemClick?: (materialId: number) => void
+  onEdit?: (materialId: number) => void
+  onAdjust?: (materialId: number) => void
+  onDelete?: (materialId: number) => void
 }) {
   if (loading) {
     return (
@@ -1046,6 +1080,7 @@ function RawMaterialsTab({
                 <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Unit</th>
                 <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Status</th>
                 <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Supplier</th>
+                {(onEdit || onAdjust || onDelete) && <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -1077,6 +1112,8 @@ function RawMaterialsTab({
                       {material.unit}
                     </td>
                     <td className="px-4 py-3 text-center">
+                    </td>
+                    <td className="px-4 py-3 text-center">
                       {isLowStock ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-400/10 text-yellow-400">
                           <AlertTriangle size={12} />
@@ -1092,6 +1129,37 @@ function RawMaterialsTab({
                     <td className="px-4 py-3 text-right text-[#949ba4] text-sm">
                       {material.supplier || '—'}
                     </td>
+                    {(onEdit || onAdjust || onDelete) && (
+                      <td className="px-4 py-3 text-right text-sm flex items-center gap-2">
+                        {onEdit && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onEdit(material.id) }}
+                            title="Edit"
+                            className="px-2 py-1 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
+                        {onAdjust && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onAdjust(material.id) }}
+                            title="Adjust"
+                            className="px-2 py-1 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded"
+                          >
+                            <Minus size={14} />
+                          </button>
+                        )}
+                        {onDelete && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onDelete(material.id) }}
+                            title="Delete"
+                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
+                          >
+                            <Trash size={14} />
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
