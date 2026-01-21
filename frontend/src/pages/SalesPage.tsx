@@ -112,6 +112,8 @@ export default function SalesPage() {
   // Operational admin (operational_role_name === 'admin') controls Raw Materials, Inventory, Sales overview, and Transactions
   const isAdmin = currentUser?.operational_role_name === 'admin'
   const canManageRawMaterials = isAdmin
+  // Explicit operational admin flag used to gate automatic (on-mount) admin-only fetches only
+  const isOperationalAdmin = currentUser?.operational_role_name === 'admin'
   // Permissions for Sales sub-views
   const perms = useOperationalPermissions()
   
@@ -181,7 +183,7 @@ export default function SalesPage() {
   useEffect(() => {
     // Sales: Summary is available to all, agent performance is admin-only
     fetchSummary()
-    if (isAdmin) {
+    if (isOperationalAdmin) {
       fetchAgentPerformance()
       fetchRawMaterials()
       fetchRawMaterialsOverview()
@@ -190,10 +192,10 @@ export default function SalesPage() {
     // Inventory: Items and low stock available to all, transactions are admin-only
     fetchInventoryItems()
     fetchLowStock()
-    if (isAdmin) {
+    if (isOperationalAdmin) {
       fetchTransactions()
     }
-  }, [isAdmin])
+  }, [isOperationalAdmin])
   
   const isLoading = loadingSummary || (isAdmin && loadingAgents) || loadingItems || (isAdmin && loadingTransactions) || (isAdmin && loadingRawMaterials)
   
