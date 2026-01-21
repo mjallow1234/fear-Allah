@@ -29,6 +29,7 @@ import clsx from 'clsx'
 import { useSalesStore, DateRangeFilter, SalesChannel } from '../stores/salesStore'
 import { useInventoryStore, StockStatus } from '../stores/inventoryStore'
 import { useAuthStore } from '../stores/authStore'
+import useOperationalPermissions from '../permissions/useOperationalPermissions'
 import ProductDetailsDrawer from '../components/ProductDetailsDrawer'
 import RawMaterialDetailsDrawer from '../components/RawMaterialDetailsDrawer'
 import SalesForm from '../components/forms/SalesForm'
@@ -105,6 +106,13 @@ export default function SalesPage() {
   
   // Auth store for role check
   const user = useAuthStore((state) => state.user)
+  // Permissions for Sales sub-views
+  const perms = useOperationalPermissions()
+  
+  // Simple restricted panel renderer
+  const RestrictedSection = ({ message = 'You do not have access to this section.' }: { message?: string }) => (
+    <div className="text-sm text-[#949ba4]">{message}</div>
+  )
   
   // Sales store
   const {
@@ -305,37 +313,49 @@ export default function SalesPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'overview' && (
-            <OverviewTab
-              summary={summary}
-              loading={loadingSummary}
-              lowStockCount={lowStockItems.length}
-              isAdmin={isAdmin}
-              rawMaterialsOverview={rawMaterialsOverview}
-            />
+            perms.sales?.overview ? (
+              <OverviewTab
+                summary={summary}
+                loading={loadingSummary}
+                lowStockCount={lowStockItems.length}
+                isAdmin={isAdmin}
+                rawMaterialsOverview={rawMaterialsOverview}
+              />
+            ) : (
+              <RestrictedSection message="Overview section restricted" />
+            )
         )}
         
         {activeTab === 'agents' && (
-            <AgentsTab
-              agents={agentPerformance}
-              loading={loadingAgents}
-            />
+            perms.sales?.agentPerformance ? (
+              <AgentsTab
+                agents={agentPerformance}
+                loading={loadingAgents}
+              />
+            ) : (
+              <RestrictedSection message="Agent Performance is restricted" />
+            )
         )}
         
         {activeTab === 'inventory' && (
-            <InventoryTab
-              items={inventoryItems}
-              lowStockItems={lowStockItems}
-              loading={loadingItems}
-              onItemClick={(productId) => {
-                setSelectedProductId(productId)
-                setShowProductDrawer(true)
-              }}
-            />
+            perms.sales?.inventory ? (
+              <InventoryTab
+                items={inventoryItems}
+                lowStockItems={lowStockItems}
+                loading={loadingItems}
+                onItemClick={(productId) => {
+                  setSelectedProductId(productId)
+                  setShowProductDrawer(true)
+                }}
+              />
+            ) : (
+              <RestrictedSection message="Inventory section restricted" />
+            )
         )}
         
         {activeTab === 'raw-materials' && (
-          // Raw materials are still admin-only
-          isAdmin ? (
+          // Raw materials require inventory permission + admin
+          perms.sales?.inventory && isAdmin ? (
             <RawMaterialsTab
               materials={rawMaterials}
               loading={loadingRawMaterials}
@@ -347,15 +367,19 @@ export default function SalesPage() {
               }}
             />
           ) : (
-            <div className="text-sm text-[#949ba4]">Raw Materials are restricted</div>
+            <RestrictedSection message="Raw Materials are restricted" />
           )
         )}
         
         {activeTab === 'transactions' && (
-            <TransactionsTab
-              transactions={transactions}
-              loading={loadingTransactions}
-            />
+            perms.sales?.transactions ? (
+              <TransactionsTab
+                transactions={transactions}
+                loading={loadingTransactions}
+              />
+            ) : (
+              <RestrictedSection message="Transactions are restricted" />
+            )
         )}
       </div>
       
