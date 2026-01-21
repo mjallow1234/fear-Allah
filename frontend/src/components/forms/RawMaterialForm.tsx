@@ -35,7 +35,9 @@ export default function RawMaterialForm({
   initialTab = 'add',
   selectedMaterial = null 
 }: RawMaterialFormProps) {
-  const user = useAuthStore((state) => state.user)
+  const { currentUser } = useAuthStore()
+  const isAdmin = currentUser?.is_system_admin === true
+  const canEdit = isAdmin
   
   // Tab state
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
@@ -63,7 +65,6 @@ export default function RawMaterialForm({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   
-  const isAdmin = user?.is_system_admin === true
   
   // Fetch materials when opening adjust/consume tabs
   useEffect(() => {
@@ -213,8 +214,8 @@ export default function RawMaterialForm({
   
   if (!isOpen) return null
   
-  // Admin check
-  if (!isAdmin) {
+  // Admin check - only allow editing for admins; non-admins cannot open the form
+  if (!canEdit) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
         <div className="bg-[#313338] rounded-lg w-full max-w-md mx-4 p-6">

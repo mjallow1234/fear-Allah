@@ -105,7 +105,8 @@ export default function SalesPage() {
   const [loadingRawMaterials, setLoadingRawMaterials] = useState(false)
   
   // Auth store for role check
-  const user = useAuthStore((state) => state.user)
+  const { currentUser } = useAuthStore()
+  const isAdmin = currentUser?.is_system_admin === true
   // Permissions for Sales sub-views
   const perms = useOperationalPermissions()
   
@@ -138,8 +139,6 @@ export default function SalesPage() {
     fetchTransactions
   } = useInventoryStore()
   
-  // Determine if user is admin (can see all data including agent performance and transactions)
-  const isAdmin = user?.is_system_admin === true
   
   // Fetch raw materials
   const fetchRawMaterials = async () => {
