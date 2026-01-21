@@ -147,13 +147,17 @@ export default function SalesPage() {
   
   // Fetch raw materials
   const fetchRawMaterials = async () => {
-    if (!isAdmin) return
+    // Check operational permissions or allow system admins
+    if (!perms.sales?.rawMaterials && !currentUser?.is_system_admin) return
+
     setLoadingRawMaterials(true)
     try {
       const response = await api.get('/api/inventory/raw-materials/')
       setRawMaterials(response.data.items || response.data || [])
-    } catch (err) {
-      console.error('Failed to fetch raw materials:', err)
+    } catch (err: any) {
+      if (!(err?.response && err.response.status === 403)) {
+        console.error('Failed to fetch raw materials:', err)
+      }
     } finally {
       setLoadingRawMaterials(false)
     }
@@ -161,12 +165,15 @@ export default function SalesPage() {
   
   // Fetch raw materials overview stats (admin only)
   const fetchRawMaterialsOverview = async () => {
-    if (!isAdmin) return
+    // Check operational permissions or allow system admins
+    if (!perms.sales?.rawMaterials && !currentUser?.is_system_admin) return
     try {
       const response = await api.get('/api/inventory/raw-materials/overview/stats')
       setRawMaterialsOverview(response.data)
-    } catch (err) {
-      console.error('Failed to fetch raw materials overview:', err)
+    } catch (err: any) {
+      if (!(err?.response && err.response.status === 403)) {
+        console.error('Failed to fetch raw materials overview:', err)
+      }
     }
   }
   

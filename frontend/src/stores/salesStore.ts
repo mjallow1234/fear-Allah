@@ -6,6 +6,8 @@
  */
 import { create } from 'zustand'
 import api from '../services/api'
+import useOperationalPermissions from '../permissions/useOperationalPermissions'
+import { useAuthStore } from '../stores/authStore'
 
 // Sales channel types
 export type SalesChannel = 'AGENT' | 'STORE' | 'WHOLESALE'
@@ -104,6 +106,16 @@ export const useSalesStore = create<SalesState>((set, get) => ({
   
   fetchAgentPerformance: async () => {
     set({ loadingAgents: true, error: null })
+
+    // Check operational permissions or allow system admins
+    const perms = useOperationalPermissions()
+    const currentUser = useAuthStore.getState().currentUser
+    if (!perms.sales?.agentPerformance && !currentUser?.is_system_admin) {
+      // Not permitted to fetch agent performance - silently return and clear state
+      set({ agentPerformance: [], loadingAgents: false })
+      return
+    }
+
     try {
       const { dateRange } = get()
       const response = await api.get(`/api/sales/performance/agents`, {
@@ -117,9 +129,12 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         : (data.agents || [])
       
       set({ agentPerformance: agents, loadingAgents: false })
-    } catch (error: unknown) {
-      console.error('Failed to fetch agent performance:', error)
-      // On 404/error, set empty array
+    } catch (error: any) {
+      // Avoid logging expected 403 Forbidden errors caused by role restrictions
+      if (!(error?.response && error.response.status === 403)) {
+        console.error('Failed to fetch agent performance:', error)
+      }
+      // On error, set empty array
       set({ agentPerformance: [], loadingAgents: false })
     }
   },

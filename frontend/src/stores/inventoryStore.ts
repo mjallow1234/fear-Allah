@@ -6,6 +6,8 @@
  */
 import { create } from 'zustand'
 import api from '../services/api'
+import useOperationalPermissions from '../permissions/useOperationalPermissions'
+import { useAuthStore } from '../stores/authStore'
 
 // Inventory status levels
 export type StockStatus = 'healthy' | 'low' | 'critical'
@@ -127,6 +129,15 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   
   fetchTransactions: async () => {
     set({ loadingTransactions: true, error: null })
+
+    // Check operational permissions or allow system admins
+    const perms = useOperationalPermissions()
+    const currentUser = useAuthStore.getState().currentUser
+    if (!perms.sales?.transactions && !currentUser?.is_system_admin) {
+      set({ transactions: [], loadingTransactions: false })
+      return
+    }
+
     try {
       const response = await api.get(`/api/inventory/transactions`)
       
@@ -144,8 +155,11 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       }))
       
       set({ transactions, loadingTransactions: false })
-    } catch (error: unknown) {
-      console.error('Failed to fetch inventory transactions:', error)
+    } catch (error: any) {
+      // Avoid noisy console errors for expected forbidden responses
+      if (!(error?.response && error.response.status === 403)) {
+        console.error('Failed to fetch inventory transactions:', error)
+      }
       set({ transactions: [], loadingTransactions: false })
     }
   },

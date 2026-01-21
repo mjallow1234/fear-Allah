@@ -106,12 +106,20 @@ export default function RawMaterialForm({
   }
   
   const fetchMaterials = async () => {
+    // Only allow if operational admin or system admin
+    if (!isAdmin && !currentUser?.is_system_admin) {
+      setMaterials([])
+      return
+    }
+
     setLoadingMaterials(true)
     try {
       const response = await api.get('/api/inventory/raw-materials/')
       setMaterials(response.data.items || response.data || [])
-    } catch (err) {
-      console.error('Failed to fetch raw materials:', err)
+    } catch (err: any) {
+      if (!(err?.response && err.response.status === 403)) {
+        console.error('Failed to fetch raw materials:', err)
+      }
       setError('Failed to load raw materials')
     } finally {
       setLoadingMaterials(false)

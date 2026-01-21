@@ -54,11 +54,16 @@ export default function RawMaterialDetailsDrawer({ materialId, isOpen, onClose, 
       setMaterial(response.data)
     } catch (err: unknown) {
       // Graceful error handling - don't crash the UI
-      console.error('[RawMaterialDetailsDrawer] Fetch error:', err)
+      if (!(err && typeof err === 'object' && 'response' in err && (err as any).response.status === 403)) {
+        console.error('[RawMaterialDetailsDrawer] Fetch error:', err)
+      }
+
       if (err && typeof err === 'object' && 'response' in err) {
         const axiosErr = err as { response?: { status?: number; data?: { detail?: unknown } } }
         if (axiosErr.response?.status === 404) {
           setError('Raw material not found')
+        } else if (axiosErr.response?.status === 403) {
+          setError('You do not have permission to view this material')
         } else {
           setError(extractAxiosError(err, 'Failed to fetch material details'))
         }
