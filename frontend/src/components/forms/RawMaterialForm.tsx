@@ -120,6 +120,11 @@ export default function RawMaterialForm({
   
   const handleAddMaterial = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!canEdit) {
+      setError('Only administrators can add raw materials')
+      return
+    }
     
     if (!name || !unit) {
       setError('Name and unit are required')
@@ -173,6 +178,11 @@ export default function RawMaterialForm({
     setError(null)
     setSuccess(null)
     
+    if (!canEdit) {
+      setError('Only administrators can adjust or consume materials')
+      return
+    }
+
     try {
       const quantity = parseFloat(adjustQuantity)
       // For consume tab, make quantity negative
@@ -255,6 +265,12 @@ export default function RawMaterialForm({
             <X size={20} />
           </button>
         </div>
+        {/* Read-only banner for non-admins */}
+        {!canEdit && (
+          <div className="p-3 bg-yellow-400/5 border-b border-yellow-400/10 text-yellow-400 text-sm">
+            You have view-only access. Editing is restricted to system administrators.
+          </div>
+        )}
         
         {/* Tabs */}
         <div className="flex border-b border-[#3f4147]">
@@ -308,8 +324,7 @@ export default function RawMaterialForm({
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g., Wheat Flour"
                   className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white placeholder-[#72767d] focus:outline-none focus:border-[#5865f2]"
-                  required
-                />
+                  required                  disabled={!canEdit}                />
               </div>
               
               <div>
@@ -322,6 +337,7 @@ export default function RawMaterialForm({
                   placeholder="Optional description..."
                   rows={2}
                   className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white placeholder-[#72767d] focus:outline-none focus:border-[#5865f2] resize-none"
+                  disabled={!canEdit}
                 />
               </div>
               
@@ -334,6 +350,7 @@ export default function RawMaterialForm({
                     value={unit}
                     onChange={(e) => setUnit(e.target.value)}
                     className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white focus:outline-none focus:border-[#5865f2]"
+                    disabled={!canEdit}
                   >
                     <option value="kg">Kilograms (kg)</option>
                     <option value="g">Grams (g)</option>
@@ -358,6 +375,7 @@ export default function RawMaterialForm({
                     min="0"
                     step="0.01"
                     className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white placeholder-[#72767d] focus:outline-none focus:border-[#5865f2]"
+                    disabled={!canEdit}
                   />
                 </div>
               </div>
@@ -375,6 +393,7 @@ export default function RawMaterialForm({
                     min="0"
                     step="0.01"
                     className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white placeholder-[#72767d] focus:outline-none focus:border-[#5865f2]"
+                    disabled={!canEdit}
                   />
                 </div>
                 <div>
@@ -431,8 +450,8 @@ export default function RawMaterialForm({
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !name || !unit}
-                  className="flex-1 flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-4 rounded transition-colors"
+                  disabled={loading || !name || !unit || !canEdit}
+                  className={`flex-1 flex items-center justify-center gap-2 rounded py-2 px-4 transition-colors ${!canEdit || loading || !name || !unit ? 'bg-[#4f545c] opacity-60 cursor-not-allowed text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}`}
                 >
                   {loading ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -503,8 +522,7 @@ export default function RawMaterialForm({
                   min={activeTab === 'consume' ? '0.01' : undefined}
                   step="0.01"
                   className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white placeholder-[#72767d] focus:outline-none focus:border-[#5865f2]"
-                  required
-                />
+                  required                  disabled={!canEdit}                />
                 {activeTab === 'adjust' && (
                   <p className="text-xs text-[#949ba4] mt-1">
                     Use positive values to add stock, negative to remove
@@ -523,6 +541,7 @@ export default function RawMaterialForm({
                   onChange={(e) => setAdjustReason(e.target.value)}
                   placeholder={activeTab === 'consume' ? 'e.g., Production batch #123' : 'e.g., Received from supplier'}
                   className="w-full bg-[#1e1f22] border border-[#3f4147] rounded px-3 py-2 text-white placeholder-[#72767d] focus:outline-none focus:border-[#5865f2]"
+                  disabled={!canEdit}
                 />
               </div>
               
@@ -569,12 +588,12 @@ export default function RawMaterialForm({
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !selectedMaterialId || !adjustQuantity}
+                  disabled={loading || !selectedMaterialId || !adjustQuantity || !canEdit}
                   className={`flex-1 flex items-center justify-center gap-2 ${
                     activeTab === 'consume'
-                      ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  } disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-4 rounded transition-colors`}
+                      ? (!canEdit ? 'bg-[#4f545c] opacity-60 cursor-not-allowed text-white' : 'bg-red-600 hover:bg-red-700')
+                      : (!canEdit ? 'bg-[#4f545c] opacity-60 cursor-not-allowed text-white' : 'bg-blue-600 hover:bg-blue-700')
+                  } py-2 px-4 rounded transition-colors`}
                 >
                   {loading ? (
                     <Loader2 size={16} className="animate-spin" />

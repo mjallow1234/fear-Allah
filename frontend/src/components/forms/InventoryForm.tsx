@@ -61,8 +61,8 @@ export default function InventoryForm({ isOpen, onClose, onSuccess, editItem }: 
     ? 'admin' 
     : (user?.role || 'member')
   
-  // Check if user can manage inventory
-  const canManageInventory = ['admin', 'system_admin', 'team_admin', 'storekeeper'].includes(effectiveRole)
+  // Only system administrators may manage inventory (UI-level gating). Backend still enforces ACLs.
+  const canManageInventory = user?.is_system_admin === true
   
   // Fetch inventory on open
   useEffect(() => {

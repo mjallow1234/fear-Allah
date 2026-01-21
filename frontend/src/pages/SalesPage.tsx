@@ -231,13 +231,15 @@ export default function SalesPage() {
               <Plus size={14} />
               Record Sale
             </button>
-            <button
-              onClick={() => setShowInventoryForm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-            >
-              <Package size={14} />
-              Manage Inventory
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowInventoryForm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                <Package size={14} />
+                Manage Inventory
+              </button>
+            )}
           </div>
           
           {/* Date Range Filter */}
