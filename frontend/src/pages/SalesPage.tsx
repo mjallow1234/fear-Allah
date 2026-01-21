@@ -277,7 +277,7 @@ export default function SalesPage() {
           { id: 'overview' as TabType, label: 'Overview', icon: TrendingUp, allowed: true },
           { id: 'agents' as TabType, label: 'Agent Performance', icon: Users, allowed: true },
           { id: 'inventory' as TabType, label: 'Inventory', icon: Package, allowed: true },
-          { id: 'raw-materials' as TabType, label: 'Raw Materials', icon: Boxes, allowed: isAdmin },
+          { id: 'raw-materials' as TabType, label: 'Raw Materials', icon: Boxes, allowed: !!perms.sales?.rawMaterials },
           { id: 'transactions' as TabType, label: 'Transactions', icon: Calendar, allowed: true }
         ]
           .filter(tab => tab.allowed)
@@ -301,7 +301,7 @@ export default function SalesPage() {
       {/* Keep active tab valid (no permission checks) */}
       {(() => {
         const allowedTabs = ['overview','agents','inventory','raw-materials','transactions'].filter(t => {
-          if (t === 'raw-materials') return isAdmin
+          if (t === 'raw-materials') return !!perms.sales?.rawMaterials
           return true
         })
         if (allowedTabs.length > 0 && !allowedTabs.includes(activeTab)) {
@@ -354,12 +354,12 @@ export default function SalesPage() {
         )}
         
         {activeTab === 'raw-materials' && (
-          // Raw materials require inventory permission + admin
-          perms.sales?.inventory && isAdmin ? (
+          // Raw materials require rawMaterials sales permission
+          perms.sales?.rawMaterials ? (
             <RawMaterialsTab
               materials={rawMaterials}
               loading={loadingRawMaterials}
-              onAddClick={() => setShowRawMaterialForm(true)}
+              onAddClick={isAdmin ? () => setShowRawMaterialForm(true) : undefined}
               onRefresh={fetchRawMaterials}
               onItemClick={(materialId) => {
                 setSelectedMaterialId(materialId)
@@ -972,13 +972,13 @@ function RawMaterialsTab({
   loading,
   onAddClick,
   onRefresh,
-  onItemClick
+  onItemClick,
 }: {
   materials: RawMaterial[]
   loading: boolean
-  onAddClick: () => void
-  onRefresh: () => void
-  onItemClick: (materialId: number) => void
+  onAddClick?: () => void
+  onRefresh?: () => void
+  onItemClick?: (materialId: number) => void
 }) {
   if (loading) {
     return (
@@ -998,19 +998,23 @@ function RawMaterialsTab({
           <span className="text-sm text-[#949ba4] font-normal">({materials.length})</span>
         </h3>
         <div className="flex items-center gap-2">
-          <button
-            onClick={onRefresh}
-            className="px-3 py-1.5 text-sm text-[#949ba4] hover:text-white transition-colors"
-          >
-            <RefreshCw size={16} />
-          </button>
-          <button
-            onClick={onAddClick}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors"
-          >
-            <Plus size={14} />
-            Add Material
-          </button>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="px-3 py-1.5 text-sm text-[#949ba4] hover:text-white transition-colors"
+            >
+              <RefreshCw size={16} />
+            </button>
+          )}
+          {onAddClick && (
+            <button
+              onClick={onAddClick}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors"
+            >
+              <Plus size={14} />
+              Add Material
+            </button>
+          )}
         </div>
       </div>
       
@@ -1022,12 +1026,14 @@ function RawMaterialsTab({
           <p className="text-[#949ba4] text-sm mb-4">
             Add raw materials to track ingredients, supplies, and production inputs.
           </p>
-          <button
-            onClick={onAddClick}
-            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm transition-colors"
-          >
-            Add First Material
-          </button>
+          {onAddClick && (
+            <button
+              onClick={onAddClick}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm transition-colors"
+            >
+              Add First Material
+            </button>
+          )}
         </div>
       ) : (
         <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
@@ -1048,7 +1054,7 @@ function RawMaterialsTab({
                   <tr 
                     key={material.id} 
                     className="border-b border-[#1f2023] last:border-0 hover:bg-[#35373c] cursor-pointer"
-                    onClick={() => onItemClick(material.id)}
+                    onClick={() => onItemClick && onItemClick(material.id)}
                   >
                     <td className="px-4 py-3">
                       <div>
