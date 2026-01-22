@@ -156,6 +156,28 @@ async def create_inventory(
     user_id = current_user.get('user_id')
     
     try:
+        # Enforce operational permissions for creating inventory
+        from app.db.models import User
+        q = select(User).where(User.id == user_id)
+        result = await db.execute(q)
+        db_user = result.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # Attach operational role info
+        from app.db.models import UserRole as UserRoleModel, Role
+        from sqlalchemy.orm import selectinload
+        from app.api.system import OPERATIONAL_ROLE_NAMES
+        op_result = await db.execute(
+            select(UserRoleModel).join(Role).options(selectinload(UserRoleModel.role)).where(
+                UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES)
+            )
+        )
+        op_assignment = op_result.scalar_one_or_none()
+        db_user.operational_role_id = op_assignment.role_id if op_assignment else None
+        db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
+        from app.permissions.guards import require_permission
+        require_permission(db_user, "inventory", "create")
+
         if not await _check_can_manage_inventory(db, user_id):
             inventory_logger.warning("Inventory create denied - not admin", user_id=user_id)
             raise HTTPException(status_code=403, detail="Admin access required")
@@ -258,6 +280,16 @@ async def restock_product(
     Permissions: Admin only
     """
     user_id = current_user['user_id']
+    # Enforce operational permission for inventory update (restock)
+    from app.db.models import User
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from app.permissions.guards import require_permission
+    require_permission(db_user, "inventory", "update")
+
     if not await _check_can_manage_inventory(db, user_id):
         inventory_logger.warning("Restock denied - not admin", user_id=user_id, product_id=product_id)
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -321,6 +353,16 @@ async def adjust_product_inventory(
     Permissions: Admin only
     """
     user_id = current_user['user_id']
+    # Enforce operational permission for inventory update (adjust)
+    from app.db.models import User
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from app.permissions.guards import require_permission
+    require_permission(db_user, "inventory", "update")
+
     if not await _check_can_manage_inventory(db, user_id):
         inventory_logger.warning("Adjustment denied - not admin", user_id=user_id, product_id=product_id)
         raise HTTPException(status_code=403, detail="Admin access required")

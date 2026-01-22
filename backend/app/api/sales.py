@@ -198,6 +198,30 @@ async def create_sale(
             status_code=403, 
             detail={"error": "permission_denied", "message": f"Role '{effective_role}' is not allowed to record sales"}
         )
+
+    # Enforce operational permissions (write) via guard
+    from app.db.models import User
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Attach operational role info onto db_user for permission resolution
+    from app.db.models import UserRole as UserRoleModel, Role
+    from sqlalchemy.orm import selectinload
+    from app.api.system import OPERATIONAL_ROLE_NAMES
+    op_result = await db.execute(
+        select(UserRoleModel).join(Role).options(selectinload(UserRoleModel.role)).where(
+            UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES)
+        )
+    )
+    op_assignment = op_result.scalar_one_or_none()
+    db_user.operational_role_id = op_assignment.role_id if op_assignment else None
+    db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
+
+    from app.permissions.guards import require_permission
+    require_permission(db_user, "sales", "create")
     
     # Parse and validate payload
     try:

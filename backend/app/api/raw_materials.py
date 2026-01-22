@@ -224,7 +224,15 @@ async def create_raw_material(
 ):
     """Create a new raw material. Admin only."""
     user_id = current_user.get('user_id')
-    
+    # Enforce operational permission for raw_materials create
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from app.permissions.guards import require_permission
+    require_permission(db_user, "raw_materials", "create")
+
     if not await _check_is_admin(db, user_id):
         raise HTTPException(status_code=403, detail="Admin access required")
     
@@ -277,7 +285,15 @@ async def update_raw_material(
 ):
     """Update a raw material. Admin only."""
     user_id = current_user.get('user_id')
-    
+    # Enforce operational permission for raw_materials update
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from app.permissions.guards import require_permission
+    require_permission(db_user, "raw_materials", "update")
+
     if not await _check_is_admin(db, user_id):
         raise HTTPException(status_code=403, detail="Admin access required")
     
@@ -327,7 +343,15 @@ async def adjust_stock(
 ):
     """Adjust raw material stock (add, consume, adjust). Admin only."""
     user_id = current_user.get('user_id')
-    
+    # Enforce operational permission for raw_materials update
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from app.permissions.guards import require_permission
+    require_permission(db_user, "raw_materials", "update")
+
     if not await _check_is_admin(db, user_id):
         raise HTTPException(status_code=403, detail="Admin access required")
     

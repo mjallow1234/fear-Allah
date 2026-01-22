@@ -29,6 +29,32 @@ class CreateOrderRequest(BaseModel):
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_order_endpoint(request: CreateOrderRequest, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     user_id = current_user["user_id"]
+    # Fetch DB user and ensure permission to create orders
+    from app.db.models import User, UserRole as UserRoleModel, Role
+    # Attach operational role onto a lightweight user-like object for permission resolution
+    q = select(User).where(User.id == user_id)
+    result = await db.execute(q)
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Attach operational role info onto db_user for permission resolution (read-only runtime)
+    from app.db.models import UserRole as UserRoleModel, Role
+    from sqlalchemy.orm import selectinload
+    from app.api.system import OPERATIONAL_ROLE_NAMES
+    op_result = await db.execute(
+        select(UserRoleModel).join(Role).options(selectinload(UserRoleModel.role)).where(
+            UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES)
+        )
+    )
+    op_assignment = op_result.scalar_one_or_none()
+    db_user.operational_role_id = op_assignment.role_id if op_assignment else None
+    db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
+
+    from app.permissions.guards import require_permission
+    # Require create permission on orders
+    require_permission(db_user, "orders", "create")
+
     orders_logger.info(
         "Creating order",
         user_id=user_id,
