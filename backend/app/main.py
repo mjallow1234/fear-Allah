@@ -19,6 +19,8 @@ from app.core.middleware import (
 )
 from app.core.logging import api_logger
 from app.core.rate_limit_config import rate_limit_settings
+# Ensure AuditLog model is imported so Alembic/SQLAlchemy sees it
+from app.db.models import AuditLog  # noqa: F401
 
 # Socket.IO for real-time (Phase 4.1)
 from app.realtime import socket_app

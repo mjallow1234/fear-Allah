@@ -221,8 +221,14 @@ async def create_sale(
     db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
 
     from app.permissions.guards import require_permission
-    require_permission(db_user, "sales", "create")
-    
+    from app.audit.logger import log_audit
+    # Require permission, audit on denial
+    try:
+        require_permission(db_user, "sales", "create")
+    except HTTPException:
+        await log_audit(db, db_user, action="create", resource="sales", success=False, reason="permission_denied")
+        raise
+
     # Parse and validate payload
     try:
         product_id = int(payload.get('product_id'))
@@ -304,6 +310,11 @@ async def create_sale(
             total_amount=float(sale.total_amount),
             user_id=user_id,
         )
+        # Audit success
+        try:
+            await log_audit(db, db_user, action="create", resource="sales", resource_id=sale.id, success=True)
+        except Exception:
+            pass
     except ProductNotFoundError as e:
         sales_logger.warning("Sale failed - product not found", error=str(e), product_id=product_id)
         raise HTTPException(
@@ -318,6 +329,11 @@ async def create_sale(
         )
     except PermissionDeniedError as e:
         sales_logger.warning("Sale failed - permission denied at service layer", error=str(e))
+        # Audit denial
+        try:
+            await log_audit(db, db_user, action="create", resource="sales", success=False, reason=str(e))
+        except Exception:
+            pass
         raise HTTPException(
             status_code=403, 
             detail={"error": "permission_denied", "message": str(e)}

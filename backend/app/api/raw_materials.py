@@ -231,9 +231,21 @@ async def create_raw_material(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     from app.permissions.guards import require_permission
-    require_permission(db_user, "raw_materials", "create")
+    from app.audit.logger import log_audit
+    try:
+        require_permission(db_user, "raw_materials", "create")
+    except HTTPException:
+        try:
+            await log_audit(db, db_user, action="create", resource="raw_materials", success=False, reason="permission_denied")
+        except Exception:
+            pass
+        raise
 
     if not await _check_is_admin(db, user_id):
+        try:
+            await log_audit(db, db_user, action="create", resource="raw_materials", success=False, reason="admin_required")
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Admin access required")
     
     # Create raw material
@@ -262,6 +274,12 @@ async def create_raw_material(
         )
         db.add(tx)
         await db.commit()
+    
+    # Audit success
+    try:
+        await log_audit(db, db_user, action="create", resource="raw_materials", resource_id=item.id, success=True)
+    except Exception:
+        pass
     
     return {
         "id": item.id,
@@ -292,9 +310,21 @@ async def update_raw_material(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     from app.permissions.guards import require_permission
-    require_permission(db_user, "raw_materials", "update")
+    from app.audit.logger import log_audit
+    try:
+        require_permission(db_user, "raw_materials", "update")
+    except HTTPException:
+        try:
+            await log_audit(db, db_user, action="update", resource="raw_materials", success=False, reason="permission_denied")
+        except Exception:
+            pass
+        raise
 
     if not await _check_is_admin(db, user_id):
+        try:
+            await log_audit(db, db_user, action="update", resource="raw_materials", success=False, reason="admin_required")
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Admin access required")
     
     query = select(RawMaterial).where(RawMaterial.id == material_id)
@@ -350,9 +380,21 @@ async def adjust_stock(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     from app.permissions.guards import require_permission
-    require_permission(db_user, "raw_materials", "update")
+    from app.audit.logger import log_audit
+    try:
+        require_permission(db_user, "raw_materials", "update")
+    except HTTPException:
+        try:
+            await log_audit(db, db_user, action="update", resource="raw_materials", success=False, reason="permission_denied")
+        except Exception:
+            pass
+        raise
 
     if not await _check_is_admin(db, user_id):
+        try:
+            await log_audit(db, db_user, action="update", resource="raw_materials", success=False, reason="admin_required")
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Admin access required")
     
     query = select(RawMaterial).where(RawMaterial.id == material_id)
@@ -386,6 +428,11 @@ async def adjust_stock(
     db.add(tx)
     await db.commit()
     await db.refresh(item)
+    # Audit success
+    try:
+        await log_audit(db, db_user, action="update", resource="raw_materials", resource_id=item.id, success=True)
+    except Exception:
+        pass
     
     return {
         "id": item.id,

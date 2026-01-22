@@ -52,8 +52,13 @@ async def create_order_endpoint(request: CreateOrderRequest, current_user: dict 
     db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
 
     from app.permissions.guards import require_permission
-    # Require create permission on orders
-    require_permission(db_user, "orders", "create")
+    from app.audit.logger import log_audit
+    # Require create permission on orders (audit on deny)
+    try:
+        require_permission(db_user, "orders", "create")
+    except HTTPException as e:
+        await log_audit(db, db_user, action="create", resource="orders", success=False, reason="permission_denied")
+        raise
 
     orders_logger.info(
         "Creating order",
@@ -61,6 +66,7 @@ async def create_order_endpoint(request: CreateOrderRequest, current_user: dict 
         order_type=request.order_type,
         items_count=len(request.items),
     )
+
     try:
         # Build extended metadata dict with new fields
         extended_meta = dict(request.metadata) if request.metadata else {}
@@ -100,6 +106,12 @@ async def create_order_endpoint(request: CreateOrderRequest, current_user: dict 
             status=order.status,
             user_id=user_id,
         )
+        # Audit successful order creation
+        try:
+            from app.audit.logger import log_audit
+            await log_audit(db, db_user, action="create", resource="orders", resource_id=order.id, success=True)
+        except Exception:
+            pass
     except ValueError as e:
         orders_logger.warning(
             "Order creation failed - validation error",

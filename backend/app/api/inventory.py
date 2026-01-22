@@ -176,10 +176,22 @@ async def create_inventory(
         db_user.operational_role_id = op_assignment.role_id if op_assignment else None
         db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
         from app.permissions.guards import require_permission
-        require_permission(db_user, "inventory", "create")
+        from app.audit.logger import log_audit
+        try:
+            require_permission(db_user, "inventory", "create")
+        except HTTPException:
+            try:
+                await log_audit(db, db_user, action="create", resource="inventory", success=False, reason="permission_denied")
+            except Exception:
+                pass
+            raise
 
         if not await _check_can_manage_inventory(db, user_id):
             inventory_logger.warning("Inventory create denied - not admin", user_id=user_id)
+            try:
+                await log_audit(db, db_user, action="create", resource="inventory", success=False, reason="admin_required")
+            except Exception:
+                pass
             raise HTTPException(status_code=403, detail="Admin access required")
         
         try:
@@ -224,6 +236,11 @@ async def create_inventory(
                 product_id=product_id,
                 user_id=user_id,
             )
+            # Audit success
+            try:
+                await log_audit(db, db_user, action="create", resource="inventory", resource_id=item.id, success=True)
+            except Exception:
+                pass
         except ValueError as e:
             inventory_logger.warning("Inventory create failed", error=e, product_id=product_id)
             raise HTTPException(status_code=400, detail=str(e))
@@ -288,10 +305,22 @@ async def restock_product(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     from app.permissions.guards import require_permission
-    require_permission(db_user, "inventory", "update")
+    from app.audit.logger import log_audit
+    try:
+        require_permission(db_user, "inventory", "update")
+    except HTTPException:
+        try:
+            await log_audit(db, db_user, action="update", resource="inventory", success=False, reason="permission_denied")
+        except Exception:
+            pass
+        raise
 
     if not await _check_can_manage_inventory(db, user_id):
         inventory_logger.warning("Restock denied - not admin", user_id=user_id, product_id=product_id)
+        try:
+            await log_audit(db, db_user, action="update", resource="inventory", success=False, reason="admin_required")
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
@@ -325,6 +354,11 @@ async def restock_product(
             new_stock=item.total_stock,
             user_id=user_id,
         )
+        # Audit success
+        try:
+            await log_audit(db, db_user, action="update", resource="inventory", resource_id=item.id, success=True)
+        except Exception:
+            pass
     except ValueError as e:
         inventory_logger.warning("Restock failed", error=e, product_id=product_id)
         raise HTTPException(status_code=400, detail=str(e))
@@ -361,10 +395,22 @@ async def adjust_product_inventory(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     from app.permissions.guards import require_permission
-    require_permission(db_user, "inventory", "update")
+    from app.audit.logger import log_audit
+    try:
+        require_permission(db_user, "inventory", "update")
+    except HTTPException:
+        try:
+            await log_audit(db, db_user, action="update", resource="inventory", success=False, reason="permission_denied")
+        except Exception:
+            pass
+        raise
 
     if not await _check_can_manage_inventory(db, user_id):
         inventory_logger.warning("Adjustment denied - not admin", user_id=user_id, product_id=product_id)
+        try:
+            await log_audit(db, db_user, action="update", resource="inventory", success=False, reason="admin_required")
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
@@ -397,6 +443,11 @@ async def adjust_product_inventory(
             reason=reason,
             notes=notes,
         )
+        # Audit success
+        try:
+            await log_audit(db, db_user, action="update", resource="inventory", resource_id=item.id, success=True)
+        except Exception:
+            pass
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
