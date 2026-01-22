@@ -1,12 +1,33 @@
 import pytest
+import inspect
+import types
 
 from sqlalchemy import select
 from app.db.models import Role, User, UserRole as UserRoleModel
 from app.core.security import create_access_token, get_password_hash
 
 
+async def _resolve_fixture(obj):
+    """If pytest passed the fixture as a coroutine or async-generator, resolve it to the yielded value."""
+    if inspect.iscoroutine(obj):
+        return await obj
+    if isinstance(obj, types.AsyncGeneratorType):
+        try:
+            val = await anext(obj)
+        except StopAsyncIteration:
+            return obj
+        try:
+            await obj.aclose()
+        except Exception:
+            pass
+        return val
+    return obj
+
+
 @pytest.mark.asyncio
 async def test_agent_cannot_update_inventory(client, test_session):
+    client = await _resolve_fixture(client)
+    test_session = await _resolve_fixture(test_session)
     # Create agent role
     role = Role(name='agent', is_system=False)
     test_session.add(role)
@@ -44,6 +65,8 @@ async def test_agent_cannot_update_inventory(client, test_session):
 
 @pytest.mark.asyncio
 async def test_delivery_cannot_create_orders(client, test_session):
+    client = await _resolve_fixture(client)
+    test_session = await _resolve_fixture(test_session)
     # Create delivery role
     role = Role(name='delivery', is_system=False)
     test_session.add(role)
@@ -67,6 +90,8 @@ async def test_delivery_cannot_create_orders(client, test_session):
 
 @pytest.mark.asyncio
 async def test_foreman_cannot_create_sales(client, test_session):
+    client = await _resolve_fixture(client)
+    test_session = await _resolve_fixture(test_session)
     # Create foreman role
     role = Role(name='foreman', is_system=False)
     test_session.add(role)
@@ -91,6 +116,8 @@ async def test_foreman_cannot_create_sales(client, test_session):
 
 @pytest.mark.asyncio
 async def test_admin_can_perform_write_actions(client, test_session):
+    client = await _resolve_fixture(client)
+    test_session = await _resolve_fixture(test_session)
     # Create admin user
     admin = User(email='sysadmin2@example.com', username='sysadmin2', display_name='SysAdmin2', hashed_password=get_password_hash('pass'), is_active=True, is_system_admin=True)
     test_session.add(admin)

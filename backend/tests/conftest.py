@@ -81,29 +81,50 @@ async def async_client_authenticated(client, test_session):
 
 
 @pytest.fixture(scope="session")
-async def test_engine():
+def test_engine():
+    import asyncio
+
     engine = create_async_engine(
         "sqlite+aiosqlite:///./test_concurrency.db",
         connect_args={"check_same_thread": False},
     )
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    async def _setup():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
-    yield engine
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(_setup())
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    try:
+        yield engine
+    finally:
+        async def _teardown():
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all)
+            await engine.dispose()
 
-    await engine.dispose()
+        loop.run_until_complete(_teardown())
 
 @pytest.fixture
-async def test_session(test_engine):
+async def test_session(test_engine, request):
     async_session = sessionmaker(
         test_engine, class_=AsyncSession, expire_on_commit=False
     )
-    async with async_session() as session:
-        yield session
+    # Construct an AsyncSession instance and return it directly so tests receive a resolved session
+    session = async_session()
+
+    # Schedule session close when the test finishes
+    import asyncio
+    def _schedule_close():
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(session.close())
+        except Exception:
+            pass
+
+    request.addfinalizer(_schedule_close)
+    return session
 
 
 # Backwards compatible alias used across many tests
