@@ -63,6 +63,10 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
   expect(createResp.ok()).toBeTruthy()
   const created = await createResp.json()
 
+  // Ensure the E2E user is a member of the channel (CI consistency)
+  const joinResp = await request.post(`${API_BASE}/api/channels/${created.id}/join`, { headers: { authorization: `Bearer ${token}` } })
+  expect(joinResp.ok()).toBeTruthy()
+
   // B) Navigate to app root — prefer simple '/' but fall back to probing common dev/preview ports if needed
   let navigated = false
   try {
