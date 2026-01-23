@@ -58,9 +58,9 @@ async def test_admin_override_claim(test_session: AsyncSession, client: AsyncCli
     await AutomationService.claim_task(db=test_session, task_id=task.id, user_id=admin.id, override=True)
 
     # Reload the task from DB and assert it was reassigned
-    result = await test_session.execute(select(AutomationTask).where(AutomationTask.id == task.id))
-    updated = result.scalar_one()
-    assert updated.claimed_by_user_id == admin.id
+    result = await test_session.execute(select(AutomationTask.claimed_by_user_id).where(AutomationTask.id == task.id))
+    claimed_by = result.scalar_one()
+    assert claimed_by == admin.id
 
     # Audit log entry exists for override (resilient to field naming)
     result = await test_session.execute(select(AuditLog).where(AuditLog.action == 'claim_override'))
@@ -104,7 +104,15 @@ async def test_race_condition_two_simultaneous_claims(test_engine, test_session:
     # Run multiple claim attempts concurrently to increase chance of contention
     tasks = [attempt_claim(uid) for uid in (u1.id, u2.id, u1.id, u2.id, u1.id)]
     res = await asyncio.gather(*tasks)
-    # Confirm DB has been updated to the successful claimer
-    result = await test_session.execute(select(AutomationTask).where(AutomationTask.id == task.id))
-    updated = result.scalar_one()
-    assert updated.claimed_by_user_id == successes[0][1]
+
+    successes = [r for r in res if r[0]]
+    failures = [r for r in res if not r[0]]
+
+    # Exactly one should succeed and rest should have failed
+    assert len(successes) == 1
+    assert len(failures) == len(tasks) - 1
+
+    # Confirm DB has been updated to the successful claimer (scalar select avoids lazy loader IO)
+    result = await test_session.execute(select(AutomationTask.claimed_by_user_id).where(AutomationTask.id == task.id))
+    claimed_by = result.scalar_one_or_none()
+    assert claimed_by == successes[0][1]
