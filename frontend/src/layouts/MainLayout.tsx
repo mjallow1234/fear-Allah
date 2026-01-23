@@ -44,7 +44,7 @@ export default function MainLayout() {
       </ErrorBoundary>
       <div className="flex flex-col flex-1">
         <TopBar channelName={channelName} channelId={channelId ? parseInt(channelId) : undefined} />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1">
           {/* ChatSocketProvider mounted here once after login; it will manage the chat WebSocket lifecycle */}
           {/*
             ChatSocketProvider is intentionally NOT mounted by default in desktop-first App Shell.

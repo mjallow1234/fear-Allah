@@ -233,6 +233,9 @@ export default function AdminAuditPage() {
     fetchFilterOptions,
     resetRateLimitState,
   } = useAuditStore()
+
+  // NOTE: layout changes below make the page a column-flex so header + filters remain fixed
+  // and the main audit list (the <main> below) becomes scrollable (flex-1 overflow-y-auto min-h-0).
   
   // Fetch on mount - with StrictMode guard (Phase 8.4.2)
   useEffect(() => {
@@ -277,7 +280,7 @@ export default function AdminAuditPage() {
   const hasActiveFilters = Object.values(filters).some(v => v !== null && v !== undefined)
   
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="flex flex-col h-full bg-gray-900 text-white">
       {/* Rate Limit Banner (Phase 8.4.2) */}
       {rateLimited && (
         <div className="bg-yellow-600/20 border-b border-yellow-600/30 px-6 py-3">
@@ -446,8 +449,8 @@ export default function AdminAuditPage() {
         </div>
       )}
       
-      {/* Content */}
-      <main className="p-6">
+      {/* Content - make this area scrollable while keeping header/filters fixed */}
+      <main className="p-6 flex-1 overflow-y-auto min-h-0">
         {/* Stats Bar */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -485,7 +488,7 @@ export default function AdminAuditPage() {
         </div>
         
         {/* Audit Log Table */}
-        <div className="bg-gray-800/30 rounded-xl border border-gray-700/50 overflow-hidden">
+        <div className="bg-gray-800/30 rounded-xl border border-gray-700/50">
           {/* Table Header */}
           <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700/50">
             <div className="flex items-center gap-4 text-xs text-gray-500 font-medium uppercase tracking-wider">
