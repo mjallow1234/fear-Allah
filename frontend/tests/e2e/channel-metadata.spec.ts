@@ -99,7 +99,8 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
   }
 
   // C) Navigate directly to the channel page and assert header is visible (avoid brittle sidebar reliance)
-  await page.goto(`/channels/${created.id}`)
+  const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173'
+  await page.goto(`${baseUrl}/channels/${created.id}`)
   await expect(
     page.getByRole('heading', { name: created.display_name })
   ).toBeVisible({ timeout: 15000 })
