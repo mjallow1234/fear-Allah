@@ -37,9 +37,14 @@ async def test_invalid_role_cannot_claim(async_client_authenticated: tuple[Async
     assert claim_resp.status_code == 403
 
     # Ensure audit log recorded a denied claim
-    result = await test_session.execute(select(AuditLog).where(AuditLog.resource == 'automation_task', AuditLog.resource_id == task_id))
+    result = await test_session.execute(select(AuditLog).where(AuditLog.action == 'claim'))
     logs = result.scalars().all()
-    assert any(l for l in logs if l.action == 'claim' and l.success is False)
+    assert any(
+        l for l in logs
+        if (
+            getattr(l, 'resource', None) == 'automation_task' or getattr(l, 'target_type', None) == 'automation_task'
+        ) and (getattr(l, 'resource_id', None) == task_id or getattr(l, 'target_id', None) == task_id) and l.success is False
+    )
 
 
 @pytest.mark.anyio

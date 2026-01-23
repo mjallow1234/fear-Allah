@@ -164,9 +164,14 @@ class AutomationService:
 
         await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
 
-        # Refresh the task instance from DB
+        # Commit and verify we still hold the claim (detect races where another committer overwrote us)
         await db.commit()
         await db.refresh(task)
+        if task.claimed_by_user_id != user_id:
+            # Lost the race
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="lost_race")
+            raise ClaimConflictError("Task was claimed by another user")
+
         return task
 
     # ---------------------- Task Operations ----------------------
