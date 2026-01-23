@@ -39,7 +39,7 @@ async def test_invalid_role_cannot_claim(async_client_authenticated: tuple[Async
 
 
 @pytest.mark.anyio
-async def test_admin_override_claim(test_session: AsyncSession, client: AsyncClient):
+async def test_admin_override_claim(test_session: AsyncSession, client: AsyncClient, test_engine):
     # Create a normal user who initially claimed the task
     user = User(email='claimer@example.com', username='claimer', hashed_password='x', is_active=True)
     admin = User(email='admin@example.com', username='admin', hashed_password='x', is_active=True, is_system_admin=True)
@@ -60,7 +60,7 @@ async def test_admin_override_claim(test_session: AsyncSession, client: AsyncCli
     # Reload the task from a fresh session and assert it was reassigned
     from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
     from sqlalchemy.orm import sessionmaker
-    async_session_factory = sessionmaker(test_session.get_bind(), class_=_AsyncSession, expire_on_commit=False)
+    async_session_factory = sessionmaker(test_engine, class_=_AsyncSession, expire_on_commit=False)
     async with async_session_factory() as s:
         result = await s.execute(select(AutomationTask.claimed_by_user_id).where(AutomationTask.id == task.id))
         claimed_by = result.scalar_one()
