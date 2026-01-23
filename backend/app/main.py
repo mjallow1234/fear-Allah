@@ -5,7 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from sqlalchemy import select
 
-from app.api import auth, users, teams, channels, messages, websocket, ws, notifications, admin, system, attachments
+from app.api import auth, users, teams, channels, messages, websocket, ws, notifications, admin, system, attachments, audit, audit
 from app.db.database import create_tables, async_session
 from app.db.models import Team, Channel, ChannelType, User, UserRole
 from app.core.config import settings
@@ -225,6 +225,8 @@ app.include_router(attachments.router, prefix="/api/attachments", tags=["File At
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
+# Audit: Read-only audit log viewer (Phase 4.1)
+app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])
 # Health / readiness endpoints (Tier 2.3)
 from app.api import health
 app.include_router(health.router, prefix="", tags=["Health"])
