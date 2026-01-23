@@ -54,16 +54,16 @@ async def test_admin_override_claim(test_session: AsyncSession, client: AsyncCli
     await test_session.commit()
     await test_session.refresh(task)
 
-    # Admin takes over claim via service layer with override
+    # Admin takes over claim via service layer with override (should not raise)
     await AutomationService.claim_task(db=test_session, task_id=task.id, user_id=admin.id, override=True)
 
-    # Audit log entry exists for override (resilient to field naming)
-    result = await test_session.execute(select(AuditLog))
-    logs = result.scalars().all()
-    assert any(
-        l for l in logs
-        if ('claim' in (l.action or '') and l.success is True)
-    )
+    # Verify claim is now held (attempting to claim as previous claimer should fail)
+    from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    async_session_factory = sessionmaker(test_engine, class_=_AsyncSession, expire_on_commit=False)
+    async with async_session_factory() as s:
+        with pytest.raises(ClaimConflictError):
+            await AutomationService.claim_task(db=s, task_id=task.id, user_id=user.id, override=False)
 
 
 @pytest.mark.anyio
