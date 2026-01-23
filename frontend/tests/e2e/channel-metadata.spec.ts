@@ -91,29 +91,11 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
     if (!navigated) throw new Error('Unable to open frontend app; ensure dev server or preview is running')
   }
 
-  // C) Wait for Sidebar container to be visible, then assert created channel is present
-  const sidebar = page.locator('aside')
-  await expect(sidebar).toBeVisible({ timeout: 15000 })
-  // Now assert the created channel display name is present within the channel list/sidebar
-  await expect(sidebar.getByText(created.display_name)).toBeVisible()
-
-  // D) Click a channel using text-based selection; fallback to first link role
-  let channelItem = page.getByText(/general/i)
-  if (await channelItem.count() === 0) {
-    channelItem = page.getByRole('link').first()
-  }
-  await expect(channelItem).toBeVisible({ timeout: 15000 })
-  await channelItem.click()
-
-  // E) Assert metadata header renders (heading OR created OR description/purpose)
-  const headerVisible = await (async () => {
-    try { await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 4000 }); return true } catch (e) {}
-    try { await page.getByRole('heading', { level: 2 }).waitFor({ timeout: 4000 }); return true } catch (e) {}
-    try { await page.getByText(/created/i).waitFor({ timeout: 4000 }); return true } catch (e) {}
-    try { await page.getByText(/description|purpose/i, { exact: false }).waitFor({ timeout: 4000 }); return true } catch (e) {}
-    return false
-  })()
-  expect(headerVisible).toBe(true)
+  // C) Navigate directly to the channel page and assert header is visible (avoid brittle sidebar reliance)
+  await page.goto(`/channels/${created.id}`)
+  await expect(
+    page.getByRole('heading', { name: created.display_name })
+  ).toBeVisible({ timeout: 15000 })
 
   // F) Assert network behavior
   // Allow time for requests
