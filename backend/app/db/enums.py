@@ -88,6 +88,10 @@ class AutomationTaskType(str, enum.Enum):
 
 class AutomationTaskStatus(str, enum.Enum):
     """Status of an automation task"""
+    # New lifecycle states for claimable tasks
+    open = "open"
+    claimed = "claimed"
+
     pending = "pending"
     in_progress = "in_progress"
     completed = "completed"
