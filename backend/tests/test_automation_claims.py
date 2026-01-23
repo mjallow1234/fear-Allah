@@ -57,14 +57,9 @@ async def test_admin_override_claim(test_session: AsyncSession, client: AsyncCli
     # Admin takes over claim via service layer with override
     await AutomationService.claim_task(db=test_session, task_id=task.id, user_id=admin.id, override=True)
 
-    # Reload the task from a fresh session and assert it was reassigned
-    from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
-    from sqlalchemy.orm import sessionmaker
-    async_session_factory = sessionmaker(test_engine, class_=_AsyncSession, expire_on_commit=False)
-    async with async_session_factory() as s:
-        result = await s.execute(select(AutomationTask.claimed_by_user_id).where(AutomationTask.id == task.id))
-        claimed_by = result.scalar_one()
-        assert claimed_by == admin.id
+    # Refresh the original task object and assert it was reassigned
+    await test_session.refresh(task)
+    assert task.claimed_by_user_id == admin.id
 
     # Audit log entry exists for override (resilient to field naming)
     result = await test_session.execute(select(AuditLog).where(AuditLog.action == 'claim_override'))
