@@ -91,15 +91,11 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
     if (!navigated) throw new Error('Unable to open frontend app; ensure dev server or preview is running')
   }
 
-  // C) Wait for Sidebar using role-based or text-based selector
-  let sidebar = page.getByRole('navigation')
-  if (await sidebar.count() === 0) {
-    // Fallback: assert the created channel is visible in the sidebar (more robust than 'Channels' header)
-    await expect(page.getByText(created.display_name)).toBeVisible({ timeout: 15000 })
-    sidebar = page.getByText(created.display_name)
-  } else {
-    await expect(sidebar).toBeVisible({ timeout: 15000 })
-  }
+  // C) Wait for Sidebar container to be visible, then assert created channel is present
+  const sidebar = page.locator('aside')
+  await expect(sidebar).toBeVisible({ timeout: 15000 })
+  // Now assert the created channel display name is present within the channel list/sidebar
+  await expect(sidebar.getByText(created.display_name)).toBeVisible()
 
   // D) Click a channel using text-based selection; fallback to first link role
   let channelItem = page.getByText(/general/i)
