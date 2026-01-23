@@ -1,0 +1,114 @@
+"""Tests for task claiming behavior: race, invalid role, admin override"""
+import asyncio
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.main import app
+from app.db.models import AutomationTask, AuditLog, User
+from app.db.enums import AutomationTaskType, AutomationTaskStatus
+from app.automation.service import AutomationService, ClaimConflictError, ClaimPermissionError
+
+
+@pytest.mark.anyio
+async def test_invalid_role_cannot_claim(async_client_authenticated: tuple[AsyncClient, dict], test_session: AsyncSession):
+    client, user_data = async_client_authenticated
+    user_id = user_data["user_id"]
+
+    # Create a task and mark it to require 'delivery' role
+    create_resp = await client.post(
+        "/api/automation/tasks",
+        json={"task_type": "RETAIL", "title": "Role restricted task"},
+    )
+    assert create_resp.status_code == 201
+    task_id = create_resp.json()["id"]
+
+    # Update DB to set required_role
+    await test_session.execute(
+        "UPDATE automation_tasks SET required_role = :role WHERE id = :id",
+        {"role": "delivery", "id": task_id},
+    )
+    await test_session.commit()
+
+    # Attempt to claim as regular user
+    claim_resp = await client.post(f"/api/automation/tasks/{task_id}/claim", json={})
+    assert claim_resp.status_code == 403
+
+    # Ensure audit log recorded a denied claim
+    result = await test_session.execute(select(AuditLog).where(AuditLog.resource == 'automation_task', AuditLog.resource_id == task_id))
+    logs = result.scalars().all()
+    assert any(l for l in logs if l.action == 'claim' and l.success is False)
+
+
+@pytest.mark.anyio
+async def test_admin_override_claim(test_session: AsyncSession, client: AsyncClient):
+    # Create a normal user who initially claimed the task
+    user = User(email='claimer@example.com', username='claimer', hashed_password='x', is_active=True)
+    admin = User(email='admin@example.com', username='admin', hashed_password='x', is_active=True, is_system_admin=True)
+    test_session.add_all([user, admin])
+    await test_session.commit()
+    await test_session.refresh(user)
+    await test_session.refresh(admin)
+
+    # Create a task and mark it claimed by `user`
+    task = AutomationTask(task_type=AutomationTaskType.retail, status=AutomationTaskStatus.claimed, title='Claimed Task', created_by_id=user.id, claimed_by_user_id=user.id)
+    test_session.add(task)
+    await test_session.commit()
+    await test_session.refresh(task)
+
+    # Admin takes over claim via service layer with override
+    claimed = await AutomationService.claim_task(db=test_session, task_id=task.id, user_id=admin.id, override=True)
+
+    assert claimed.claimed_by_user_id == admin.id
+
+    # Audit log entry exists for override
+    result = await test_session.execute(select(AuditLog).where(AuditLog.resource == 'automation_task', AuditLog.resource_id == task.id))
+    logs = result.scalars().all()
+    assert any(l for l in logs if l.action == 'claim_override' and l.success is True)
+
+
+@pytest.mark.anyio
+async def test_race_condition_two_simultaneous_claims(test_engine, test_session: AsyncSession):
+    # Use raw sessions to simulate two concurrent request handlers
+    from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    async_session_factory = sessionmaker(test_engine, class_=_AsyncSession, expire_on_commit=False)
+
+    # Create two users
+    u1 = User(email='race1@example.com', username='race1', hashed_password='x', is_active=True)
+    u2 = User(email='race2@example.com', username='race2', hashed_password='x', is_active=True)
+    test_session.add_all([u1, u2])
+    await test_session.commit()
+    await test_session.refresh(u1)
+    await test_session.refresh(u2)
+
+    # Create an OPEN task
+    task = AutomationTask(task_type=AutomationTaskType.restock, status=AutomationTaskStatus.open, title='Race Task', created_by_id=u1.id)
+    test_session.add(task)
+    await test_session.commit()
+    await test_session.refresh(task)
+
+    async def attempt_claim(user_id: int):
+        async with async_session_factory() as s:
+            try:
+                t = await AutomationService.claim_task(db=s, task_id=task.id, user_id=user_id)
+                return (True, user_id)
+            except ClaimConflictError:
+                return (False, user_id)
+
+    # Run two claim attempts concurrently
+    res = await asyncio.gather(attempt_claim(u1.id), attempt_claim(u2.id))
+
+    successes = [r for r in res if r[0]]
+    failures = [r for r in res if not r[0]]
+
+    # Exactly one should succeed
+    assert len(successes) == 1
+    assert len(failures) == 1
+
+    # Confirm DB has been updated to the successful claimer
+    result = await test_session.execute(select(AutomationTask).where(AutomationTask.id == task.id))
+    updated = result.scalar_one()
+    assert updated.claimed_by_user_id == successes[0][1]

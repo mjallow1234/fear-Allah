@@ -90,5 +90,10 @@ class TaskEventResponse(BaseModel):
         from_attributes = True
 
 
+class ClaimRequest(BaseModel):
+    """Schema for claim endpoint"""
+    override: bool = False
+
+
 # Update forward references
 TaskResponse.model_rebuild()

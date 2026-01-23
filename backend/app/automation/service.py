@@ -29,12 +29,118 @@ from app.automation.payloads import (
 from app.integrations.make_webhook import emit_make_webhook
 
 
+class ClaimError(Exception):
+    """Base exception for claim-related failures."""
+
+
+class ClaimConflictError(ClaimError):
+    """Raised when a task is already claimed by someone else."""
+
+
+class ClaimPermissionError(ClaimError):
+    """Raised when a user is not permitted to claim a task."""
+
+
+class ClaimNotFoundError(ClaimError):
+    """Raised when a task to claim does not exist."""
+
+
 class AutomationService:
     """
     Service layer for the automation engine.
     Provides methods for task lifecycle management.
     """
     
+    @staticmethod
+    async def claim_task(
+        db: AsyncSession,
+        task_id: int,
+        user_id: int,
+        override: bool = False,
+    ) -> AutomationTask:
+        """
+        Atomically claim a task (OPEN -> CLAIMED) for a user.
+
+        - Uses SELECT ... FOR UPDATE to lock the task row.
+        - Enforces `required_role` if set on the task.
+        - Allows system admins to override an existing claim when `override=True`.
+        - Raises ClaimConflictError on double-claim without override.
+        - Raises ClaimPermissionError when user role doesn't match required_role.
+        - Emits TaskEvent and writes an AuditLog entry.
+        """
+        from app.audit.logger import log_audit
+
+        # Lock the task row for update to prevent races
+        result = await db.execute(
+            select(AutomationTask).where(AutomationTask.id == task_id).with_for_update()
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise ClaimNotFoundError("Task not found")
+
+        # Only OPEN tasks can be claimed
+        if task.status != AutomationTaskStatus.open:
+            # If already claimed, surface conflict
+            if task.status == AutomationTaskStatus.claimed:
+                raise ClaimConflictError("Task already claimed")
+            raise ClaimError("Task is not in a claimable state")
+
+        # Resolve user and check permissions
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise ClaimPermissionError("User not found")
+
+        # Enforce required_role if present
+        if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="permission_denied")
+            raise ClaimPermissionError("User does not have required role to claim this task")
+
+        # If another user already claimed - conflict unless admin override
+        if task.claimed_by_user_id and task.claimed_by_user_id != user_id:
+            if not (user.is_system_admin and override):
+                await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
+                raise ClaimConflictError("Task already claimed by another user")
+
+            # Admin override - record reassignment event
+            prev = task.claimed_by_user_id
+            task.claimed_by_user_id = user_id
+            task.claimed_at = datetime.now(timezone.utc)
+            task.status = AutomationTaskStatus.claimed
+
+            await AutomationService._safe_log_event(
+                db=db,
+                task_id=task.id,
+                user_id=user_id,
+                event_type=TaskEventType.reassigned,
+                metadata={"from_user_id": prev, "to_user_id": user_id}
+            )
+
+            await log_audit(db, user, action="claim_override", resource="automation_task", resource_id=task.id, success=True, reason="override")
+
+            await db.commit()
+            await db.refresh(task)
+            return task
+
+        # Normal claim path
+        task.claimed_by_user_id = user_id
+        task.claimed_at = datetime.now(timezone.utc)
+        task.status = AutomationTaskStatus.claimed
+
+        await AutomationService._safe_log_event(
+            db=db,
+            task_id=task.id,
+            user_id=user_id,
+            event_type=TaskEventType.assigned,
+            metadata={"action": "claim"}
+        )
+
+        await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
+
+        await db.commit()
+        await db.refresh(task)
+        return task
+
     # ---------------------- Task Operations ----------------------
     
     @staticmethod
