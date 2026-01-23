@@ -19,7 +19,7 @@ async def test_invalid_role_cannot_claim(async_client_authenticated: tuple[Async
     # Create a task and mark it to require 'delivery' role
     create_resp = await client.post(
         "/api/automation/tasks",
-        json={"task_type": "RETAIL", "title": "Role restricted task"},
+        json={"task_type": "retail", "title": "Role restricted task"},
     )
     assert create_resp.status_code == 201
     task_id = create_resp.json()["id"]
