@@ -78,14 +78,27 @@ class AutomationService:
         if not task:
             raise ClaimNotFoundError("Task not found")
 
-        # Only OPEN tasks can be claimed
-        if task.status != AutomationTaskStatus.open:
-            # If already claimed, surface conflict
-            if task.status == AutomationTaskStatus.claimed:
-                raise ClaimConflictError("Task already claimed")
-            raise ClaimError("Task is not in a claimable state")
-
         # Resolve user and check permissions
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise ClaimPermissionError("User not found")
+
+        # Enforce required_role if present
+        if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="permission_denied")
+            raise ClaimPermissionError("User does not have required role to claim this task")
+
+        # If task is already claimed by the same user, treat as idempotent success
+        if task.status == AutomationTaskStatus.claimed and task.claimed_by_user_id == user_id:
+            return task
+
+        # If the task is CLAIMED by someone else and no override requested -> conflict
+        if task.status == AutomationTaskStatus.claimed and task.claimed_by_user_id and task.claimed_by_user_id != user_id and not (user.is_system_admin and override):
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
+            raise ClaimConflictError("Task already claimed by another user")
+
+        # Proceed with atomic update to claim the task (guards against races)
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
         if not user:
@@ -122,11 +135,25 @@ class AutomationService:
             await db.refresh(task)
             return task
 
-        # Normal claim path
-        task.claimed_by_user_id = user_id
-        task.claimed_at = datetime.now(timezone.utc)
-        task.status = AutomationTaskStatus.claimed
+        # Normal claim path — perform an atomic UPDATE so concurrent claim attempts race on the DB
+        now = datetime.now(timezone.utc)
+        update_stmt = (
+            update(AutomationTask)
+            .where(
+                AutomationTask.id == task.id,
+                AutomationTask.status == AutomationTaskStatus.open,
+                AutomationTask.claimed_by_user_id == None,
+            )
+            .values(claimed_by_user_id=user_id, claimed_at=now, status=AutomationTaskStatus.claimed)
+        )
+        res = await db.execute(update_stmt)
 
+        if res.rowcount == 0:
+            # Someone else won the race
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="race_conflict")
+            raise ClaimConflictError("Task already claimed")
+
+        # Log event and audit for successful claim
         await AutomationService._safe_log_event(
             db=db,
             task_id=task.id,
@@ -137,6 +164,7 @@ class AutomationService:
 
         await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
 
+        # Refresh the task instance from DB
         await db.commit()
         await db.refresh(task)
         return task

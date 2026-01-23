@@ -25,8 +25,9 @@ async def test_invalid_role_cannot_claim(async_client_authenticated: tuple[Async
     task_id = create_resp.json()["id"]
 
     # Update DB to set required_role
+    from sqlalchemy import text
     await test_session.execute(
-        "UPDATE automation_tasks SET required_role = :role WHERE id = :id",
+        text("UPDATE automation_tasks SET required_role = :role WHERE id = :id"),
         {"role": "delivery", "id": task_id},
     )
     await test_session.commit()
