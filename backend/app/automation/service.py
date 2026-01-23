@@ -125,11 +125,18 @@ class AutomationService:
                 db=db,
                 task_id=task.id,
                 user_id=user_id,
-                event_type=TaskEventType.reassigned,
+                event_type=TaskEventType.task_reassigned,
                 metadata={"from_user_id": prev, "to_user_id": user_id}
             )
 
             await log_audit(db, user, action="claim_override", resource="automation_task", resource_id=task.id, success=True, reason="override")
+
+            # Notify previous claimer, new assignee, other admins
+            try:
+                from app.services.notifications import notify_task_reassigned
+                await notify_task_reassigned(db=db, task_id=task.id, task_title=task.title, from_user_id=prev, to_user_id=user_id)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to notify on task.reassigned: {e}")
 
             await db.commit()
             await db.refresh(task)
@@ -158,15 +165,18 @@ class AutomationService:
             db=db,
             task_id=task.id,
             user_id=user_id,
-            event_type=TaskEventType.assigned,
-            metadata={"action": "claim"}
-        )
+                event_type=TaskEventType.task_claimed,
+                metadata={"action": "claim"}
+            )
 
-        await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
 
-        # Commit and verify we still hold the claim (detect races where another committer overwrote us)
-        await db.commit()
-        await db.refresh(task)
+            # Notify other role members and admins about the claim
+            try:
+                from app.services.notifications import notify_task_claimed
+                await notify_task_claimed(db=db, task_id=task.id, task_title=task.title, claimer_id=user_id, required_role=task.required_role)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to notify on task.claimed: {e}")
         if task.claimed_by_user_id != user_id:
             # Lost the race
             await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="lost_race")
@@ -185,6 +195,7 @@ class AutomationService:
         description: Optional[str] = None,
         related_order_id: Optional[int] = None,
         metadata: Optional[dict[str, Any]] = None,
+        required_role: Optional[str] = None,
     ) -> AutomationTask:
         """
         Create a new automation task.
@@ -209,6 +220,7 @@ class AutomationService:
             created_by_id=created_by_id,
             related_order_id=related_order_id,
             task_metadata=json.dumps(metadata) if metadata else None,
+            required_role=required_role,
         )
         db.add(task)
         await db.flush()  # Get the ID
@@ -255,7 +267,22 @@ class AutomationService:
             await emit_make_webhook(payload)
         except Exception as e:
             logger.warning(f"[Automation] Failed to emit task.created webhook: {e}")
-        
+
+        # If task has required_role, emit TASK_OPENED event and notify role members + admins
+        if task.required_role:
+            await AutomationService._safe_log_event(
+                db=db,
+                task_id=task.id,
+                user_id=created_by_id,
+                event_type=TaskEventType.task_opened,
+                metadata={"required_role": task.required_role}
+            )
+            try:
+                from app.services.notifications import notify_task_opened
+                await notify_task_opened(db=db, task_id=task.id, task_title=task.title, required_role=task.required_role)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to notify on task.opened: {e}")
+
         return task
     
     @staticmethod
