@@ -19,6 +19,7 @@ import SystemConsolePage from './pages/SystemConsolePage'
 import AdminFormBuilderPage from './pages/AdminFormBuilderPage'
 import AIInsightsPage from './pages/AIInsightsPage'
 import OperationalGuard from './components/OperationalGuard'
+import AdminOnlyGuard from './components/AdminOnlyGuard'
 import Unauthorized from './pages/Unauthorized'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -78,7 +79,7 @@ function App() {
           <Route index element={<SalesPage />} />
         </Route>
 
-        <Route path="system/audit" element={<AdminAuditPage />} />
+        <Route path="system/audit" element={<AdminOnlyGuard><AdminAuditPage /></AdminOnlyGuard>} />
         <Route path="system/*" element={<SystemConsolePage />} />
 
         <Route path="unauthorized" element={<Unauthorized />} />

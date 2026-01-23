@@ -142,10 +142,26 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       if (filters.start_date) params.start_date = filters.start_date
       if (filters.end_date) params.end_date = filters.end_date
       
-      const response = await api.get('/api/system/audit-log', { params })
+      const response = await api.get('/api/audit/logs', { params })
       
+      // Map backend audit shape to front-end AuditLogEntry shape
+      const incoming = response.data.items || []
+      const mapped = incoming.map((r: any) => ({
+        id: r.id,
+        user_id: r.user_id || null,
+        username: r.username || null,
+        action: r.action || '',
+        target_type: r.resource || r.target_type || null,
+        target_id: r.resource_id || r.target_id || null,
+        description: r.description || null,
+        meta: r.meta || null,
+        ip_address: r.ip_address || null,
+        request_id: r.request_id || null,
+        created_at: r.timestamp || r.created_at || new Date().toISOString(),
+      }))
+
       set({
-        logs: response.data.logs || [],
+        logs: mapped,
         total: response.data.total || 0,
         loading: false,
         _fetchingLogs: false,
@@ -197,14 +213,15 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     set({ _fetchingOptions: true, loadingOptions: true })
     try {
       // Fetch action types and target types in parallel
-      const [actionsRes, typesRes] = await Promise.all([
-        api.get('/api/system/audit-log/actions'),
-        api.get('/api/system/audit-log/target-types'),
-      ])
-      
+      // Fallback: fetch a page of logs and derive available actions and resources
+      const res = await api.get('/api/audit/logs', { params: { page: 1, page_size: 100 } })
+      const items = res.data.items || []
+      const actions = Array.from(new Set(items.map((i: any) => i.action).filter(Boolean)))
+      const targetTypes = Array.from(new Set(items.map((i: any) => i.resource || i.target_type).filter(Boolean)))
+
       set({
-        actionTypes: actionsRes.data.actions || [],
-        targetTypes: typesRes.data.target_types || [],
+        actionTypes: actions as string[],
+        targetTypes: targetTypes as string[],
         loadingOptions: false,
         _fetchingOptions: false,
         _optionsFetched: true,  // Mark as fetched
