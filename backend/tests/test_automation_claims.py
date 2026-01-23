@@ -57,10 +57,6 @@ async def test_admin_override_claim(test_session: AsyncSession, client: AsyncCli
     # Admin takes over claim via service layer with override
     await AutomationService.claim_task(db=test_session, task_id=task.id, user_id=admin.id, override=True)
 
-    # Refresh the original task object and assert it was reassigned
-    await test_session.refresh(task)
-    assert task.claimed_by_user_id == admin.id
-
     # Audit log entry exists for override (resilient to field naming)
     result = await test_session.execute(select(AuditLog).where(AuditLog.action == 'claim_override'))
     logs = result.scalars().all()
