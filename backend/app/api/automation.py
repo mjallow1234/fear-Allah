@@ -13,7 +13,7 @@ from app.core.logging import automation_logger
 from app.db.database import get_db
 from app.db.models import User
 from app.db.enums import AutomationTaskType, AutomationTaskStatus
-from app.automation.service import AutomationService
+from app.automation.service import AutomationService, ClaimConflictError, ClaimPermissionError, ClaimNotFoundError
 from app.automation.schemas import (
     TaskCreate,
     TaskResponse,
@@ -22,6 +22,7 @@ from app.automation.schemas import (
     AssignmentResponse,
     AssignmentComplete,
     TaskEventResponse,
+    ClaimRequest,
 )
 
 router = APIRouter(prefix="/automation", tags=["Automation"])
@@ -67,6 +68,7 @@ async def create_task(
             description=payload.description,
             related_order_id=payload.related_order_id,
             metadata=payload.metadata,
+            required_role=payload.required_role,
         )
         automation_logger.info(
             "Automation task created",
@@ -329,11 +331,11 @@ async def claim_task_endpoint(
 
     try:
         task = await AutomationService.claim_task(db=db, task_id=task_id, user_id=user_id, override=payload.override)
-    except AutomationService.ClaimNotFoundError:
+    except ClaimNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found")
-    except AutomationService.ClaimPermissionError:
+    except ClaimPermissionError:
         raise HTTPException(status_code=403, detail="You are not allowed to claim this task")
-    except AutomationService.ClaimConflictError:
+    except ClaimConflictError:
         raise HTTPException(status_code=409, detail="Task already claimed")
     except Exception as e:
         automation_logger.error("Claim failed", error=e, task_id=task_id, user_id=user_id)

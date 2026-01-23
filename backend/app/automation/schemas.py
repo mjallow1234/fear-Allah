@@ -17,6 +17,7 @@ class TaskCreate(BaseModel):
     description: Optional[str] = None
     related_order_id: Optional[int] = None
     metadata: Optional[dict[str, Any]] = None
+    required_role: Optional[str] = None
 
 
 class TaskResponse(BaseModel):

@@ -165,18 +165,22 @@ class AutomationService:
             db=db,
             task_id=task.id,
             user_id=user_id,
-                event_type=TaskEventType.task_claimed,
-                metadata={"action": "claim"}
-            )
+            event_type=TaskEventType.task_claimed,
+            metadata={"action": "claim"}
+        )
 
-            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
+        await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
 
-            # Notify other role members and admins about the claim
-            try:
-                from app.services.notifications import notify_task_claimed
-                await notify_task_claimed(db=db, task_id=task.id, task_title=task.title, claimer_id=user_id, required_role=task.required_role)
-            except Exception as e:
-                logger.warning(f"[Automation] Failed to notify on task.claimed: {e}")
+        # Notify other role members and admins about the claim
+        try:
+            from app.services.notifications import notify_task_claimed
+            await notify_task_claimed(db=db, task_id=task.id, task_title=task.title, claimer_id=user_id, required_role=task.required_role)
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to notify on task.claimed: {e}")
+
+        # Commit and verify we still hold the claim (detect races where another committer overwrote us)
+        await db.commit()
+        await db.refresh(task)
         if task.claimed_by_user_id != user_id:
             # Lost the race
             await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="lost_race")
@@ -214,7 +218,7 @@ class AutomationService:
         """
         task = AutomationTask(
             task_type=task_type,
-            status=AutomationTaskStatus.pending,
+            status=(AutomationTaskStatus.open if required_role else AutomationTaskStatus.pending),
             title=title,
             description=description,
             created_by_id=created_by_id,

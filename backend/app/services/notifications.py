@@ -446,11 +446,11 @@ async def notify_users(
 
 
 async def get_admins_and_managers(db: AsyncSession) -> List[int]:
-    """Get user IDs of all admins and managers for system notifications"""
+    """Get user IDs of all admins (system or team) for system notifications"""
     from app.db.enums import UserRole
     result = await db.execute(
         select(User.id).where(
-            User.role.in_([UserRole.admin, UserRole.manager])
+            (User.is_system_admin == True) | (User.role.in_([UserRole.system_admin, UserRole.team_admin]))
         )
     )
     return [row[0] for row in result.fetchall()]
