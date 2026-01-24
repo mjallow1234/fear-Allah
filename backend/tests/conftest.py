@@ -81,9 +81,7 @@ async def async_client_authenticated(client, test_session):
 
 
 @pytest.fixture(scope="session")
-def test_engine():
-    import asyncio
-
+async def test_engine():
     engine = create_async_engine(
         "sqlite+aiosqlite:///./test_concurrency.db",
         connect_args={"check_same_thread": False},
@@ -98,8 +96,7 @@ def test_engine():
                 pass
             await conn.run_sync(Base.metadata.create_all)
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(_setup())
+    await _setup()
 
     try:
         yield engine
@@ -109,7 +106,7 @@ def test_engine():
                 await conn.run_sync(Base.metadata.drop_all)
             await engine.dispose()
 
-        loop.run_until_complete(_teardown())
+        await _teardown()
 
 @pytest.fixture
 async def test_session(test_engine, request):

@@ -6,15 +6,6 @@ from app.db.models import AuditLog, User
 
 @pytest.mark.asyncio
 async def test_admin_can_view_audit_logs(client, test_session):
-    # Resolve fixtures if they're coroutines (defensive for local harness oddities)
-    try:
-        client = await client
-    except Exception:
-        pass
-    try:
-        test_session = await test_session
-    except Exception:
-        pass
 
     # Create admin user
     admin = User(email='auditor@example.com', username='auditor', display_name='Auditor', hashed_password='x', is_active=True, is_system_admin=True)
@@ -50,14 +41,6 @@ async def test_admin_can_view_audit_logs(client, test_session):
 
 @pytest.mark.asyncio
 async def test_non_admin_cannot_view_audit_logs(client, test_session):
-    try:
-        client = await client
-    except Exception:
-        pass
-    try:
-        test_session = await test_session
-    except Exception:
-        pass
 
     # Create non-admin user
     user = User(email='user@example.com', username='user1', display_name='User1', hashed_password='x', is_active=True, is_system_admin=False)
