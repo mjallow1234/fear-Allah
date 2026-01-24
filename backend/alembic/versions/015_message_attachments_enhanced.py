@@ -13,7 +13,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = '015'
+revision: str = '015_message_attachments_enhanced'
 down_revision: Union[str, Sequence[str], None] = '014'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
