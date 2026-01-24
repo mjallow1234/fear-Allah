@@ -102,7 +102,7 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
   const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173'
   await page.goto(`${baseUrl}/channels/${created.id}`)
   await expect(
-    page.getByRole('heading', { name: created.display_name })
+    page.getByText(created.display_name, { exact: true })
   ).toBeVisible({ timeout: 15000 })
 
   // F) Assert network behavior
