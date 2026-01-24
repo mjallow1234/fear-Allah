@@ -34,7 +34,9 @@ class NotificationType(str, enum.Enum):
     dm = "dm"
     reaction = "reaction"
     # Automation notifications (Phase 6.4)
+    task_opened = "task_opened"
     task_assigned = "task_assigned"
+    task_claimed = "task_claimed"
     task_completed = "task_completed"
     task_auto_closed = "task_auto_closed"
     order_created = "order_created"
@@ -88,6 +90,10 @@ class AutomationTaskType(str, enum.Enum):
 
 class AutomationTaskStatus(str, enum.Enum):
     """Status of an automation task"""
+    # New lifecycle states for claimable tasks
+    open = "open"
+    claimed = "claimed"
+
     pending = "pending"
     in_progress = "in_progress"
     completed = "completed"
@@ -105,10 +111,13 @@ class AssignmentStatus(str, enum.Enum):
 class TaskEventType(str, enum.Enum):
     """Types of task events for audit log"""
     created = "created"
+    task_opened = "task_opened"
     assigned = "assigned"
+    task_claimed = "task_claimed"
     step_started = "step_started"
     step_completed = "step_completed"
     reassigned = "reassigned"
+    task_reassigned = "task_reassigned"
     cancelled = "cancelled"
     closed = "closed"
 

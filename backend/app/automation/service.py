@@ -29,12 +29,165 @@ from app.automation.payloads import (
 from app.integrations.make_webhook import emit_make_webhook
 
 
+class ClaimError(Exception):
+    """Base exception for claim-related failures."""
+
+
+class ClaimConflictError(ClaimError):
+    """Raised when a task is already claimed by someone else."""
+
+
+class ClaimPermissionError(ClaimError):
+    """Raised when a user is not permitted to claim a task."""
+
+
+class ClaimNotFoundError(ClaimError):
+    """Raised when a task to claim does not exist."""
+
+
 class AutomationService:
     """
     Service layer for the automation engine.
     Provides methods for task lifecycle management.
     """
     
+    @staticmethod
+    async def claim_task(
+        db: AsyncSession,
+        task_id: int,
+        user_id: int,
+        override: bool = False,
+    ) -> AutomationTask:
+        """
+        Atomically claim a task (OPEN -> CLAIMED) for a user.
+
+        - Uses SELECT ... FOR UPDATE to lock the task row.
+        - Enforces `required_role` if set on the task.
+        - Allows system admins to override an existing claim when `override=True`.
+        - Raises ClaimConflictError on double-claim without override.
+        - Raises ClaimPermissionError when user role doesn't match required_role.
+        - Emits TaskEvent and writes an AuditLog entry.
+        """
+        from app.audit.logger import log_audit
+
+        # Lock the task row for update to prevent races
+        result = await db.execute(
+            select(AutomationTask).where(AutomationTask.id == task_id).with_for_update()
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise ClaimNotFoundError("Task not found")
+
+        # Resolve user and check permissions
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise ClaimPermissionError("User not found")
+
+        # Enforce required_role if present
+        if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="permission_denied")
+            raise ClaimPermissionError("User does not have required role to claim this task")
+
+        # If task is already claimed by the same user, treat as idempotent success
+        if task.status == AutomationTaskStatus.claimed and task.claimed_by_user_id == user_id:
+            return task
+
+        # If the task is CLAIMED by someone else and no override requested -> conflict
+        if task.status == AutomationTaskStatus.claimed and task.claimed_by_user_id and task.claimed_by_user_id != user_id and not (user.is_system_admin and override):
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
+            raise ClaimConflictError("Task already claimed by another user")
+
+        # Proceed with atomic update to claim the task (guards against races)
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise ClaimPermissionError("User not found")
+
+        # Enforce required_role if present
+        if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="permission_denied")
+            raise ClaimPermissionError("User does not have required role to claim this task")
+
+        # If another user already claimed - conflict unless admin override
+        if task.claimed_by_user_id and task.claimed_by_user_id != user_id:
+            if not (user.is_system_admin and override):
+                await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
+                raise ClaimConflictError("Task already claimed by another user")
+
+            # Admin override - record reassignment event
+            prev = task.claimed_by_user_id
+            task.claimed_by_user_id = user_id
+            task.claimed_at = datetime.now(timezone.utc)
+            task.status = AutomationTaskStatus.claimed
+
+            await AutomationService._safe_log_event(
+                db=db,
+                task_id=task.id,
+                user_id=user_id,
+                event_type=TaskEventType.task_reassigned,
+                metadata={"from_user_id": prev, "to_user_id": user_id}
+            )
+
+            await log_audit(db, user, action="claim_override", resource="automation_task", resource_id=task.id, success=True, reason="override")
+
+            # Notify previous claimer, new assignee, other admins
+            try:
+                from app.services.notifications import notify_task_reassigned
+                await notify_task_reassigned(db=db, task_id=task.id, task_title=task.title, from_user_id=prev, to_user_id=user_id)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to notify on task.reassigned: {e}")
+
+            await db.commit()
+            await db.refresh(task)
+            return task
+
+        # Normal claim path — perform an atomic UPDATE so concurrent claim attempts race on the DB
+        now = datetime.now(timezone.utc)
+        update_stmt = (
+            update(AutomationTask)
+            .where(
+                AutomationTask.id == task.id,
+                AutomationTask.status == AutomationTaskStatus.open,
+                AutomationTask.claimed_by_user_id == None,
+            )
+            .values(claimed_by_user_id=user_id, claimed_at=now, status=AutomationTaskStatus.claimed)
+        )
+        res = await db.execute(update_stmt)
+
+        if res.rowcount == 0:
+            # Someone else won the race
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="race_conflict")
+            raise ClaimConflictError("Task already claimed")
+
+        # Log event and audit for successful claim
+        await AutomationService._safe_log_event(
+            db=db,
+            task_id=task.id,
+            user_id=user_id,
+            event_type=TaskEventType.task_claimed,
+            metadata={"action": "claim"}
+        )
+
+        await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
+
+        # Notify other role members and admins about the claim
+        try:
+            from app.services.notifications import notify_task_claimed
+            await notify_task_claimed(db=db, task_id=task.id, task_title=task.title, claimer_id=user_id, required_role=task.required_role)
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to notify on task.claimed: {e}")
+
+        # Commit and verify we still hold the claim (detect races where another committer overwrote us)
+        await db.commit()
+        await db.refresh(task)
+        if task.claimed_by_user_id != user_id:
+            # Lost the race
+            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="lost_race")
+            raise ClaimConflictError("Task was claimed by another user")
+
+        return task
+
     # ---------------------- Task Operations ----------------------
     
     @staticmethod
@@ -46,6 +199,7 @@ class AutomationService:
         description: Optional[str] = None,
         related_order_id: Optional[int] = None,
         metadata: Optional[dict[str, Any]] = None,
+        required_role: Optional[str] = None,
     ) -> AutomationTask:
         """
         Create a new automation task.
@@ -64,12 +218,13 @@ class AutomationService:
         """
         task = AutomationTask(
             task_type=task_type,
-            status=AutomationTaskStatus.pending,
+            status=(AutomationTaskStatus.open if required_role else AutomationTaskStatus.pending),
             title=title,
             description=description,
             created_by_id=created_by_id,
             related_order_id=related_order_id,
             task_metadata=json.dumps(metadata) if metadata else None,
+            required_role=required_role,
         )
         db.add(task)
         await db.flush()  # Get the ID
@@ -116,7 +271,22 @@ class AutomationService:
             await emit_make_webhook(payload)
         except Exception as e:
             logger.warning(f"[Automation] Failed to emit task.created webhook: {e}")
-        
+
+        # If task has required_role, emit TASK_OPENED event and notify role members + admins
+        if task.required_role:
+            await AutomationService._safe_log_event(
+                db=db,
+                task_id=task.id,
+                user_id=created_by_id,
+                event_type=TaskEventType.task_opened,
+                metadata={"required_role": task.required_role}
+            )
+            try:
+                from app.services.notifications import notify_task_opened
+                await notify_task_opened(db=db, task_id=task.id, task_title=task.title, required_role=task.required_role)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to notify on task.opened: {e}")
+
         return task
     
     @staticmethod

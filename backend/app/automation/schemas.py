@@ -17,6 +17,7 @@ class TaskCreate(BaseModel):
     description: Optional[str] = None
     related_order_id: Optional[int] = None
     metadata: Optional[dict[str, Any]] = None
+    required_role: Optional[str] = None
 
 
 class TaskResponse(BaseModel):
@@ -88,6 +89,11 @@ class TaskEventResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class ClaimRequest(BaseModel):
+    """Schema for claim endpoint"""
+    override: bool = False
 
 
 # Update forward references

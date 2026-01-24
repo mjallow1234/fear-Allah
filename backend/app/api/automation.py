@@ -13,7 +13,7 @@ from app.core.logging import automation_logger
 from app.db.database import get_db
 from app.db.models import User
 from app.db.enums import AutomationTaskType, AutomationTaskStatus
-from app.automation.service import AutomationService
+from app.automation.service import AutomationService, ClaimConflictError, ClaimPermissionError, ClaimNotFoundError
 from app.automation.schemas import (
     TaskCreate,
     TaskResponse,
@@ -22,6 +22,7 @@ from app.automation.schemas import (
     AssignmentResponse,
     AssignmentComplete,
     TaskEventResponse,
+    ClaimRequest,
 )
 
 router = APIRouter(prefix="/automation", tags=["Automation"])
@@ -67,6 +68,7 @@ async def create_task(
             description=payload.description,
             related_order_id=payload.related_order_id,
             metadata=payload.metadata,
+            required_role=payload.required_role,
         )
         automation_logger.info(
             "Automation task created",
@@ -311,6 +313,35 @@ async def cancel_task(
     
     return _task_to_response(task)
 
+
+@router.post("/tasks/{task_id}/claim", response_model=TaskResponse)
+async def claim_task_endpoint(
+    task_id: int,
+    payload: ClaimRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Claim a task. Admins may pass override=True to take over an existing claim."""
+    user_id = current_user["user_id"]
+    user = await _get_user(db, user_id)
+
+    # If override requested, ensure user is admin
+    if payload.override and not user.is_system_admin:
+        raise HTTPException(status_code=403, detail="Only admins can override claims")
+
+    try:
+        task = await AutomationService.claim_task(db=db, task_id=task_id, user_id=user_id, override=payload.override)
+    except ClaimNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+    except ClaimPermissionError:
+        raise HTTPException(status_code=403, detail="You are not allowed to claim this task")
+    except ClaimConflictError:
+        raise HTTPException(status_code=409, detail="Task already claimed")
+    except Exception as e:
+        automation_logger.error("Claim failed", error=e, task_id=task_id, user_id=user_id)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return _task_to_response(task)
 
 # ---------------------- Assignment Endpoints ----------------------
 

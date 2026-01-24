@@ -177,6 +177,82 @@ async def notify_task_assigned(
     )
 
 
+async def notify_task_opened(
+    db: AsyncSession,
+    task_id: int,
+    task_title: str,
+    required_role: str,
+) -> list[Notification]:
+    """Notify all users with `required_role` and admins that a task is available."""
+    # Get users with the role
+    from app.db.models import User
+    result = await db.execute(select(User.id).where(User.role == required_role, User.is_active == True))
+    role_user_ids = [r[0] for r in result.fetchall()]
+
+    # Admins/managers
+    admin_ids = await get_admins_and_managers(db)
+
+    # Deduplicate and exclude empty
+    recipients = list(dict.fromkeys([uid for uid in (role_user_ids + admin_ids) if uid is not None]))
+
+    title = "Task Available"
+    content = f"Task '{task_title}' is available for role: {required_role}"
+
+    return await notify_users(db, recipients, NotificationType.task_opened, title=title, content=content, task_id=task_id)
+
+
+async def notify_task_claimed(
+    db: AsyncSession,
+    task_id: int,
+    task_title: str,
+    claimer_id: int,
+    required_role: Optional[str] = None,
+) -> list[Notification]:
+    """Notify other role members and admins that a task was claimed."""
+    from app.db.models import User
+    recipients = set()
+
+    if required_role:
+        res = await db.execute(select(User.id).where(User.role == required_role, User.is_active == True))
+        recipients.update(r[0] for r in res.fetchall())
+
+    # Admins
+    admin_ids = await get_admins_and_managers(db)
+    recipients.update(admin_ids)
+
+    # Remove the claimer itself
+    recipients.discard(claimer_id)
+
+    title = "Task Claimed"
+    content = f"Task '{task_title}' was claimed by user {claimer_id}"
+
+    return await notify_users(db, list(recipients), NotificationType.task_claimed, title=title, content=content, task_id=task_id)
+
+
+async def notify_task_reassigned(
+    db: AsyncSession,
+    task_id: int,
+    task_title: str,
+    from_user_id: Optional[int],
+    to_user_id: int,
+) -> list[Notification]:
+    """Notify previous claimer (if present), the new assignee, and admins on reassignment."""
+    recipients = []
+    if from_user_id:
+        recipients.append(from_user_id)
+    recipients.append(to_user_id)
+    admin_ids = await get_admins_and_managers(db)
+    recipients.extend(admin_ids)
+
+    # Deduplicate
+    recipients = list(dict.fromkeys(recipients))
+
+    title = "Task Reassigned"
+    content = f"Task '{task_title}' was reassigned from {from_user_id} to {to_user_id}"
+
+    return await notify_users(db, recipients, NotificationType.task_claimed, title=title, content=content, task_id=task_id)
+
+
 async def notify_task_completed(
     db: AsyncSession,
     task_id: int,
@@ -370,11 +446,11 @@ async def notify_users(
 
 
 async def get_admins_and_managers(db: AsyncSession) -> List[int]:
-    """Get user IDs of all admins and managers for system notifications"""
+    """Get user IDs of all admins (system or team) for system notifications"""
     from app.db.enums import UserRole
     result = await db.execute(
         select(User.id).where(
-            User.role.in_([UserRole.admin, UserRole.manager])
+            (User.is_system_admin == True) | (User.role.in_([UserRole.system_admin, UserRole.team_admin]))
         )
     )
     return [row[0] for row in result.fetchall()]

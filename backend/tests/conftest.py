@@ -91,6 +91,11 @@ def test_engine():
 
     async def _setup():
         async with engine.begin() as conn:
+            # Ensure we recreate schema for each test session so models and tests stay in sync
+            try:
+                await conn.run_sync(Base.metadata.drop_all)
+            except Exception:
+                pass
             await conn.run_sync(Base.metadata.create_all)
 
     loop = asyncio.get_event_loop()

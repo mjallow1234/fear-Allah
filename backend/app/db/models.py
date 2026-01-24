@@ -638,7 +638,8 @@ class AutomationTask(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     task_type = Column(SAEnum(AutomationTaskType, name="automationtasktype", create_type=False), nullable=False)
-    status = Column(SAEnum(AutomationTaskStatus, name="automationtaskstatus", create_type=False), nullable=False, default=AutomationTaskStatus.pending.value)
+    # New default state is OPEN; existing PENDING tasks will be mapped to OPEN in migration
+    status = Column(SAEnum(AutomationTaskStatus, name="automationtaskstatus", create_type=False), nullable=False, default=AutomationTaskStatus.open.value)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -646,6 +647,15 @@ class AutomationTask(Base):
     task_metadata = Column(Text, nullable=True)  # JSON for extensibility (named task_metadata to avoid SQLAlchemy reserved name)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Claiming fields (nullable until we enable claiming behavior)
+    required_role = Column(String(100), nullable=True)
+    claimed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    claimed_by = relationship("User", foreign_keys=[claimed_by_user_id])
 
     # Relationships
     created_by = relationship("User", foreign_keys=[created_by_id])
