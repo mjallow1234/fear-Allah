@@ -20,6 +20,8 @@ jobs:
       run: |
         pip install -r backend/requirements.txt
         pip install pytest
+        pip install -U pytest-anyio
+        pip list | grep anyio || true
 
     - name: Run unit tests
       working-directory: backend
