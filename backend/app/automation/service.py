@@ -287,6 +287,39 @@ class AutomationService:
             except Exception as e:
                 logger.warning(f"[Automation] Failed to notify on task.opened: {e}")
 
+        # If this task is linked to an order, ensure template assignments are created.
+        # This covers cases where tasks are created via API or other services without
+        # the OrderAutomationTriggers helper (ensures assignments for foreman/delivery/requester).
+        if related_order_id:
+            try:
+                from app.automation.order_triggers import ORDER_TASK_TEMPLATES, OrderAutomationTriggers
+                from app.db.models import Order
+                from app.db.enums import OrderType
+                # Load the order to determine its type
+                res = await db.execute(select(Order).where(Order.id == related_order_id))
+                order = res.scalar_one_or_none()
+                if order:
+                    order_type = order.order_type.value if isinstance(order.order_type, OrderType) else order.order_type
+                    template = ORDER_TASK_TEMPLATES.get(order_type)
+                    if template:
+                            # Only create assignments if none exist yet
+                            if not task.assignments or len(task.assignments) == 0:
+                                # Prefer the order creator as the 'created_by' for template assignment logic
+                                cb = getattr(order, 'created_by_id', None) or created_by_id
+                                await OrderAutomationTriggers._create_template_assignments(
+                                    db=db,
+                                    task=task,
+                                    template=template,
+                                    created_by_id=cb,
+                                )
+                                # Refresh task to include new assignments
+                                result = await db.execute(
+                                    select(AutomationTask).options(selectinload(AutomationTask.assignments)).where(AutomationTask.id == task.id)
+                                )
+                                task = result.scalar_one()
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to auto-create assignments for related_order {related_order_id}: {e}")
+
         return task
     
     @staticmethod
