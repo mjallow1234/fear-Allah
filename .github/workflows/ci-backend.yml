@@ -26,4 +26,4 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/backend
       run: |
-        bash -lc 'pytest -q -k "not e2e" -m "not integration"; RC=$?; if [ "$RC" -eq 5 ]; then echo "No tests collected (pytest exit code 5). Treating as success in CI."; exit 0; else exit $RC; fi'
+        bash -lc 'pytest -q -k "not e2e" -m "not integration" --timeout=300; RC=$?; if [ "$RC" -eq 5 ]; then echo "No tests collected (pytest exit code 5). Treating as success in CI."; exit 0; else exit $RC; fi'
