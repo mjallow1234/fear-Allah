@@ -100,10 +100,13 @@ test('Channel metadata loads correctly (U3.2)', async ({ page, request }) => {
 
   // C) Navigate directly to the channel page and assert header is visible (avoid brittle sidebar reliance)
   const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173'
-  await page.goto(`${baseUrl}/channels/${created.id}`)
-  // Allow substring matches to handle cases like a leading "# " or wrapper text in different layouts
+  await page.goto(`${process.env.E2E_BASE_URL}/channels/${created.id}`)
+  await page.waitForResponse(res =>
+    res.url().includes(`/api/channels/${created.id}`) &&
+    res.status() === 200
+  )
   await expect(
-    page.getByText(created.display_name, { exact: false })
+    page.locator('span', { hasText: created.display_name })
   ).toBeVisible({ timeout: 15000 })
 
   // F) Assert network behavior
