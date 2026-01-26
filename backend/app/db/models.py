@@ -678,7 +678,7 @@ class TaskAssignment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("automation_tasks.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     role_hint = Column(String(100), nullable=True)  # e.g., "foreman", "delivery", "agent"
     status = Column(SAEnum(AssignmentStatus, name="assignmentstatus", create_type=False), nullable=False, default=AssignmentStatus.pending.value)
     notes = Column(Text, nullable=True)
