@@ -143,12 +143,8 @@ async def create_order(
             from app.automation.order_triggers import OrderAutomationTriggers
             await OrderAutomationTriggers.on_order_created(session, order, created_by_id)
         except Exception as e:
-            logger.warning(f"[Automation] Failed to trigger order automation: {e}")
-    
-    return order
-
-
-async def recompute_order_status(session: AsyncSession, order: Order) -> (str, bool):
+            # Log full traceback for easier debugging when automation triggers fail
+            logger.exception(f"[Automation] Failed to trigger order automation: {e}")
     """Recompute order status based on tasks. Returns (new_status, changed_flag).
     NOTE: This function does NOT commit; caller must commit.
     """
