@@ -292,6 +292,10 @@ class Order(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # Track creator for auditing and notifications
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
     tasks = relationship("Task", back_populates="order", order_by="Task.id")
 
 

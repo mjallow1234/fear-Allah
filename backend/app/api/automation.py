@@ -59,10 +59,17 @@ async def create_task(
         title=payload.title,
     )
     
+    # Normalize task_type to enum value (case-insensitive)
     try:
+        from app.db.enums import AutomationTaskType as ATT
+        try:
+            task_type_enum = ATT(payload.task_type.lower())
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid task_type")
+
         task = await AutomationService.create_task(
             db=db,
-            task_type=payload.task_type,
+            task_type=task_type_enum,
             title=payload.title,
             created_by_id=user_id,
             description=payload.description,
@@ -439,9 +446,18 @@ def _task_to_response(task) -> TaskResponse:
     except Exception:
         pass
     
+    # Normalize task_type to enum NAME (uppercase) for consistency with API tests
+    task_type_value = None
+    if hasattr(task.task_type, 'name'):
+        task_type_value = task.task_type.name.upper()
+    elif hasattr(task.task_type, 'value'):
+        task_type_value = str(task.task_type.value).upper()
+    else:
+        task_type_value = str(task.task_type).upper()
+
     return TaskResponse(
         id=task.id,
-        task_type=task.task_type,
+        task_type=task_type_value,
         status=task.status,
         title=task.title,
         description=task.description,

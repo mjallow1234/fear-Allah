@@ -12,7 +12,8 @@ from app.db.enums import AutomationTaskType, AutomationTaskStatus, AssignmentSta
 
 class TaskCreate(BaseModel):
     """Schema for creating a new task"""
-    task_type: AutomationTaskType
+    # Accept case-insensitive string task types (e.g., 'RESTOCK' or 'restock')
+    task_type: str
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     related_order_id: Optional[int] = None
@@ -23,7 +24,7 @@ class TaskCreate(BaseModel):
 class TaskResponse(BaseModel):
     """Schema for task response"""
     id: int
-    task_type: AutomationTaskType
+    task_type: str  # Uppercase NAME (e.g., "RESTOCK") for API consistency
     status: AutomationTaskStatus
     title: str
     description: Optional[str]

@@ -107,6 +107,8 @@ async def create_order(
         status=OrderStatus.submitted.value, 
         items=items, 
         meta=metadata,
+        # Track creator for notifications and attribution
+        created_by_id=created_by_id,
         # Forms Extension fields
         reference=reference,
         priority=priority,
@@ -118,6 +120,7 @@ async def create_order(
     )
     session.add(order)
     await session.flush()  # ensure order.id
+    print(f"[task_engine] created order id={order.id}")
 
     tasks_cfg = WORKFLOWS[order_type]
     tasks = []
@@ -156,6 +159,9 @@ async def create_order(
     result = await session.execute(q)
     tasks = result.scalars().all()
 
+    # Recompute order status based on tasks. Do not return here; persist changes and return the Order object at the end.
+    status_changed = False
+
     # Detect awaiting confirmation patterns (deliver done, confirm_received pending)
     deliver_done = any(t.step_key == 'deliver_items' and t.status == TaskStatus.done.value for t in tasks)
     confirm_pending = any(t.step_key == 'confirm_received' and t.status != TaskStatus.done.value for t in tasks)
@@ -164,29 +170,32 @@ async def create_order(
         if order.status != new_status:
             order.status = new_status
             session.add(order)
-            return order.status, True
-        return order.status, False
+            status_changed = True
 
     # If any ACTIVE -> IN_PROGRESS
-    if any(t.status == TaskStatus.active.value for t in tasks):
+    elif any(t.status == TaskStatus.active.value for t in tasks):
         new_status = OrderStatus.in_progress.value
         if order.status != new_status:
             order.status = new_status
             session.add(order)
-            return order.status, True
-        return order.status, False
+            status_changed = True
 
     # If all required tasks done -> COMPLETED
-    required_tasks = [t for t in tasks if t.required]
-    if required_tasks and all(t.status == TaskStatus.done.value for t in required_tasks):
-        new_status = OrderStatus.completed.value
-        if order.status != new_status:
-            order.status = new_status
-            session.add(order)
-            return order.status, True
-        return order.status, False
+    else:
+        required_tasks = [t for t in tasks if t.required]
+        if required_tasks and all(t.status == TaskStatus.done.value for t in required_tasks):
+            new_status = OrderStatus.completed.value
+            if order.status != new_status:
+                order.status = new_status
+                session.add(order)
+                status_changed = True
 
-    return order.status, False
+    # Commit any status change so callers see the updated order
+    if status_changed:
+        await session.commit()
+        await session.refresh(order)
+
+    return order
 
 
 async def atomic_complete_task(session: AsyncSession, task_id: int, user_id: int, commit: bool = True) -> int:

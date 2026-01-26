@@ -453,15 +453,20 @@ class AutomationService:
         if not task:
             return None
         
-        # Check if assignment already exists
+        # Check if assignment already exists for the same (task, user, role_hint).
+        # This allows multiple placeholder assignments (user_id=None) for different role_hints.
         existing = await db.execute(
             select(TaskAssignment).where(
                 TaskAssignment.task_id == task_id,
-                TaskAssignment.user_id == user_id
+                TaskAssignment.user_id == user_id,
+                TaskAssignment.role_hint == role_hint,
             )
         )
         if existing.scalar_one_or_none():
-            logger.warning(f"[Automation] User {user_id} already assigned to task {task_id}")
+            if user_id is None:
+                logger.warning(f"[Automation] Placeholder already assigned for role '{role_hint}' on task {task_id}")
+            else:
+                logger.warning(f"[Automation] User {user_id} already assigned to task {task_id} (role={role_hint})")
             return None
         
         # Create assignment

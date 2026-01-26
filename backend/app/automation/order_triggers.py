@@ -434,10 +434,20 @@ class OrderAutomationTriggers:
         total = len(task.assignments)
         completed = sum(1 for a in task.assignments if a.status == AssignmentStatus.done)
         
+        # Normalize task status to enum NAME (e.g., IN_PROGRESS) for API consumers
+        task_status = None
+        if hasattr(task.status, 'name'):
+            task_status = task.status.name.upper()
+        elif hasattr(task.status, 'value'):
+            # Fallback to value uppercased
+            task_status = str(task.status.value).upper()
+        else:
+            task_status = str(task.status).upper()
+
         return {
             "has_automation": True,
             "task_id": task.id,
-            "task_status": task.status.value if hasattr(task.status, 'value') else task.status,
+            "task_status": task_status,
             "title": task.title,
             "total_assignments": total,
             "completed_assignments": completed,

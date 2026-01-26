@@ -4,6 +4,7 @@ Tests that orders automatically create and update automation tasks.
 """
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 
 
@@ -146,6 +147,7 @@ async def test_assignment_placeholder_created_if_no_role_user(
     task_id = auto_resp.json()["task_id"]
 
     # Check TaskAssignment rows exist and that foreman assignment has user_id == None
+    from app.db.models import TaskAssignment
     res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
     assignments = res.scalars().all()
 
