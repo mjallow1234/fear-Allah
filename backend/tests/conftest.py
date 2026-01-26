@@ -74,6 +74,18 @@ async def async_client_authenticated(client, test_session):
 
     token = create_access_token({"sub": str(user.id), "username": user.username})
 
+    # Ensure an operational role exists and assign the test user to an 'agent' operational role
+    from app.db.models import Role, UserRole
+    # Create or get 'agent' role
+    role = Role(name='agent', is_system=False)
+    test_session.add(role)
+    await test_session.commit()
+    await test_session.refresh(role)
+
+    user_role = UserRole(user_id=user.id, role_id=role.id)
+    test_session.add(user_role)
+    await test_session.commit()
+
     # Set default Authorization header on the client used by tests
     client.headers.update({"Authorization": f"Bearer {token}"})
 
