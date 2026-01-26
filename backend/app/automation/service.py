@@ -350,6 +350,7 @@ class AutomationService:
         created_by_id: Optional[int] = None,
         limit: int = 50,
         offset: int = 0,
+        current_user: Optional[User] = None,
     ) -> list[AutomationTask]:
         """
         List tasks with optional filters.
@@ -357,8 +358,13 @@ class AutomationService:
         For non-admin users, include tasks they created OR tasks where they have a TaskAssignment.
         Use DISTINCT to avoid duplicates and preserve pagination.
         """
-        from sqlalchemy import or_, exists
+        from sqlalchemy import or_, exists, func
         from app.db.models import TaskAssignment
+
+        # Determine user debug info (best-effort, do not change logic)
+        user_id_debug = getattr(current_user, 'id', None)
+        user_role_debug = getattr(current_user, 'role', None)
+        user_is_admin_debug = getattr(current_user, 'is_system_admin', None)
 
         query = select(AutomationTask).options(selectinload(AutomationTask.assignments))
         
@@ -382,6 +388,33 @@ class AutomationService:
                     exists(assignment_exists),
                 )
             )
+
+        # Compute total matches BEFORE pagination (do not modify returned results)
+        # Build a simple count query with the same WHERE clauses
+        count_q = select(func.count()).select_from(AutomationTask)
+        # Apply same filters used above for count
+        if status:
+            count_q = count_q.where(AutomationTask.status == status)
+        if task_type:
+            count_q = count_q.where(AutomationTask.task_type == task_type)
+        if created_by_id:
+            assignment_exists = (
+                select(TaskAssignment.id)
+                .where(TaskAssignment.task_id == AutomationTask.id)
+                .where(TaskAssignment.user_id == created_by_id)
+            )
+            count_q = count_q.where(
+                or_(
+                    AutomationTask.created_by_id == created_by_id,
+                    exists(assignment_exists),
+                )
+            )
+
+        total_result = await db.execute(count_q)
+        total_before_pagination = int(total_result.scalar_one())
+
+        # Log debug information
+        logger.info(f"[TASK-LIST-DEBUG] user_id={user_id_debug} role={user_role_debug} is_system_admin={user_is_admin_debug} limit={limit} offset={offset} total_before_pagination={total_before_pagination}")
 
         # Apply ordering and pagination
         query = query.order_by(AutomationTask.created_at.desc()).limit(limit).offset(offset)

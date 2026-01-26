@@ -122,6 +122,7 @@ async def list_tasks(
         created_by_id=created_by_id,
         limit=limit,
         offset=offset,
+        current_user=user,
     )
     
     return TaskListResponse(
