@@ -114,6 +114,45 @@ async def test_order_auto_creates_assignments(
 
 
 @pytest.mark.anyio
+async def test_assignment_placeholder_created_if_no_role_user(
+    async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
+):
+    """If no active role user exists, a placeholder assignment (user_id=None) should be created."""
+    client, user_data = async_client_authenticated
+
+    # Deactivate any existing foreman users to simulate 'no active foreman'
+    from app.db.models import User
+    from sqlalchemy import update
+
+    await test_session.execute(update(User).where(User.role == 'foreman').values(is_active=False))
+    await test_session.commit()
+
+    # Create an AGENT_RESTOCK order
+    order_resp = await client.post(
+        "/api/orders/",
+        json={
+            "order_type": "AGENT_RESTOCK",
+            "items": [{"product_id": 9, "quantity": 1}],
+            "metadata": {},
+        },
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["order_id"]
+
+    # Get automation task for the order
+    auto_resp = await client.get(f"/api/orders/{order_id}/automation")
+    assert auto_resp.status_code == 200
+    task_id = auto_resp.json()["task_id"]
+
+    # Check TaskAssignment rows exist and that foreman assignment has user_id == None
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
+    assignments = res.scalars().all()
+
+    assert any(a.role_hint == "foreman" for a in assignments), "Foreman assignment missing"
+    assert any(a.role_hint == "foreman" and a.user_id is None for a in assignments), "Foreman placeholder assignment not created"
+
+@pytest.mark.anyio
 async def test_foreman_sees_assigned_task_in_inbox(
     async_client_authenticated: tuple[AsyncClient, dict],
 ):

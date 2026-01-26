@@ -184,9 +184,9 @@ class OrderAutomationTriggers:
         """
         Create assignments for a task based on template configuration.
         
-        Supports:
-        - auto_assign_role: Find user by role name pattern (e.g., "foreman" -> foreman1)
-        - auto_assign_user: Special assignment like "order_creator" for requester
+        Resolves concrete users for roles (foreman, delivery) when possible.
+        If no active user is found for a role, still create a TaskAssignment with
+        user_id = None and log a warning.
         """
         assignments = []
         
@@ -195,7 +195,7 @@ class OrderAutomationTriggers:
             auto_assign_role = assignment_cfg.get("auto_assign_role")
             auto_assign_user = assignment_cfg.get("auto_assign_user")
             
-            # Determine who to assign
+            # Determine who to assign (may be None)
             user_id = None
             
             if auto_assign_user == "order_creator":
@@ -203,26 +203,31 @@ class OrderAutomationTriggers:
                 user_id = created_by_id
                 logger.info(f"[OrderAutomation] Assigning order creator {user_id} as {role_hint}")
             elif auto_assign_role:
-                # Try to find a user with this role
-                user_id = await OrderAutomationTriggers._find_user_by_role(db, auto_assign_role)
+                # Try to find a currently active user with this role (strict - no admin fallback)
+                user_id = await OrderAutomationTriggers._find_active_user_by_role(db, auto_assign_role)
+                if user_id:
+                    logger.info(f"[OrderAutomation] Found user {user_id} for role {auto_assign_role} -> assigning as {role_hint}")
+                else:
+                    logger.warning(f"[OrderAutomation] No active user found for role '{auto_assign_role}' when creating assignment for task {task.id}; creating placeholder assignment with no user_id")
             
+            # Special-case mappings where order creator should be assigned
             if not user_id and role_hint in ("agent", "store_keeper", "sales"):
-                # Assign to order creator for these roles
                 user_id = created_by_id
+                logger.info(f"[OrderAutomation] Fallback assign to order creator {user_id} for role {role_hint}")
             
-            if user_id:
-                assignment = await AutomationService.assign_user_to_task(
-                    db=db,
-                    task_id=task.id,
-                    user_id=user_id,
-                    role_hint=role_hint,
-                    assigned_by_id=created_by_id,
-                )
-                if assignment:
-                    assignments.append(assignment)
-                    logger.info(f"[OrderAutomation] Assigned user {user_id} to task {task.id} (role={role_hint})")
+            # Create assignment even if user_id is None (reserve role)
+            assignment = await AutomationService.assign_user_to_task(
+                db=db,
+                task_id=task.id,
+                user_id=user_id,
+                role_hint=role_hint,
+                assigned_by_id=created_by_id,
+            )
+            if assignment:
+                assignments.append(assignment)
+                logger.info(f"[OrderAutomation] Assigned user {user_id} to task {task.id} (role={role_hint})")
             else:
-                logger.debug(f"[OrderAutomation] No user found for role {role_hint}, skipping assignment")
+                logger.debug(f"[OrderAutomation] Assignment not created (maybe duplicate): task={task.id}, role={role_hint}, user_id={user_id}")
         
         return assignments
     
@@ -255,7 +260,7 @@ class OrderAutomationTriggers:
         
         prefix = role_prefix_map.get(role_name, role_name)
         
-        # Find first active user matching the prefix
+        # Find first active user matching the prefix (no admin fallback)
         result = await db.execute(
             select(User)
             .where(User.is_active == True)
@@ -269,19 +274,7 @@ class OrderAutomationTriggers:
             logger.debug(f"[OrderAutomation] Found user '{user.username}' for role '{role_name}'")
             return user.id
         
-        # Fallback: try to find a system admin
-        logger.warning(f"[OrderAutomation] No user found for role '{role_name}', falling back to admin")
-        result = await db.execute(
-            select(User)
-            .where(User.is_active == True)
-            .where(User.is_system_admin == True)
-            .limit(1)
-        )
-        admin = result.scalar_one_or_none()
-        
-        if admin:
-            return admin.id
-        
+        logger.debug(f"[OrderAutomation] No active user found for role '{role_name}'")
         return None
     
     @staticmethod
