@@ -204,7 +204,13 @@ class OrderAutomationTriggers:
                 logger.info(f"[OrderAutomation] Assigning order creator {user_id} as {role_hint}")
             elif auto_assign_role:
                 # Try to find a currently active user with this role (strict - no admin fallback)
-                user_id = await OrderAutomationTriggers._find_user_by_role(db, auto_assign_role)
+                try:
+                    user_id = await OrderAutomationTriggers._find_user_by_role(db, auto_assign_role)
+                except Exception as e:
+                    # Log full traceback so we can detect unexpected issues in role resolution
+                    logger.exception(f"[OrderAutomation] Error while resolving role user for '{auto_assign_role}': {e}")
+                    user_id = None
+
                 if user_id:
                     logger.info(f"[OrderAutomation] Found user {user_id} for role {auto_assign_role} -> assigning as {role_hint}")
                 else:
