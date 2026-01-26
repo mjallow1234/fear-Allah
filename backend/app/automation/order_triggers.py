@@ -138,39 +138,44 @@ class OrderAutomationTriggers:
             return None
         
         # Create automation task
-        title = template["title_template"].format(order_id=order.id)
-        description = template["description_template"].format(order_id=order.id)
-        
-        task = await AutomationService.create_task(
-            db=db,
-            task_type=template["task_type"],
-            title=title,
-            created_by_id=created_by_id,
-            description=description,
-            related_order_id=order.id,
-            metadata={
-                "order_type": order_type,
-                "triggered_by": "order_created",
-                "order_items": order.items,
-            },
-        )
-        
-        logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
-        
-        # Create assignments based on template
-        await OrderAutomationTriggers._create_template_assignments(
-            db=db,
-            task=task,
-            template=template,
-            created_by_id=created_by_id,
-        )
-        
-        # Phase 6.4: Send order created notification
         try:
-            from app.automation.notification_hooks import on_order_created
-            await on_order_created(db, order, notify_admins=True)
+            title = template["title_template"].format(order_id=order.id)
+            description = template["description_template"].format(order_id=order.id)
+            
+            task = await AutomationService.create_task(
+                db=db,
+                task_type=template["task_type"],
+                title=title,
+                created_by_id=created_by_id,
+                description=description,
+                related_order_id=order.id,
+                metadata={
+                    "order_type": order_type,
+                    "triggered_by": "order_created",
+                    "order_items": order.items,
+                },
+            )
+            
+            logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
+            
+            # Create assignments based on template
+            await OrderAutomationTriggers._create_template_assignments(
+                db=db,
+                task=task,
+                template=template,
+                created_by_id=created_by_id,
+            )
+            
+            # Phase 6.4: Send order created notification
+            try:
+                from app.automation.notification_hooks import on_order_created
+                await on_order_created(db, order, notify_admins=True)
+            except Exception as e:
+                logger.error(f"[OrderAutomation] Failed to send order notification: {e}")
         except Exception as e:
-            logger.error(f"[OrderAutomation] Failed to send order notification: {e}")
+            import traceback
+            logger.error(f"[OrderAutomation] Failure in on_order_created for order {order.id}: {e}\n{traceback.format_exc()}")
+            raise
         
         return task
     
