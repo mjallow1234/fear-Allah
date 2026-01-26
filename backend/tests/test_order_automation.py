@@ -114,6 +114,70 @@ async def test_order_auto_creates_assignments(
 
 
 @pytest.mark.anyio
+async def test_foreman_sees_assigned_task_in_inbox(
+    async_client_authenticated: tuple[AsyncClient, dict],
+):
+    """Foreman should see newly created restock tasks in their inbox."""
+    client, user_data = async_client_authenticated
+
+    # Register foreman and delivery users so template assignment finds them
+    await client.post('/api/auth/register', json={'email': 'foreman1@example.com', 'password': 'Password123!', 'username': 'foreman1'})
+    await client.post('/api/auth/register', json={'email': 'delivery1@example.com', 'password': 'Password123!', 'username': 'delivery1'})
+
+    # Login as foreman
+    login = await client.post('/api/auth/login', json={'identifier': 'foreman1@example.com', 'password': 'Password123!'})
+    foreman_token = login.json()['access_token']
+
+    # Create an AGENT_RESTOCK order as the original authenticated user
+    order_resp = await client.post(
+        "/api/orders/",
+        json={
+            "order_type": "AGENT_RESTOCK",
+            "items": [{"product_id": 1, "quantity": 1}],
+            "metadata": {},
+        },
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["order_id"]
+
+    # Foreman should see the automation task in their inbox
+    resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {foreman_token}'})
+    assert resp.status_code == 200
+    data = resp.json()
+    tasks = data['tasks']
+
+    assert any(t.get('related_order_id') == order_id for t in tasks), "Foreman does not see assigned restock task in inbox"
+
+
+@pytest.mark.anyio
+async def test_delivery_sees_restock_and_retail_tasks_in_inbox(
+    async_client_authenticated: tuple[AsyncClient, dict],
+):
+    """Delivery should see restock and retail tasks in their inbox."""
+    client, user_data = async_client_authenticated
+
+    # Register delivery user
+    await client.post('/api/auth/register', json={'email': 'delivery2@example.com', 'password': 'Password123!', 'username': 'delivery2'})
+    login = await client.post('/api/auth/login', json={'identifier': 'delivery2@example.com', 'password': 'Password123!'})
+    delivery_token = login.json()['access_token']
+
+    # Create AGENT_RESTOCK and AGENT_RETAIL orders
+    r1 = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': [{"product_id":1, "quantity":1}]})
+    r2 = await client.post('/api/orders/', json={'order_type': 'AGENT_RETAIL', 'items': [{"product_id":2, "quantity":1}]})
+    assert r1.status_code == 201 and r2.status_code == 201
+    id1 = r1.json()['order_id']
+    id2 = r2.json()['order_id']
+
+    # Delivery should see tasks for both orders
+    resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {delivery_token}'})
+    assert resp.status_code == 200
+    tasks = resp.json()['tasks']
+
+    assert any(t.get('related_order_id') == id1 for t in tasks), "Delivery does not see restock task"
+    assert any(t.get('related_order_id') == id2 for t in tasks), "Delivery does not see retail task"
+
+
+@pytest.mark.anyio
 async def test_api_create_task_for_order_auto_assigns(
     async_client_authenticated: tuple[AsyncClient, dict],
     test_session: object,

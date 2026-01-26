@@ -353,16 +353,37 @@ class AutomationService:
     ) -> list[AutomationTask]:
         """
         List tasks with optional filters.
+
+        For non-admin users, include tasks they created OR tasks where they have a TaskAssignment.
+        Use DISTINCT to avoid duplicates and preserve pagination.
         """
+        from sqlalchemy import or_, distinct
+        from app.db.models import TaskAssignment
+
         query = select(AutomationTask).options(selectinload(AutomationTask.assignments))
         
         if status:
             query = query.where(AutomationTask.status == status)
         if task_type:
             query = query.where(AutomationTask.task_type == task_type)
+
+        # If created_by_id is provided, we want tasks created by the user OR assigned to the user
         if created_by_id:
-            query = query.where(AutomationTask.created_by_id == created_by_id)
-            
+            # Outer join with TaskAssignment and filter on either created_by or assigned user
+            query = (
+                select(AutomationTask)
+                .options(selectinload(AutomationTask.assignments))
+                .outerjoin(TaskAssignment)
+                .where(
+                    or_(
+                        AutomationTask.created_by_id == created_by_id,
+                        TaskAssignment.user_id == created_by_id,
+                    )
+                )
+                .distinct(AutomationTask.id)
+            )
+
+        # Apply ordering and pagination
         query = query.order_by(AutomationTask.created_at.desc()).limit(limit).offset(offset)
         
         result = await db.execute(query)
