@@ -335,3 +335,31 @@ async def test_automation_task_linked_to_order(
     # Verify the task is linked to the order
     assert task_data["related_order_id"] == order_id
     assert "WHOLESALE" in task_data["task_type"]
+
+
+@pytest.mark.anyio
+async def test_foreman_endpoint_returns_200(async_client_authenticated: tuple[AsyncClient, dict]):
+    """Foreman GET /api/automation/tasks should return 200 (no internal server error)."""
+    client, _ = async_client_authenticated
+
+    # Register and login as foreman
+    await client.post('/api/auth/register', json={'email': 'foreman-check@example.com', 'password': 'Password123!', 'username': 'foreman_check'})
+    login = await client.post('/api/auth/login', json={'identifier': 'foreman-check@example.com', 'password': 'Password123!'})
+    token = login.json()['access_token']
+
+    resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_delivery_endpoint_returns_200(async_client_authenticated: tuple[AsyncClient, dict]):
+    """Delivery GET /api/automation/tasks should return 200 (no internal server error)."""
+    client, _ = async_client_authenticated
+
+    # Register and login as delivery
+    await client.post('/api/auth/register', json={'email': 'delivery-check@example.com', 'password': 'Password123!', 'username': 'delivery_check'})
+    login = await client.post('/api/auth/login', json={'identifier': 'delivery-check@example.com', 'password': 'Password123!'})
+    token = login.json()['access_token']
+
+    resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
