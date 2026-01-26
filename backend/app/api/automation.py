@@ -414,6 +414,10 @@ async def complete_my_assignment(
         raise HTTPException(status_code=403, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        # Catch unexpected exceptions to log stack trace for debugging
+        automation_logger.error("Unhandled exception while completing assignment", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
     
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found or you are not assigned to this task")

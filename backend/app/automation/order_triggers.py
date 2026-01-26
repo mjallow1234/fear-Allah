@@ -261,34 +261,34 @@ class OrderAutomationTriggers:
         - storekeeper -> users starting with 'storekeeper' (e.g., storekeeper1)
         - agent -> users starting with 'agent' (e.g., agent1)
         """
-        # Map role names to username prefixes
-        role_prefix_map = {
+        # Map a role alias to canonical role values used in User.role
+        role_map = {
             "foreman": "foreman",
             "delivery": "delivery",
             "delivery_driver": "delivery",
-            "warehouse_staff": "foreman",  # foreman handles warehouse assembly
+            "warehouse_staff": "foreman",  # warehouse staff treated as foreman
             "storekeeper": "storekeeper",
             "store_keeper": "storekeeper",
             "agent": "agent",
             "sales_rep": "agent",
         }
-        
-        prefix = role_prefix_map.get(role_name, role_name)
-        
-        # Find first active user matching the prefix (no admin fallback)
+
+        canonical_role = role_map.get(role_name, role_name)
+
+        # Find first active user with matching role (strict - no admin fallback)
         result = await db.execute(
             select(User)
             .where(User.is_active == True)
-            .where(User.username.like(f"{prefix}%"))
-            .order_by(User.id)
+            .where(User.role == canonical_role)
+            .order_by(User.id.asc())
             .limit(1)
         )
         user = result.scalar_one_or_none()
-        
+
         if user:
-            logger.debug(f"[OrderAutomation] Found user '{user.username}' for role '{role_name}'")
+            logger.debug(f"[OrderAutomation] Found user {user.id} (username={user.username}) for role '{role_name}'")
             return user.id
-        
+
         logger.debug(f"[OrderAutomation] No active user found for role '{role_name}'")
         return None
     

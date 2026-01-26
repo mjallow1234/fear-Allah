@@ -468,6 +468,41 @@ class AutomationService:
             else:
                 logger.warning(f"[Automation] User {user_id} already assigned to task {task_id} (role={role_hint})")
             return None
+
+        # If we're assigning a concrete user and a placeholder exists for the same role_hint,
+        # update that placeholder row to bind it to the concrete user (fix wrong assignments).
+        if user_id is not None and role_hint:
+            ph_q = await db.execute(
+                select(TaskAssignment).where(
+                    TaskAssignment.task_id == task_id,
+                    TaskAssignment.role_hint == role_hint,
+                    TaskAssignment.user_id == None,
+                ).order_by(TaskAssignment.id)
+            )
+            placeholder = ph_q.scalar_one_or_none()
+            if placeholder:
+                placeholder.user_id = user_id
+                placeholder.notes = notes or placeholder.notes
+                db.add(placeholder)
+                await db.flush()
+
+                # Refresh task status and log event as usual
+                task = await AutomationService.get_task(db, task_id, include_assignments=False)
+                if task and task.status == AutomationTaskStatus.pending:
+                    task.status = AutomationTaskStatus.in_progress
+
+                evt = TaskEvent(
+                    task_id=task_id,
+                    user_id=assigned_by_id,
+                    event_type=TaskEventType.assigned,
+                    event_metadata=json.dumps({"assigned_user_id": user_id, "role_hint": role_hint}),
+                )
+                db.add(evt)
+                await db.commit()
+                await db.refresh(placeholder)
+
+                logger.info(f"[Automation] Placeholder assignment {placeholder.id} bound to user {user_id} (role={role_hint})")
+                return placeholder
         
         # Create assignment
         assignment = TaskAssignment(
@@ -559,14 +594,32 @@ class AutomationService:
                 select(TaskAssignment).where(TaskAssignment.id == assignment_id)
             )
         else:
-            result = await db.execute(
-                select(TaskAssignment).where(
-                    TaskAssignment.task_id == task_id,
-                    TaskAssignment.user_id == user_id
-                )
-            )
+            # If the actor is a system admin, they are allowed to complete any assignment
+            # for the task; select the first non-done assignment for the task.
+            actor_result = await db.execute(select(User).where(User.id == user_id))
+            actor = actor_result.scalar_one_or_none()
+            is_admin = bool(actor and getattr(actor, 'is_system_admin', False))
 
-        assignment = result.scalar_one_or_none()
+            if is_admin:
+                result = await db.execute(
+                    select(TaskAssignment).where(
+                        TaskAssignment.task_id == task_id,
+                        TaskAssignment.status != AssignmentStatus.done,
+                    ).order_by(TaskAssignment.id)
+                )
+            else:
+                result = await db.execute(
+                    select(TaskAssignment).where(
+                        TaskAssignment.task_id == task_id,
+                        TaskAssignment.user_id == user_id
+                    )
+                )
+
+        # Use .scalars().first() to safely pick the first matching row (avoids MultipleResultsFound)
+        assignment = result.scalars().first()
+
+        logger.info(f"[Automation] DEBUG complete_assignment start: task={task_id}, user_id={user_id}, assignment_id={assignment_id}, is_admin={is_admin}")
+        logger.info(f"[Automation] DEBUG selected assignment: {getattr(assignment, 'id', None)} user_id={getattr(assignment, 'user_id', None)} status={getattr(assignment, 'status', None)} role_hint={getattr(assignment, 'role_hint', None)}")
 
         if not assignment:
             logger.warning(f"[Automation] Assignment not found: task={task_id}, user={user_id}, assignment_id={assignment_id}")
@@ -576,120 +629,129 @@ class AutomationService:
             logger.warning(f"[Automation] Assignment already completed: task={task_id}, user={user_id}")
             return assignment
 
-        # --- Enforce workflow task ordering and auto-advance workflow ---
-        # Check if the automation task is linked to an order and validate workflow task status
-        from app.db.models import Task, AutomationTask
-        from app.db.enums import TaskStatus
-        from app.services.task_engine import complete_task as engine_complete_task
-        
-        automation_task_result = await db.execute(
-            select(AutomationTask).where(AutomationTask.id == task_id)
-        )
-        automation_task = automation_task_result.scalar_one_or_none()
-        
-        workflow_task_to_complete = None
-        has_more_steps = False  # Track if user has more workflow steps after current one
-        
-        if automation_task and automation_task.related_order_id:
-            # Map role_hint to workflow step_key(s)
-            # Each role is responsible for specific workflow steps
-            role_to_steps = {
-                "foreman": ["assemble_items", "foreman_handover"],  # Foreman: assembles, then hands over to delivery
-                "delivery": ["delivery_received", "deliver_items", "accept_delivery"],  # Delivery: confirms receipt, then delivers
-                "requester": ["confirm_received"],  # Requester confirms final receipt
-            }
+        try:
+            # Determine if the actor is a system admin to allow bypassing workflow restrictions
+            actor_result = await db.execute(select(User).where(User.id == user_id))
+            actor = actor_result.scalar_one_or_none()
+            is_admin = bool(actor and getattr(actor, 'is_system_admin', False))
+
+            # --- Enforce workflow task ordering and auto-advance workflow ---
+            # Check if the automation task is linked to an order and validate workflow task status
+            from app.db.models import Task, AutomationTask
+            from app.db.enums import TaskStatus
+            from app.services.task_engine import complete_task as engine_complete_task
             
-            role_hint = assignment.role_hint
-            allowed_steps = role_to_steps.get(role_hint, [])
+            automation_task_result = await db.execute(
+                select(AutomationTask).where(AutomationTask.id == task_id)
+            )
+            automation_task = automation_task_result.scalar_one_or_none()
             
-            if allowed_steps:
-                # Find the ACTIVE workflow task that matches this role's responsibilities
-                step_result = await db.execute(
-                    select(Task).where(
-                        Task.order_id == automation_task.related_order_id,
-                        Task.step_key.in_(allowed_steps)
-                    ).order_by(Task.id)
-                )
-                role_tasks = step_result.scalars().all()
+            workflow_task_to_complete = None
+            has_more_steps = False  # Track if user has more workflow steps after current one
+            
+            if automation_task and automation_task.related_order_id and not is_admin:
+                # Map role_hint to workflow step_key(s)
+                # Each role is responsible for specific workflow steps
+                role_to_steps = {
+                    "foreman": ["assemble_items", "foreman_handover"],  # Foreman: assembles, then hands over to delivery
+                    "delivery": ["delivery_received", "deliver_items", "accept_delivery"],  # Delivery: confirms receipt, then delivers
+                    "requester": ["confirm_received"],  # Requester confirms final receipt
+                }
                 
-                # Find active task for this role
-                active_task_for_role = None
-                for t in role_tasks:
-                    if t.status == TaskStatus.active or t.status == TaskStatus.active.value:
-                        active_task_for_role = t
-                        break
+                role_hint = assignment.role_hint
+                allowed_steps = role_to_steps.get(role_hint, [])
                 
-                if not active_task_for_role:
-                    # Check what the current active task is for better error message
-                    active_result = await db.execute(
-                        select(Task).where(Task.order_id == automation_task.related_order_id)
+                if allowed_steps:
+                    # Find the ACTIVE workflow task that matches this role's responsibilities
+                    step_result = await db.execute(
+                        select(Task).where(
+                            Task.order_id == automation_task.related_order_id,
+                            Task.step_key.in_(allowed_steps)
+                        ).order_by(Task.id)
                     )
-                    all_tasks = active_result.scalars().all()
-                    current_active = None
-                    for t in all_tasks:
+                    role_tasks = step_result.scalars().all()
+                    
+                    # Find active task for this role
+                    active_task_for_role = None
+                    for t in role_tasks:
                         if t.status == TaskStatus.active or t.status == TaskStatus.active.value:
-                            current_active = t
+                            active_task_for_role = t
                             break
                     
-                    current_step = current_active.title if current_active else "No active step"
-                    current_key = current_active.step_key if current_active else "none"
+                    if not active_task_for_role:
+                        # Check what the current active task is for better error message
+                        active_result = await db.execute(
+                            select(Task).where(Task.order_id == automation_task.related_order_id)
+                        )
+                        all_tasks = active_result.scalars().all()
+                        current_active = None
+                        for t in all_tasks:
+                            if t.status == TaskStatus.active or t.status == TaskStatus.active.value:
+                                current_active = t
+                                break
+                        
+                        current_step = current_active.title if current_active else "No active step"
+                        current_key = current_active.step_key if current_active else "none"
+                        
+                        # Give helpful error message
+                        if role_hint == "foreman":
+                            raise PermissionError(f"Cannot complete yet - 'Assemble Items' is not the active step. Current: '{current_step}'")
+                        elif role_hint == "delivery":
+                            raise PermissionError(f"Cannot complete yet - no delivery step is active. Current: '{current_step}'. Wait for foreman to complete assembly.")
+                        else:
+                            raise PermissionError(f"Cannot complete yet - your step is not active. Current: '{current_step}'")
                     
-                    # Give helpful error message
-                    if role_hint == "foreman":
-                        raise PermissionError(f"Cannot complete yet - 'Assemble Items' is not the active step. Current: '{current_step}'")
-                    elif role_hint == "delivery":
-                        raise PermissionError(f"Cannot complete yet - no delivery step is active. Current: '{current_step}'. Wait for foreman to complete assembly.")
-                    else:
-                        raise PermissionError(f"Cannot complete yet - your step is not active. Current: '{current_step}'")
-                
-                # Store the workflow task to complete after assignment is marked done
-                workflow_task_to_complete = active_task_for_role
-                logger.info(f"[Automation] Will complete workflow task: {workflow_task_to_complete.step_key} (id={workflow_task_to_complete.id})")
-                
-                # Check if there are more pending workflow steps for this role after the current one
-                # Count how many of this role's steps are NOT yet done
-                pending_role_steps = sum(
-                    1 for t in role_tasks 
-                    if t.status != TaskStatus.done and t.status != TaskStatus.done.value
-                )
-                # After we complete the current step, there will be (pending_role_steps - 1) remaining
-                has_more_steps = (pending_role_steps > 1)
+                    # Store the workflow task to complete after assignment is marked done
+                    workflow_task_to_complete = active_task_for_role
+                    logger.info(f"[Automation] Will complete workflow task: {workflow_task_to_complete.step_key} (id={workflow_task_to_complete.id})")
+                    
+                    # Check if there are more pending workflow steps for this role after the current one
+                    # Count how many of this role's steps are NOT yet done
+                    pending_role_steps = sum(
+                        1 for t in role_tasks 
+                        if t.status != TaskStatus.done and t.status != TaskStatus.done.value
+                    )
+                    # After we complete the current step, there will be (pending_role_steps - 1) remaining
+                    has_more_steps = (pending_role_steps > 1)
 
-        # -------------------------------------------------------------------------
-        # Cross-role acknowledgment logic:
-        # - Foreman's assignment marked DONE when delivery acknowledges receipt (delivery_received)
-        # - Delivery's assignment marked DONE when agent acknowledges receipt (confirm_received)
-        # -------------------------------------------------------------------------
-        now = datetime.utcnow()
-        
-        # Determine what acknowledgment step this is and if we should mark another role's assignment DONE
-        acknowledges_role = None  # Which role's assignment gets marked DONE by this step
-        if workflow_task_to_complete:
-            step_key = workflow_task_to_complete.step_key
-            # Delivery acknowledging receipt from foreman -> marks foreman DONE
-            if step_key == "delivery_received":
-                acknowledges_role = "foreman"
-            # Agent/requester acknowledging final receipt -> marks delivery DONE
-            elif step_key == "confirm_received":
-                acknowledges_role = "delivery"
-        
-        # Mark the acknowledged role's assignment as DONE
-        if acknowledges_role and automation_task:
-            # Find the assignment for the acknowledged role
-            ack_result = await db.execute(
-                select(TaskAssignment).where(
-                    TaskAssignment.task_id == task_id,
-                    TaskAssignment.role_hint == acknowledges_role
+            # -------------------------------------------------------------------------
+            # Cross-role acknowledgment logic:
+            # - Foreman's assignment marked DONE when delivery acknowledges receipt (delivery_received)
+            # - Delivery's assignment marked DONE when agent acknowledges receipt (confirm_received)
+            # -------------------------------------------------------------------------
+            now = datetime.utcnow()
+            
+            # Determine what acknowledgment step this is and if we should mark another role's assignment DONE
+            acknowledges_role = None  # Which role's assignment gets marked DONE by this step
+            if workflow_task_to_complete:
+                step_key = workflow_task_to_complete.step_key
+                # Delivery acknowledging receipt from foreman -> marks foreman DONE
+                if step_key == "delivery_received":
+                    acknowledges_role = "foreman"
+                # Agent/requester acknowledging final receipt -> marks delivery DONE
+                elif step_key == "confirm_received":
+                    acknowledges_role = "delivery"
+            
+            # Mark the acknowledged role's assignment as DONE
+            if acknowledges_role and automation_task:
+                # Find the assignment for the acknowledged role
+                ack_result = await db.execute(
+                    select(TaskAssignment).where(
+                        TaskAssignment.task_id == task_id,
+                        TaskAssignment.role_hint == acknowledges_role
+                    )
                 )
-            )
-            ack_assignment = ack_result.scalar_one_or_none()
-            if ack_assignment and ack_assignment.status != AssignmentStatus.done:
-                await db.execute(
-                    update(TaskAssignment)
-                    .where(TaskAssignment.id == ack_assignment.id)
-                    .values(status=AssignmentStatus.done, completed_at=now)
-                )
-                logger.info(f"[Automation] Cross-role acknowledgment: {role_hint} acknowledged receipt, marking {acknowledges_role}'s assignment as DONE")
+                ack_assignment = ack_result.scalar_one_or_none()
+                if ack_assignment and ack_assignment.status != AssignmentStatus.done:
+                    await db.execute(
+                        update(TaskAssignment)
+                        .where(TaskAssignment.id == ack_assignment.id)
+                        .values(status=AssignmentStatus.done, completed_at=now)
+                    )
+                    logger.info(f"[Automation] Cross-role acknowledgment: {role_hint} acknowledged receipt, marking {acknowledges_role}'s assignment as DONE")
+        except Exception:
+            logger.exception("Error completing assignment")
+            raise
         
         # For the current user's assignment:
         # - Don't mark as DONE until the NEXT role acknowledges receipt
@@ -710,23 +772,40 @@ class AutomationService:
         
         if should_mark_done:
             # Mark assignment as DONE
-            upd = (
-                update(TaskAssignment)
-                .where(TaskAssignment.id == assignment.id)
-                .where(TaskAssignment.user_id == user_id)
-                .where(TaskAssignment.status != AssignmentStatus.done)
-                .values(status=AssignmentStatus.done, completed_at=now)
-            )
+            if is_admin:
+                # System admins can complete any assignment regardless of ownership
+                upd = (
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == assignment.id)
+                    .where(TaskAssignment.status != AssignmentStatus.done)
+                    .values(status=AssignmentStatus.done, completed_at=now)
+                )
+            else:
+                upd = (
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == assignment.id)
+                    .where(TaskAssignment.user_id == user_id)
+                    .where(TaskAssignment.status != AssignmentStatus.done)
+                    .values(status=AssignmentStatus.done, completed_at=now)
+                )
         else:
             # Keep assignment as IN_PROGRESS (waiting for next role to acknowledge)
-            upd = (
-                update(TaskAssignment)
-                .where(TaskAssignment.id == assignment.id)
-                .where(TaskAssignment.user_id == user_id)
-                .values(status=AssignmentStatus.in_progress)
-            )
-        
+            if is_admin:
+                upd = (
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == assignment.id)
+                    .values(status=AssignmentStatus.in_progress)
+                )
+            else:
+                upd = (
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == assignment.id)
+                    .where(TaskAssignment.user_id == user_id)
+                    .values(status=AssignmentStatus.in_progress)
+                )
+        logger.info(f"[Automation] DEBUG executing update for assignment={assignment.id}, is_admin={is_admin}, should_mark_done={should_mark_done}")
         res = await db.execute(upd)
+        logger.info(f"[Automation] DEBUG update rowcount={getattr(res, 'rowcount', None)} for assignment={assignment.id}")
         if res.rowcount == 0:
             # Could be concurrent modification or permission issue
             logger.warning(f"[Automation] Failed to update assignment row: task={task_id}, assignment={assignment.id}")

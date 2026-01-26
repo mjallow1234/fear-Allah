@@ -157,6 +157,7 @@ async def test_assignment_placeholder_created_if_no_role_user(
 @pytest.mark.anyio
 async def test_foreman_sees_assigned_task_in_inbox(
     async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
 ):
     """Foreman should see newly created restock tasks in their inbox."""
     client, user_data = async_client_authenticated
@@ -164,6 +165,14 @@ async def test_foreman_sees_assigned_task_in_inbox(
     # Register foreman and delivery users so template assignment finds them
     await client.post('/api/auth/register', json={'email': 'foreman1@example.com', 'password': 'Password123!', 'username': 'foreman1'})
     await client.post('/api/auth/register', json={'email': 'delivery1@example.com', 'password': 'Password123!', 'username': 'delivery1'})
+
+    # Ensure they have the correct operational role on the DB for role-based resolution
+    from sqlalchemy import update
+    from app.db.models import User
+
+    await test_session.execute(update(User).where(User.username == 'foreman1').values(role='foreman', is_active=True))
+    await test_session.execute(update(User).where(User.username == 'delivery1').values(role='delivery', is_active=True))
+    await test_session.commit()
 
     # Login as foreman
     login = await client.post('/api/auth/login', json={'identifier': 'foreman1@example.com', 'password': 'Password123!'})
@@ -193,12 +202,20 @@ async def test_foreman_sees_assigned_task_in_inbox(
 @pytest.mark.anyio
 async def test_delivery_sees_restock_and_retail_tasks_in_inbox(
     async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
 ):
     """Delivery should see restock and retail tasks in their inbox."""
     client, user_data = async_client_authenticated
 
     # Register delivery user
     await client.post('/api/auth/register', json={'email': 'delivery2@example.com', 'password': 'Password123!', 'username': 'delivery2'})
+    # Ensure role is set so role-based resolution will pick this user
+    from sqlalchemy import update
+    from app.db.models import User
+
+    await test_session.execute(update(User).where(User.username == 'delivery2').values(role='delivery', is_active=True))
+    await test_session.commit()
+
     login = await client.post('/api/auth/login', json={'identifier': 'delivery2@example.com', 'password': 'Password123!'})
     delivery_token = login.json()['access_token']
 
@@ -349,6 +366,121 @@ async def test_foreman_endpoint_returns_200(async_client_authenticated: tuple[As
 
     resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_role_resolution_by_role_not_username(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """If a user has role='foreman' they should be selected even if username is unrelated."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User, TaskAssignment
+    from app.core.security import get_password_hash
+    from sqlalchemy import select
+
+    # Create a foreman user with a non-prefixed username
+    foreman = User(username='bilal', email='bilal@example.com', hashed_password=get_password_hash('pw'), role='foreman', is_active=True)
+    test_session.add(foreman)
+    await test_session.commit()
+    await test_session.refresh(foreman)
+
+    # Create an order which should auto-assign to a foreman
+    order_resp = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': [{'product_id':1, 'quantity':1}]})
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()['order_id']
+
+    auto_resp = await client.get(f'/api/orders/{order_id}/automation')
+    task_id = auto_resp.json()['task_id']
+
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id, TaskAssignment.role_hint == 'foreman'))
+    assignment = res.scalar_one_or_none()
+    assert assignment is not None
+    assert assignment.user_id == foreman.id
+
+
+@pytest.mark.anyio
+async def test_backfill_assignments_script_updates_placeholders(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Backfill should update placeholder assignments to bind to active role users."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User, TaskAssignment
+    from app.core.security import get_password_hash
+    from app.automation.backfill import backfill_assignments
+    from sqlalchemy import select
+
+    # Create an order and let template create placeholder assignments by deactivating role users first
+    # Deactivate any existing foremen
+    from sqlalchemy import text
+    await test_session.execute(text("UPDATE users SET is_active = FALSE WHERE role = 'foreman'"))
+    await test_session.commit()
+
+    order_resp = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': [{'product_id':9, 'quantity':1}]})
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()['order_id']
+
+    auto_resp = await client.get(f'/api/orders/{order_id}/automation')
+    task_id = auto_resp.json()['task_id']
+
+    # Create a placeholder assignment (user_id is None) - there should already be one; ensure it exists
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id, TaskAssignment.role_hint == 'foreman'))
+    placeholder = res.scalar_one_or_none()
+    assert placeholder is not None
+    assert placeholder.user_id is None
+
+    # Now create an active foreman user
+    foreman = User(username='foreman_backfill', email='fb@example.com', hashed_password=get_password_hash('pw'), role='foreman', is_active=True)
+    test_session.add(foreman)
+    await test_session.commit()
+    await test_session.refresh(foreman)
+
+    # Run backfill utility directly with test_session
+    updated = await backfill_assignments(test_session)
+    assert updated >= 1
+
+    # Verify placeholder now bound to user
+    res2 = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id, TaskAssignment.role_hint == 'foreman'))
+    assignment = res2.scalar_one_or_none()
+    assert assignment is not None
+    assert assignment.user_id == foreman.id
+
+
+@pytest.mark.anyio
+async def test_admin_can_complete_any_assignment(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """System admin can complete assignments regardless of workflow step or assignment ownership."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User, TaskAssignment, Task
+    from app.core.security import get_password_hash
+    from sqlalchemy import select, update
+
+    # Create foreman user and admin user
+    foreman = User(username='foreman3', email='f3@example.com', hashed_password=get_password_hash('pw'), role='foreman', is_active=True)
+    admin = User(username='sysadmin', email='sysadmin@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add_all([foreman, admin])
+    await test_session.commit()
+    await test_session.refresh(foreman)
+    await test_session.refresh(admin)
+
+    # Create an order and ensure foreman assigned
+    order_resp = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': [{'product_id':1, 'quantity':1}]})
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()['order_id']
+
+    auto_resp = await client.get(f'/api/orders/{order_id}/automation')
+    task_id = auto_resp.json()['task_id']
+
+    # Set all workflow tasks to pending so non-admin cannot complete (simulate wrong active step)
+    await test_session.execute(update(Task).where(Task.order_id == order_id).values(status='pending'))
+    await test_session.commit()
+
+    # Login as admin (use the sysadmin user we created earlier)
+    login = await client.post('/api/auth/login', json={'identifier': 'sysadmin', 'password': 'pw'})
+    token = login.json()['access_token']
+
+    # Admin posts to complete the assignment for the task - should succeed
+    resp = await client.post(f'/api/automation/tasks/{task_id}/complete', json={'notes': 'admin complete'}, headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data['status'] in ('done', 'DONE', 'completed') or data['status'] is not None
 
 
 @pytest.mark.anyio

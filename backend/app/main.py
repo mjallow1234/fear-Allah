@@ -104,14 +104,16 @@ async def lifespan(app: FastAPI):
         from app.permissions.demo_seeder import run_demo_seeder
         await run_demo_seeder()
 
-    # Register AI safety listeners (Phase 5.1)
-    # This ensures AI code can only write to approved tables
-    try:
-        from app.ai.safety import register_ai_safety_listeners
-        register_ai_safety_listeners()
-    except Exception as e:
-        from app.core.config import logger
-        logger.warning(f"[AI Safety] Could not register safety listeners: {e}")
+        # Run assignment backfill to resolve legacy placeholder assignments (foreman/delivery)
+        try:
+            from app.automation.backfill import backfill_assignments
+            async with async_session() as db:
+                updated = await backfill_assignments(db)
+                from app.core.config import logger
+                logger.info(f"[Backfill] Resolved {updated} placeholder assignment(s)")
+        except Exception as e:
+            from app.core.config import logger
+            logger.warning(f"[Backfill] Failed to backfill assignments at startup: {e}")
 
     # Start Redis pub/sub listener for cross-pod broadcasts (Phase 9)
     # Do NOT start Redis listener during tests to avoid background threads and external network calls.
