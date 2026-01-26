@@ -148,7 +148,7 @@ class AutomationService:
             update(AutomationTask)
             .where(
                 AutomationTask.id == task.id,
-                AutomationTask.status == AutomationTaskStatus.open,
+                AutomationTask.status == AutomationTaskStatus.pending,
                 AutomationTask.claimed_by_user_id == None,
             )
             .values(claimed_by_user_id=user_id, claimed_at=now, status=AutomationTaskStatus.claimed)
@@ -251,7 +251,8 @@ class AutomationService:
         """
         task = AutomationTask(
             task_type=task_type,
-            status=(AutomationTaskStatus.open if required_role else AutomationTaskStatus.pending),
+            # Use PENDING for newly created tasks by default — claim flow will transition to CLAIMED when a user claims
+            status=AutomationTaskStatus.pending,
             title=title,
             description=description,
             created_by_id=created_by_id,
