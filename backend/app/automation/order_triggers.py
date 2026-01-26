@@ -142,6 +142,14 @@ class OrderAutomationTriggers:
             title = template["title_template"].format(order_id=order.id)
             description = template["description_template"].format(order_id=order.id)
             
+            # Determine initial required role for claim-based workflow (first operational role)
+            initial_required_role = None
+            for a in template.get("assignments", []):
+                rh = a.get("role_hint")
+                if rh and rh != "requester":
+                    initial_required_role = rh
+                    break
+
             task = await AutomationService.create_task(
                 db=db,
                 task_type=template["task_type"],
@@ -154,6 +162,7 @@ class OrderAutomationTriggers:
                     "triggered_by": "order_created",
                     "order_items": order.items,
                 },
+                required_role=initial_required_role,
             )
             
             logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
@@ -204,6 +213,11 @@ class OrderAutomationTriggers:
             auto_assign_role = assignment_cfg.get("auto_assign_role")
             auto_assign_user = assignment_cfg.get("auto_assign_user")
             
+            # Only create requester assignment for new tasks. Skip operational roles (foreman, delivery).
+            if role_hint in ("foreman", "delivery"):
+                logger.info(f"[OrderAutomation] Skipping creation of operational role assignment for {role_hint} on task {task.id}")
+                continue
+
             # Determine who to assign (may be None)
             user_id = None
             
@@ -212,37 +226,32 @@ class OrderAutomationTriggers:
                 user_id = created_by_id
                 logger.info(f"[OrderAutomation] Assigning order creator {user_id} as {role_hint}")
             elif auto_assign_role:
-                # Try to find a currently active user with this role (strict - no admin fallback)
-                try:
-                    user_id = await OrderAutomationTriggers._find_user_by_role(db, auto_assign_role)
-                except Exception as e:
-                    # Log full traceback so we can detect unexpected issues in role resolution
-                    logger.exception(f"[OrderAutomation] Error while resolving role user for '{auto_assign_role}': {e}")
-                    user_id = None
+                # For non-operational mappings, we do not auto-create operational assignments.
+                # Keep behavior minimal: do not attempt to resolve auto_assign_role for new tasks.
+                logger.debug(f"[OrderAutomation] Not auto-resolving role {auto_assign_role} for new task {task.id}")
+                user_id = None
 
-                if user_id:
-                    logger.info(f"[OrderAutomation] Found user {user_id} for role {auto_assign_role} -> assigning as {role_hint}")
-                else:
-                    logger.warning(f"[OrderAutomation] No active user found for role '{auto_assign_role}' when creating assignment for task {task.id}; creating placeholder assignment with no user_id")
-            
             # Special-case mappings where order creator should be assigned
-            if not user_id and role_hint in ("agent", "store_keeper", "sales"):
+            if not user_id and role_hint in ("agent", "store_keeper", "sales", "requester"):
                 user_id = created_by_id
                 logger.info(f"[OrderAutomation] Fallback assign to order creator {user_id} for role {role_hint}")
             
-            # Create assignment even if user_id is None (reserve role)
-            assignment = await AutomationService.assign_user_to_task(
-                db=db,
-                task_id=task.id,
-                user_id=user_id,
-                role_hint=role_hint,
-                assigned_by_id=created_by_id,
-            )
-            if assignment:
-                assignments.append(assignment)
-                logger.info(f"[OrderAutomation] Assigned user {user_id} to task {task.id} (role={role_hint})")
+            # Create assignment only for requester and similar roles
+            if role_hint == "requester" or user_id is not None:
+                assignment = await AutomationService.assign_user_to_task(
+                    db=db,
+                    task_id=task.id,
+                    user_id=user_id,
+                    role_hint=role_hint,
+                    assigned_by_id=created_by_id,
+                )
+                if assignment:
+                    assignments.append(assignment)
+                    logger.info(f"[OrderAutomation] Assigned user {user_id} to task {task.id} (role={role_hint})")
+                else:
+                    logger.debug(f"[OrderAutomation] Assignment not created (maybe duplicate): task={task.id}, role={role_hint}, user_id={user_id}")
             else:
-                logger.debug(f"[OrderAutomation] Assignment not created (maybe duplicate): task={task.id}, role={role_hint}, user_id={user_id}")
+                logger.debug(f"[OrderAutomation] Not creating assignment for role {role_hint} on task {task.id}")
         
         return assignments
     

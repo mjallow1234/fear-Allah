@@ -105,12 +105,20 @@ async def lifespan(app: FastAPI):
         await run_demo_seeder()
 
         # Run assignment backfill to resolve legacy placeholder assignments (foreman/delivery)
+        # NOTE: Backfill is potentially destructive for current data - only run when explicitly
+        # enabled via BACKFILL_ON_STARTUP. By default this is disabled and should be run
+        # manually via scripts for historical data only.
         try:
-            from app.automation.backfill import backfill_assignments
-            async with async_session() as db:
-                updated = await backfill_assignments(db)
+            from app.core.config import settings as _settings
+            if getattr(_settings, 'BACKFILL_ON_STARTUP', False):
+                from app.automation.backfill import backfill_assignments
+                async with async_session() as db:
+                    updated = await backfill_assignments(db)
+                    from app.core.config import logger
+                    logger.info(f"[Backfill] Resolved {updated} placeholder assignment(s)")
+            else:
                 from app.core.config import logger
-                logger.info(f"[Backfill] Resolved {updated} placeholder assignment(s)")
+                logger.info("[Backfill] Skipped at startup (BACKFILL_ON_STARTUP is false)")
         except Exception as e:
             from app.core.config import logger
             logger.warning(f"[Backfill] Failed to backfill assignments at startup: {e}")

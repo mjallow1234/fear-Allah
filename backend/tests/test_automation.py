@@ -203,6 +203,13 @@ async def test_available_tasks_endpoint(
     tasks = data.get('tasks', [])
     assert any(t['id'] == task_id for t in tasks), f"Task {task_id} not found in available tasks: {tasks}"
 
+    # Ensure no placeholder assignments for operational roles were created on task creation
+    get_task = await client.get(f"/api/automation/tasks/{task_id}")
+    assert get_task.status_code == 200
+    assignments = get_task.json().get('assignments', [])
+    roles = set(a.get('role_hint') for a in assignments if a.get('role_hint'))
+    assert 'foreman' not in roles and 'delivery' not in roles, f"Operational assignments unexpectedly present: {roles}"
+
     # Register and login as a foreman user and claim the task
     await client.post('/api/auth/register', json={'email': 'foreman_test@example.com', 'password': 'Password123!', 'username': 'foreman_test'})
     login = await client.post('/api/auth/login', json={'identifier': 'foreman_test@example.com', 'password': 'Password123!'})
@@ -221,6 +228,12 @@ async def test_available_tasks_endpoint(
 
     claim_resp = await client.post(f"/api/automation/tasks/{task_id}/claim", json={})
     assert claim_resp.status_code == 200
+
+    # As the foreman, my-assignments should include this task and assignment should be created
+    my_assign_resp = await client.get('/api/automation/my-assignments')
+    assert my_assign_resp.status_code == 200
+    my_assignments = my_assign_resp.json()
+    assert any(a.get('task_id') == task_id and a.get('role_hint') == 'foreman' for a in my_assignments), f"Claim did not create assignment for claimer: {my_assignments}"
 
     # Restore original user and check available tasks again
     if orig_auth:

@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     WS_ENABLED: bool = False
     AUTOMATIONS_ENABLED: bool = False
 
+    # Control whether legacy backfill runs automatically at startup.
+    # Defaults to False to avoid accidental assignment changes on startup.
+    BACKFILL_ON_STARTUP: bool = False
+
     # Testing flag (set True during pytest runs)
     TESTING: bool = False
 

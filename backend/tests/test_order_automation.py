@@ -53,7 +53,8 @@ async def test_order_creates_automation_task(
     assert auto_data["has_automation"] == True
     assert "task_id" in auto_data
     assert auto_data["title"] == f"Restock Order #{order_id}"
-    assert auto_data["task_status"] == "IN_PROGRESS"  # Should be in progress since we have assignments
+    # Under claim-based flow, operational tasks start as OPEN awaiting claims from operational roles
+    assert auto_data["task_status"].upper() == "OPEN"
 
 
 @pytest.mark.anyio
@@ -109,9 +110,10 @@ async def test_order_auto_creates_assignments(
     res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
     assignments = res.scalars().all()
 
-    assert any(a.role_hint == "foreman" for a in assignments), "Foreman assignment missing"
-    assert any(a.role_hint == "delivery" for a in assignments), "Delivery assignment missing"
+    # Operational assignments are NOT auto-created anymore. Only requester should be auto-assigned
     assert any(a.role_hint == "requester" and a.user_id == user_data["user_id"] for a in assignments), "Requester assignment missing"
+    assert not any(a.role_hint == "foreman" for a in assignments), "Foreman assignment should NOT be auto-created"
+    assert not any(a.role_hint == "delivery" for a in assignments), "Delivery assignment should NOT be auto-created"
 
 
 @pytest.mark.anyio
@@ -119,7 +121,7 @@ async def test_assignment_placeholder_created_if_no_role_user(
     async_client_authenticated: tuple[AsyncClient, dict],
     test_session: object,
 ):
-    """If no active role user exists, a placeholder assignment (user_id=None) should be created."""
+    """No operational placeholders should be created at order time (backfill handles legacy placeholders)."""
     client, user_data = async_client_authenticated
 
     # Deactivate any existing foreman users to simulate 'no active foreman'
@@ -146,20 +148,19 @@ async def test_assignment_placeholder_created_if_no_role_user(
     assert auto_resp.status_code == 200
     task_id = auto_resp.json()["task_id"]
 
-    # Check TaskAssignment rows exist and that foreman assignment has user_id == None
+    # No placeholders for operational roles are created at task creation
     from app.db.models import TaskAssignment
     res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
     assignments = res.scalars().all()
 
-    assert any(a.role_hint == "foreman" for a in assignments), "Foreman assignment missing"
-    assert any(a.role_hint == "foreman" and a.user_id is None for a in assignments), "Foreman placeholder assignment not created"
+    assert not any(a.role_hint == "foreman" for a in assignments), "Foreman placeholder should NOT be created at task creation"
 
 @pytest.mark.anyio
 async def test_foreman_sees_assigned_task_in_inbox(
     async_client_authenticated: tuple[AsyncClient, dict],
     test_session: object,
 ):
-    """Foreman should see newly created restock tasks in their inbox."""
+    """Foreman should NOT see newly created restock tasks in their inbox until they claim them."""
     client, user_data = async_client_authenticated
 
     # Register foreman and delivery users so template assignment finds them
@@ -190,13 +191,13 @@ async def test_foreman_sees_assigned_task_in_inbox(
     assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
-    # Foreman should see the automation task in their inbox
+    # Foreman should NOT see the automation task yet (it is unclaimed)
     resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {foreman_token}'})
     assert resp.status_code == 200
     data = resp.json()
     tasks = data['tasks']
 
-    assert any(t.get('related_order_id') == order_id for t in tasks), "Foreman does not see assigned restock task in inbox"
+    assert not any(t.get('related_order_id') == order_id for t in tasks), "Foreman should not see unclaimed restock task in inbox"
 
 
 @pytest.mark.anyio
@@ -226,13 +227,13 @@ async def test_delivery_sees_restock_and_retail_tasks_in_inbox(
     id1 = r1.json()['order_id']
     id2 = r2.json()['order_id']
 
-    # Delivery should see tasks for both orders
+    # Delivery should NOT see tasks until they claim them
     resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {delivery_token}'})
     assert resp.status_code == 200
     tasks = resp.json()['tasks']
 
-    assert any(t.get('related_order_id') == id1 for t in tasks), "Delivery does not see restock task"
-    assert any(t.get('related_order_id') == id2 for t in tasks), "Delivery does not see retail task"
+    assert not any(t.get('related_order_id') == id1 for t in tasks), "Delivery should not see unclaimed restock task"
+    assert not any(t.get('related_order_id') == id2 for t in tasks), "Delivery should not see unclaimed retail task"
 
 
 @pytest.mark.anyio
@@ -274,8 +275,9 @@ async def test_api_create_task_for_order_auto_assigns(
     res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
     assignments = res.scalars().all()
 
-    assert any(a.role_hint == "foreman" for a in assignments), "Foreman assignment missing on API-created task"
-    assert any(a.role_hint == "delivery" for a in assignments), "Delivery assignment missing on API-created task"
+    # Foreman/delivery should NOT be auto-created for manual API-created tasks; only requester may be present
+    assert not any(a.role_hint == "foreman" for a in assignments), "Foreman should NOT be auto-created on API-created task"
+    assert not any(a.role_hint == "delivery" for a in assignments), "Delivery should NOT be auto-created on API-created task"
 
 
 @pytest.mark.anyio
@@ -383,7 +385,7 @@ async def test_role_resolution_by_role_not_username(async_client_authenticated: 
     await test_session.commit()
     await test_session.refresh(foreman)
 
-    # Create an order which should auto-assign to a foreman
+    # Create an order which should produce an available task for foreman to claim
     order_resp = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': [{'product_id':1, 'quantity':1}]})
     assert order_resp.status_code == 201
     order_id = order_resp.json()['order_id']
@@ -391,10 +393,11 @@ async def test_role_resolution_by_role_not_username(async_client_authenticated: 
     auto_resp = await client.get(f'/api/orders/{order_id}/automation')
     task_id = auto_resp.json()['task_id']
 
-    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id, TaskAssignment.role_hint == 'foreman'))
-    assignment = res.scalar_one_or_none()
-    assert assignment is not None
-    assert assignment.user_id == foreman.id
+    # The foreman should NOT be auto-assigned, but the task should appear in available-tasks for role=foreman
+    avail = await client.get('/api/automation/available-tasks', params={'role': 'foreman'})
+    assert avail.status_code == 200
+    tasks = avail.json().get('tasks', [])
+    assert any(t['id'] == task_id for t in tasks), 'Task not present in available-tasks for foreman'
 
 
 @pytest.mark.anyio
@@ -420,9 +423,13 @@ async def test_backfill_assignments_script_updates_placeholders(async_client_aut
     auto_resp = await client.get(f'/api/orders/{order_id}/automation')
     task_id = auto_resp.json()['task_id']
 
-    # Create a placeholder assignment (user_id is None) - there should already be one; ensure it exists
-    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id, TaskAssignment.role_hint == 'foreman'))
-    placeholder = res.scalar_one_or_none()
+    # No placeholder is auto-created. Insert one manually to simulate legacy data.
+    from app.db.models import TaskAssignment
+    placeholder = TaskAssignment(task_id=task_id, user_id=None, role_hint='foreman', status='pending')
+    test_session.add(placeholder)
+    await test_session.commit()
+    await test_session.refresh(placeholder)
+
     assert placeholder is not None
     assert placeholder.user_id is None
 

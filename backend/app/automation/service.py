@@ -171,6 +171,39 @@ class AutomationService:
 
         await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=True)
 
+        # Create a TaskAssignment for the claimer so this claim is visible in their 'my assignments'
+        try:
+            # Avoid creating duplicate assignment if one exists
+            existing_q = await db.execute(
+                select(TaskAssignment).where(
+                    TaskAssignment.task_id == task.id,
+                    TaskAssignment.user_id == user_id,
+                    TaskAssignment.role_hint == task.required_role,
+                )
+            )
+            existing_assignment = existing_q.scalar_one_or_none()
+            if not existing_assignment and task.required_role:
+                new_assign = TaskAssignment(
+                    task_id=task.id,
+                    user_id=user_id,
+                    role_hint=task.required_role,
+                    status=AssignmentStatus.in_progress,
+                )
+                db.add(new_assign)
+
+                # Log assignment event for the new assignment
+                evt = TaskEvent(
+                    task_id=task.id,
+                    user_id=user_id,
+                    event_type=TaskEventType.assigned,
+                    event_metadata=json.dumps({"assigned_user_id": user_id, "role_hint": task.required_role}),
+                )
+                db.add(evt)
+                await db.flush()
+                logger.info(f"[Automation] Created assignment for claimer {user_id} on task {task.id} (role={task.required_role})")
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to create assignment for claimer: {e}")
+
         # Notify other role members and admins about the claim
         try:
             from app.services.notifications import notify_task_claimed
