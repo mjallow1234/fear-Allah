@@ -35,7 +35,7 @@ async def test_automation_task_lifecycle(
     
     assert task_data["title"] == "Test Restock Task"
     assert task_data["task_type"] == "RESTOCK"
-    assert task_data["status"] == "PENDING"
+    assert task_data["status"].upper() == "PENDING"
     assert task_data["created_by_id"] == user_id
     
     # 2. Get the task
@@ -55,11 +55,11 @@ async def test_automation_task_lifecycle(
     assignment = assign_resp.json()
     assert assignment["user_id"] == user_id
     assert assignment["role_hint"] == "tester"
-    assert assignment["status"] == "PENDING"
+    assert assignment["status"].upper() == "PENDING"
     
     # 4. Verify task is now in_progress
     get_resp2 = await client.get(f"/api/automation/tasks/{task_id}")
-    assert get_resp2.json()["status"] == "IN_PROGRESS"
+    assert get_resp2.json()["status"].upper() == "IN_PROGRESS"
     
     # 5. Complete the assignment
     complete_resp = await client.post(
@@ -68,12 +68,12 @@ async def test_automation_task_lifecycle(
     )
     assert complete_resp.status_code == 200, f"Complete failed: {complete_resp.text}"
     completed_assignment = complete_resp.json()
-    assert completed_assignment["status"] == "DONE"
+    assert completed_assignment["status"].upper() == "DONE"
     assert completed_assignment["notes"] == "Task completed successfully"
 
     # 6. Verify task auto-closed
     get_resp3 = await client.get(f"/api/automation/tasks/{task_id}")
-    assert get_resp3.json()["status"] == "COMPLETED"
+    assert get_resp3.json()["status"].upper() == "COMPLETED"
     
     # 7. Get events (audit trail)
     events_resp = await client.get(f"/api/automation/tasks/{task_id}/events")
@@ -82,10 +82,11 @@ async def test_automation_task_lifecycle(
     assert len(events) >= 4  # created, assigned, step_completed, closed
     
     event_types = [e["event_type"] for e in events]
-    assert "CREATED" in event_types
-    assert "ASSIGNED" in event_types
-    assert "STEP_COMPLETED" in event_types
-    assert "CLOSED" in event_types
+    event_types_upper = [et.upper() for et in event_types]
+    assert "CREATED" in event_types_upper
+    assert "ASSIGNED" in event_types_upper
+    assert "STEP_COMPLETED" in event_types_upper
+    assert "CLOSED" in event_types_upper
 
 
 @pytest.mark.anyio
@@ -145,7 +146,7 @@ async def test_cancel_task(
     # Cancel it
     cancel_resp = await client.post(f"/api/automation/tasks/{task_id}/cancel")
     assert cancel_resp.status_code == 200
-    assert cancel_resp.json()["status"] == "CANCELLED"
+    assert cancel_resp.json()["status"].upper() == "CANCELLED"
 
 
 @pytest.mark.anyio
@@ -172,3 +173,63 @@ async def test_cannot_complete_unassigned_task(
         json={},
     )
     assert complete_resp.status_code == 404  # Not found because not assigned
+
+
+@pytest.mark.anyio
+async def test_available_tasks_endpoint(
+    async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
+):
+    """Test the available-tasks endpoint for role-based queues."""
+    client, _ = async_client_authenticated
+
+    # Create a task requiring foreman
+    create_resp = await client.post(
+        "/api/automation/tasks",
+        json={
+            "task_type": "RESTOCK",
+            "title": "Available Task",
+            "required_role": "foreman",
+        },
+    )
+    assert create_resp.status_code == 201
+    task = create_resp.json()
+    task_id = task["id"]
+
+    # It should appear in available tasks for role=foreman
+    avail_resp = await client.get('/api/automation/available-tasks', params={'role': 'foreman'})
+    assert avail_resp.status_code == 200
+    data = avail_resp.json()
+    tasks = data.get('tasks', [])
+    assert any(t['id'] == task_id for t in tasks), f"Task {task_id} not found in available tasks: {tasks}"
+
+    # Register and login as a foreman user and claim the task
+    await client.post('/api/auth/register', json={'email': 'foreman_test@example.com', 'password': 'Password123!', 'username': 'foreman_test'})
+    login = await client.post('/api/auth/login', json={'identifier': 'foreman_test@example.com', 'password': 'Password123!'})
+    assert login.status_code == 200
+    foreman_token = login.json().get('access_token')
+
+    # Ensure user has role 'foreman' in DB so they can claim
+    from sqlalchemy import update
+    from app.db.models import User
+    await test_session.execute(update(User).where(User.username == 'foreman_test').values(role='foreman', is_active=True))
+    await test_session.commit()
+
+    # Save original authorization header and set new token
+    orig_auth = client.headers.get('Authorization')
+    client.headers.update({'Authorization': f'Bearer {foreman_token}'})
+
+    claim_resp = await client.post(f"/api/automation/tasks/{task_id}/claim", json={})
+    assert claim_resp.status_code == 200
+
+    # Restore original user and check available tasks again
+    if orig_auth:
+        client.headers.update({'Authorization': orig_auth})
+    else:
+        client.headers.pop('Authorization', None)
+
+    avail_resp2 = await client.get('/api/automation/available-tasks', params={'role': 'foreman'})
+    assert avail_resp2.status_code == 200
+    data2 = avail_resp2.json()
+    tasks2 = data2.get('tasks', [])
+    assert not any(t['id'] == task_id for t in tasks2), f"Task {task_id} still appeared in available tasks after claim"

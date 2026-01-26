@@ -156,7 +156,7 @@ async def on_order_created(
                     db=db,
                     order_id=order.id,
                     notify_user_id=admin_id,
-                    order_number=order.order_number or str(order.id),
+                    order_reference=order.reference or str(order.id),
                     customer_name=order.customer_name,
                 )
         
@@ -180,10 +180,10 @@ async def on_order_completed(
                 db=db,
                 order_id=order.id,
                 notify_user_id=order.created_by_id,
-                order_number=order.order_number or str(order.id),
+                order_reference=order.reference or str(order.id),
             )
         
-        logger.info(f"[Notification] Order completed notification sent: order={order.id}")
+        logger.info(f"[Notification] Order completed notifications sent: order={order.id}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send order completed notification: {e}")
 

@@ -131,6 +131,18 @@ async def list_tasks(
     )
 
 
+@router.get("/available-tasks", response_model=TaskListResponse)
+async def available_tasks(
+    role: str,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get tasks available to a role (unclaimed tasks with required_role == role)."""
+    tasks = await AutomationService.available_tasks_for_role(db=db, role=role, limit=limit, offset=offset)
+    return TaskListResponse(tasks=[_task_to_response(t) for t in tasks], total=len(tasks))
+
+
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 async def get_task(
     task_id: int,
@@ -460,10 +472,13 @@ def _task_to_response(task) -> TaskResponse:
     else:
         task_type_value = str(task.task_type).upper()
 
+    # Preserve status value (may be enum or string); Pydantic will validate/convert
+    status_value = task.status
+
     return TaskResponse(
         id=task.id,
         task_type=task_type_value,
-        status=task.status,
+        status=status_value,
         title=task.title,
         description=task.description,
         created_by_id=task.created_by_id,
@@ -477,12 +492,15 @@ def _task_to_response(task) -> TaskResponse:
 
 def _assignment_to_response(assignment) -> AssignmentResponse:
     """Convert assignment model to response schema."""
+    # Preserve assignment status value (may be enum or string)
+    status_value = assignment.status
+
     return AssignmentResponse(
         id=assignment.id,
         task_id=assignment.task_id,
         user_id=assignment.user_id,
         role_hint=assignment.role_hint,
-        status=assignment.status,
+        status=status_value,
         notes=assignment.notes,
         assigned_at=assignment.assigned_at,
         completed_at=assignment.completed_at,

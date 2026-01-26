@@ -225,11 +225,11 @@ async def notify_and_emit_order_created(
     db: AsyncSession,
     order_id: int,
     notify_user_id: int,
-    order_number: str,
+    order_reference: str,
     customer_name: Optional[str] = None,
 ) -> Notification:
     """Create and emit order created notification"""
-    content = f"New order #{order_number}"
+    content = f"New order #{order_reference}"
     if customer_name:
         content += f" from {customer_name}"
     
@@ -247,7 +247,7 @@ async def notify_and_emit_order_completed(
     db: AsyncSession,
     order_id: int,
     notify_user_id: int,
-    order_number: str,
+    order_reference: str,
 ) -> Notification:
     """Create and emit order completed notification"""
     return await create_and_emit_notification(
@@ -255,7 +255,7 @@ async def notify_and_emit_order_completed(
         user_id=notify_user_id,
         notification_type=NotificationType.order_completed,
         title="Order Completed",
-        content=f"Order #{order_number} has been completed",
+        content=f"Order #{order_reference} has been completed",
         order_id=order_id,
     )
 

@@ -421,6 +421,26 @@ class AutomationService:
         
         result = await db.execute(query)
         return list(result.scalars().all())
+
+    @staticmethod
+    async def available_tasks_for_role(
+        db: AsyncSession,
+        role: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[AutomationTask]:
+        """Return tasks that are required for a role and currently unclaimed."""
+        query = (
+            select(AutomationTask)
+            .options(selectinload(AutomationTask.assignments))
+            .where(AutomationTask.required_role == role)
+            .where(AutomationTask.claimed_by_user_id == None)
+            .order_by(AutomationTask.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await db.execute(query)
+        return list(result.scalars().all())
     
     @staticmethod
     async def update_task_status(
@@ -811,7 +831,7 @@ class AutomationService:
                     update(TaskAssignment)
                     .where(TaskAssignment.id == assignment.id)
                     .where(TaskAssignment.status != AssignmentStatus.done)
-                    .values(status=AssignmentStatus.done, completed_at=now)
+                    .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
                 )
             else:
                 upd = (
@@ -819,7 +839,7 @@ class AutomationService:
                     .where(TaskAssignment.id == assignment.id)
                     .where(TaskAssignment.user_id == user_id)
                     .where(TaskAssignment.status != AssignmentStatus.done)
-                    .values(status=AssignmentStatus.done, completed_at=now)
+                    .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
                 )
         else:
             # Keep assignment as IN_PROGRESS (waiting for next role to acknowledge)
@@ -827,14 +847,14 @@ class AutomationService:
                 upd = (
                     update(TaskAssignment)
                     .where(TaskAssignment.id == assignment.id)
-                    .values(status=AssignmentStatus.in_progress)
+                    .values(status=AssignmentStatus.in_progress, notes=notes)
                 )
             else:
                 upd = (
                     update(TaskAssignment)
                     .where(TaskAssignment.id == assignment.id)
                     .where(TaskAssignment.user_id == user_id)
-                    .values(status=AssignmentStatus.in_progress)
+                    .values(status=AssignmentStatus.in_progress, notes=notes)
                 )
         logger.info(f"[Automation] DEBUG executing update for assignment={assignment.id}, is_admin={is_admin}, should_mark_done={should_mark_done}")
         res = await db.execute(upd)
