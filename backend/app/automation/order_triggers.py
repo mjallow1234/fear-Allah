@@ -173,8 +173,12 @@ class OrderAutomationTriggers:
             except Exception as e:
                 logger.error(f"[OrderAutomation] Failed to send order notification: {e}")
         except Exception as e:
-            import traceback
-            logger.error(f"[OrderAutomation] Failure in on_order_created for order {order.id}: {e}\n{traceback.format_exc()}")
+            import traceback, sys
+            # Debug output to investigate NameError issues seen in test runs
+            print("[OrderAutomation] Exception in on_order_created", file=sys.stderr)
+            print("globals keys:", list(globals().keys()), file=sys.stderr)
+            print("locals keys:", list(locals().keys()), file=sys.stderr)
+            traceback.print_exc()
             raise
         
         return task
