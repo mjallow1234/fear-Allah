@@ -144,8 +144,10 @@ async def create_order(
             await OrderAutomationTriggers.on_order_created(session, order, created_by_id)
         except Exception as e:
             # Log full traceback for easier debugging when automation triggers fail
-            import traceback
+            import traceback, sys
             logger.error(f"[Automation] Failed to trigger order automation: {e}\n{traceback.format_exc()}")
+            # Print to stderr as well so pytest captures full traceback in output
+            print(traceback.format_exc(), file=sys.stderr)
     """Recompute order status based on tasks. Returns (new_status, changed_flag).
     NOTE: This function does NOT commit; caller must commit.
     """
