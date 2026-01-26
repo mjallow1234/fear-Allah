@@ -22,6 +22,8 @@ import {
   AutomationTask, 
   TaskAssignment
 } from '../../stores/taskStore'
+import { useAuthStore } from '../../stores/authStore'
+import { useTaskStore } from '../../stores/taskStore'
 
 interface TaskCardProps {
   task: AutomationTask
@@ -162,6 +164,11 @@ export default function TaskCard({
             <span className={clsx('px-1.5 py-0.5 rounded', typeConfig.color + '/20', 'text-white/80')}>
               {typeConfig.label}
             </span>
+            {task.required_role && (
+              <span className="px-1.5 py-0.5 rounded bg-[#6b7280]/10 text-[#c7cad1] text-xs">
+                Role: {task.required_role}
+              </span>
+            )}
             {task.assignments.length > 0 && (
               <span className="flex items-center gap-1">
                 <User size={12} />
@@ -180,6 +187,19 @@ export default function TaskCard({
                 </span>
                 {assignment.role_hint && (
                   <span className="text-[#72767d]">({assignment.role_hint})</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Claimed info if present */}
+          {task.claimed_by && (
+            <div className="mt-2 pt-2 border-t border-[#1f2023]">
+              <div className="flex items-center gap-2 text-xs text-[#72767d]">
+                <span className="text-[#72767d]">Claimed by:</span>
+                <span className="text-white">{task.claimed_by.display_name || task.claimed_by.username}</span>
+                {task.claimed_at && (
+                  <span className="text-[#72767d]">• {formatTime(task.claimed_at)}</span>
                 )}
               </div>
             </div>
@@ -226,13 +246,65 @@ export default function TaskCard({
               </button>
             </div>
           )}
-          
+
           {!canComplete && normalizedAssignmentStatus === 'DONE' && (
             <span className="flex items-center gap-1 text-green-400 text-sm">
               <Check size={16} />
               Done
             </span>
           )}
+
+          {/* Claim / Override actions */}
+          {(() => {
+            const currentUser = useAuthStore(state => state.currentUser)
+            const claimTask = useTaskStore(state => state.claimTask)
+            const isClaiming = useTaskStore(state => state.claimTaskId) === task.id
+
+            const canClaim = normalizedTaskStatus === 'OPEN' && (currentUser?.is_system_admin || (task.required_role && currentUser?.role === task.required_role))
+            const canOverride = normalizedTaskStatus === 'CLAIMED' && currentUser?.is_system_admin
+
+            const handleClaimClick = async (e: React.MouseEvent) => {
+              e.stopPropagation()
+              if (isClaiming) return
+              await claimTask(task.id, false)
+            }
+
+            const handleOverrideClick = async (e: React.MouseEvent) => {
+              e.stopPropagation()
+              if (!confirm('Override claim and take this task?')) return
+              await claimTask(task.id, true)
+            }
+
+            if (canClaim) {
+              return (
+                <button
+                  onClick={handleClaimClick}
+                  disabled={isClaiming}
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
+                    isClaiming ? 'bg-[#1f2023] text-[#72767d] cursor-not-allowed' : 'bg-[#5865f2] hover:bg-[#4752c4] text-white'
+                  )}
+                >
+                  {isClaiming ? <Loader2 size={16} className="animate-spin" /> : <User size={16} />}
+                  Claim
+                </button>
+              )
+            }
+
+            if (canOverride) {
+              return (
+                <button
+                  onClick={handleOverrideClick}
+                  className={clsx('flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white')}
+                >
+                  <User size={16} />
+                  Override Claim
+                </button>
+              )
+            }
+
+            return null
+          })()}
         </div>
       </div>
     </div>

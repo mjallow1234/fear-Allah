@@ -20,10 +20,12 @@ jobs:
       run: |
         pip install -r backend/requirements.txt
         pip install pytest
+        pip install -U pytest-anyio
+        pip list | grep anyio || true
 
     - name: Run unit tests
       working-directory: backend
       env:
         PYTHONPATH: ${{ github.workspace }}/backend
       run: |
-        bash -lc 'pytest -q -k "not e2e" -m "not integration"; RC=$?; if [ "$RC" -eq 5 ]; then echo "No tests collected (pytest exit code 5). Treating as success in CI."; exit 0; else exit $RC; fi'
+        bash -lc 'pytest -q -k "not e2e" -m "not integration" --timeout=300; RC=$?; if [ "$RC" -eq 5 ]; then echo "No tests collected (pytest exit code 5). Treating as success in CI."; exit 0; else exit $RC; fi'

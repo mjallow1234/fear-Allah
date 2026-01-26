@@ -11,7 +11,8 @@ import { useOrderStore } from './orderStore'
 
 // Enums matching backend (supports both cases for compatibility)
 export type AutomationTaskType = 'RESTOCK' | 'RETAIL' | 'WHOLESALE' | 'SALE' | 'CUSTOM' | 'restock' | 'retail' | 'wholesale' | 'sale' | 'custom'
-export type AutomationTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'pending' | 'in_progress' | 'completed' | 'cancelled'
+// Added OPEN and CLAIMED to match backend Phase 4.2
+export type AutomationTaskStatus = 'PENDING' | 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'pending' | 'open' | 'claimed' | 'in_progress' | 'completed' | 'cancelled'
 export type AssignmentStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'SKIPPED' | 'pending' | 'in_progress' | 'done' | 'skipped'
 
 export interface TaskAssignment {
@@ -37,6 +38,15 @@ export interface AutomationTask {
   created_at: string
   updated_at: string | null
   assignments: TaskAssignment[]
+  // Claimable task fields (nullable)
+  required_role?: string | null
+  claimed_by_user_id?: number | null
+  claimed_by?: {
+    id: number
+    username?: string
+    display_name?: string | null
+  } | null
+  claimed_at?: string | null
 }
 
 export interface TaskEvent {
@@ -59,6 +69,7 @@ interface TaskState {
   loading: boolean
   loadingTask: boolean
   completingTaskId: number | null
+  claimTaskId: number | null
   
   // Error state
   error: string | null
@@ -69,6 +80,7 @@ interface TaskState {
   fetchTaskDetails: (taskId: number) => Promise<void>
   fetchTaskEvents: (taskId: number) => Promise<void>
   completeAssignment: (taskId: number, notes?: string) => Promise<boolean>
+  claimTask: (taskId: number, override?: boolean) => Promise<boolean>
   
   // Socket event handlers
   handleTaskAssigned: (data: { task_id: number; user_id: number; assignment: TaskAssignment }) => void
@@ -90,6 +102,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   loading: false,
   loadingTask: false,
   completingTaskId: null,
+  claimTaskId: null,
   error: null,
   
   fetchMyAssignments: async () => {
@@ -105,6 +118,37 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         error: err.response?.data?.detail || 'Failed to fetch assignments',
         loading: false 
       })
+    }
+  },
+
+  claimTask: async (taskId: number, override = false) => {
+    set({ claimTaskId: taskId, error: null })
+    try {
+      await api.post(`/api/automation/tasks/${taskId}/claim`, { override })
+
+      // Refresh tasks and details to get authoritative state
+      await get().fetchMyTasks()
+      if (get().selectedTask?.id === taskId) {
+        await get().fetchTaskDetails(taskId)
+      }
+
+      set({ claimTaskId: null })
+      console.log('[TaskStore] Claimed task successfully', taskId)
+      return true
+    } catch (error: unknown) {
+      const err = error as { response?: { status?: number; data?: { detail?: string } } }
+      console.error('[TaskStore] Failed to claim task:', error)
+      if (err.response?.status === 409) {
+        // Conflict - task already claimed
+        const errMsg = err.response.data?.detail || 'Task already claimed by another user'
+        // Refetch to sync authoritative state, then set error so it isn't wiped by fetch's loading state
+        try { await get().fetchMyTasks() } catch (e) { console.warn('[TaskStore] Failed to refetch tasks after claim conflict', e) }
+        set({ error: errMsg })
+      } else {
+        set({ error: err.response?.data?.detail || 'Failed to claim task' })
+      }
+      set({ claimTaskId: null })
+      return false
     }
   },
   
@@ -253,6 +297,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     loading: false,
     loadingTask: false,
     completingTaskId: null,
+    claimTaskId: null,
     error: null,
   }),
 }))

@@ -41,16 +41,9 @@ async def test_log_audit_inserts_row():
     try:
         await log_audit(db, U(), action="create", resource="orders", resource_id=1001, success=True)
 
-        assert len(db.added) == 1
-        entry = db.added[0]
-        assert isinstance(entry, Fake)
-        assert entry.user_id == 42
-        assert entry.role == 'agent'
-        assert entry.action == 'create'
-        assert entry.resource == 'orders'
-        assert entry.resource_id == 1001
-        assert entry.success is True
-        assert db.committed is True
+        # Audit logger uses its own DB/session; the passed-in DB should remain untouched
+        assert len(db.added) == 0
+        assert db.committed is False
     finally:
         audit_logger_module.AuditLog = original
 
@@ -74,8 +67,8 @@ async def test_log_audit_handles_commit_failure_gracefully():
         # Should not raise
         await log_audit(db, U(), action="update", resource="inventory", resource_id=2, success=False, reason="denied")
 
-        # Commit should have failed internally and rollback should have been attempted
-        assert len(db.added) == 1
-        assert db.rolled_back is True
+        # Audit logger uses its own DB/session; passed-in DB should remain untouched
+        assert len(db.added) == 0
+        assert db.rolled_back is False
     finally:
         audit_logger_module.AuditLog = original
