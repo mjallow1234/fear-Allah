@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import api from '../services/api'
 import { useOrderStore } from './orderStore'
+import { useAuthStore } from './authStore'
 
 // Enums matching backend (supports both cases for compatibility)
 export type AutomationTaskType = 'RESTOCK' | 'RETAIL' | 'WHOLESALE' | 'SALE' | 'CUSTOM' | 'restock' | 'retail' | 'wholesale' | 'sale' | 'custom'
@@ -115,6 +116,26 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       const data = response.data
       const tasks = Array.isArray(data) ? data : (data.tasks || [])
       set({ tasks, loading: false })
+
+      // Temporary debug log: user_id from JWT and number of tasks returned
+      try {
+        let userId: string | number | null = useAuthStore.getState().user?.id ?? null
+        const token = useAuthStore.getState().token
+        if (!userId && token) {
+          try {
+            const parts = token.split('.')
+            if (parts.length > 1) {
+              const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+              const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
+              const payload = JSON.parse(json)
+              userId = payload.sub ?? payload.user_id ?? payload.uid ?? null
+            }
+          } catch (e) {}
+        }
+        console.log('[TaskStore] fetchMyTasks user_id_from_jwt:', userId ?? 'unknown', 'tasks_count:', tasks.length)
+      } catch (e) {
+        // ignore logging errors
+      }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
       console.error('[TaskStore] Failed to fetch tasks:', error)

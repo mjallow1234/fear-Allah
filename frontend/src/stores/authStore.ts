@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { connectSocket, disconnectSocket } from '../realtime'
 import api from '../services/api'
+import { useTaskStore } from './taskStore'
+import { useOrderStore } from './orderStore'
 
 interface User {
   id: number
@@ -47,20 +49,62 @@ export const useAuthStore = create<AuthState>()(
           if (user.role) {
             localStorage.setItem('user_role', user.role)
           }
+
           set({
             token,
             user,
             currentUser: user,
             isAuthenticated: true,
           })
-          // Connect Socket.IO after login
-          setTimeout(() => connectSocket(), 0)
+
+          // Decode user_id from JWT (best-effort) for temporary logging
+          let userIdFromJwt: string | number | null = null
+          try {
+            const parts = token.split('.')
+            if (parts.length > 1) {
+              // atob on the payload, handle URL-safe base64
+              const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+              const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
+              const payload = JSON.parse(json)
+              userIdFromJwt = payload.sub ?? payload.user_id ?? payload.uid ?? null
+            }
+          } catch (e) {
+            // ignore decode errors
+          }
+
+          // Force-refresh task stores BEFORE connecting socket, then connect.
+          // This ensures /api/automation/tasks is called after login, not before socket connect.
+          setTimeout(async () => {
+            try {
+              await useTaskStore.getState().fetchMyTasks()
+              await useTaskStore.getState().fetchMyAssignments()
+              const tasksCount = useTaskStore.getState().tasks.length
+              // Temporary debug log: user_id from JWT and number of tasks returned
+              console.log('[Auth] Login user_id_from_jwt:', userIdFromJwt ?? user.id, 'tasks_count:', tasksCount)
+            } catch (err) {
+              console.error('[Auth] Failed to refresh tasks on login:', err)
+            } finally {
+              // Connect socket after tasks refreshed
+              connectSocket()
+            }
+          }, 0)
         },
         logout: () => {
           // Disconnect Socket.IO before clearing auth state
           disconnectSocket()
-          // Clear persisted role
-          localStorage.removeItem('user_role')
+          // Clear persisted role and auth-related keys
+          try { localStorage.removeItem('user_role') } catch (e) {}
+          try { localStorage.removeItem('auth') } catch (e) {}
+          try { localStorage.removeItem('auth-storage') } catch (e) {}
+          try { localStorage.removeItem('access_token') } catch (e) {}
+          try { sessionStorage.removeItem('auth') } catch (e) {}
+          try { sessionStorage.removeItem('access_token') } catch (e) {}
+          try { sessionStorage.clear() } catch (e) {}
+
+          // Reset other stores that may contain auth-scoped data
+          try { useTaskStore.getState().reset() } catch (e) {}
+          try { useOrderStore.getState().reset() } catch (e) {}
+
           set({
             token: null,
             user: null,
@@ -105,7 +149,34 @@ export const useAuthStore = create<AuthState>()(
           localStorage.removeItem('user_role')
           setRef.set?.({ token: null, user: null, currentUser: null, isAuthenticated: false })
         } finally {
-          setTimeout(() => connectSocket(), 100)
+          // Refresh tasks before connecting socket (session restore behaves like login)
+          setTimeout(async () => {
+            try {
+              await useTaskStore.getState().fetchMyTasks()
+              await useTaskStore.getState().fetchMyAssignments()
+              const tasksCount = useTaskStore.getState().tasks.length
+
+              // Attempt to decode user_id from token for temporary logging
+              let userIdFromJwt: string | number | null = null
+              try {
+                if (state?.token) {
+                  const parts = state.token.split('.')
+                  if (parts.length > 1) {
+                    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+                    const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
+                    const payload = JSON.parse(json)
+                    userIdFromJwt = payload.sub ?? payload.user_id ?? payload.uid ?? null
+                  }
+                }
+              } catch (e) {}
+
+              console.log('[Auth] Rehydrate user_id_from_jwt:', userIdFromJwt ?? state?.user?.id ?? 'unknown', 'tasks_count:', tasksCount)
+            } catch (e) {
+              console.error('[Auth] Failed to refresh tasks on rehydrate:', e)
+            } finally {
+              connectSocket()
+            }
+          }, 100)
         }
       },
     }
