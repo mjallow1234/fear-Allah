@@ -165,6 +165,14 @@ class OrderAutomationTriggers:
                 required_role=initial_required_role,
             )
             
+            # Ensure operational tasks start in OPEN state (claim-based workflow). Do not auto-transition to pending/in_progress.
+            if task.required_role:
+                task.status = AutomationTaskStatus.open
+                task.claimed_by_user_id = None
+                db.add(task)
+                await db.commit()
+                await db.refresh(task)
+
             logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
             
             # Create assignments based on template
@@ -341,8 +349,8 @@ class OrderAutomationTriggers:
         if not task:
             return
         
-        # Update automation task status if needed
-        if task.status == AutomationTaskStatus.pending:
+        # Update automation task status if needed (handle OPEN or PENDING -> IN_PROGRESS on order progress)
+        if task.status in (AutomationTaskStatus.pending, AutomationTaskStatus.open):
             task.status = AutomationTaskStatus.in_progress
             await db.commit()
             logger.info(f"[OrderAutomation] Task {task.id} status -> in_progress")

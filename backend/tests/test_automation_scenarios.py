@@ -132,11 +132,27 @@ async def test_order_creation_triggers_tasks(client: AsyncClient, test_session):
     order = res.scalar_one_or_none()
     assert order is not None
 
-    # Verify automation task created and is in_progress (assignments created synchronously because admin exists)
+    # Verify automation task created and is OPEN (claim-based workflow should start OPEN)
     res = await test_session.execute(select(AutomationTask).where(AutomationTask.related_order_id == order.id))
     task = res.scalar_one_or_none()
     assert task is not None
-    assert task.status == AutomationTaskStatus.in_progress
+    assert task.status == AutomationTaskStatus.open
+
+    # Ensure task can be claimed by a foreman
+    foreman_headers = await register_and_login(client, "foreman1@test.com", "foreman1")
+    from sqlalchemy import update
+    from app.db.models import User
+    await test_session.execute(update(User).where(User.username == 'foreman1').values(role='foreman', is_active=True))
+    await test_session.commit()
+
+    claim_resp = await client.post(f"/api/automation/tasks/{task.id}/claim", headers=foreman_headers)
+    assert claim_resp.status_code == 200
+
+    # Refresh and assert claimed state
+    res = await test_session.execute(select(AutomationTask).where(AutomationTask.id == task.id))
+    task = res.scalar_one()
+    assert task.status == AutomationTaskStatus.claimed
+    assert task.claimed_by_user_id is not None
 
     # Exact automation event assertion
     await assert_automation_event(test_session, 'order.created', order.id)
@@ -341,7 +357,7 @@ async def test_task_created_from_order(client: AsyncClient, test_session):
     # With admin support present, template assignments are created synchronously and task should be in_progress
     from app.db.enums import AutomationTaskType, AutomationTaskStatus
     assert atask.task_type == AutomationTaskType.restock
-    assert atask.status == AutomationTaskStatus.in_progress
+    assert atask.status == AutomationTaskStatus.open
 
     # Exact automation expectation
     await assert_automation_event(test_session, 'order.created', order.id)

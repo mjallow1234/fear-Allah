@@ -148,7 +148,7 @@ class AutomationService:
             update(AutomationTask)
             .where(
                 AutomationTask.id == task.id,
-                AutomationTask.status == AutomationTaskStatus.pending,
+                AutomationTask.status == AutomationTaskStatus.open,
                 AutomationTask.claimed_by_user_id == None,
             )
             .values(claimed_by_user_id=user_id, claimed_at=now, status=AutomationTaskStatus.claimed)
