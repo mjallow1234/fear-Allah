@@ -259,6 +259,12 @@ export default function TaskInboxPage() {
                 Tasks will appear here when you're assigned to them
               </p>
             </div>
+          ) : activeTab === 'available' && availableTasks.length === 0 ? (
+          <div className="py-12 text-center">
+            <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
+            <p className="text-[#949ba4]">No available tasks</p>
+            <p className="text-[#72767d] text-sm mt-1">Tasks matching your active role will appear here</p>
+          </div>
         ) : activeTab !== 'my-tasks' && filteredTasks.length === 0 ? (
           <div className="py-12 text-center">
             <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
@@ -336,7 +342,7 @@ export default function TaskInboxPage() {
                     await fetchMyAssignments()
                   }
                 }}
-                isAvailableView
+                isAvailableView={true}
               />
             ))}
           </div>
