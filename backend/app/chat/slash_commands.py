@@ -154,7 +154,7 @@ async def handle_slash_command(*, raw_text: str, user, channel, db: AsyncSession
             # Build metadata
             metadata = json.dumps({'product': product, 'amount': amount})
 
-            order = await create_order(db, order_type, items=product, metadata=metadata, created_by_id=user.id)
+            order = await create_order(db, order_type, items=product, metadata=metadata, created_by_id=user.id, channel_id=getattr(channel, 'id', None))
 
             # Get automation tasks for this order with assignments and their users
             q = await db.execute(

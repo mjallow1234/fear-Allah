@@ -86,6 +86,7 @@ async def create_order(
     items: str = None, 
     metadata: str = None, 
     created_by_id: int = None,
+    channel_id: int | None = None,
     # Forms Extension fields
     reference: str = None,
     priority: str = None,
@@ -109,6 +110,8 @@ async def create_order(
         meta=metadata,
         # Track creator for notifications and attribution
         created_by_id=created_by_id,
+        # Capture channel context when available
+        channel_id=channel_id,
         # Forms Extension fields
         reference=reference,
         priority=priority,

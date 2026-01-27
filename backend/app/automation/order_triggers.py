@@ -169,16 +169,18 @@ class OrderAutomationTriggers:
             # (or a resolved operational user) the matching channel role so they can claim.
             if task.required_role:
                 try:
-                    # Attempt to find a channel_id from legacy tasks table (if present in DB schema)
-                    from sqlalchemy import text
-                    channel_id = None
-                    try:
-                        res = await db.execute(text("SELECT channel_id FROM tasks WHERE order_id = :oid LIMIT 1"), {"oid": order.id})
-                        row = res.first()
-                        channel_id = row[0] if row and row[0] is not None else None
-                    except Exception:
-                        # Table/column may not exist in some environments - ignore and continue
-                        channel_id = None
+                    # Prefer explicit channel context from the Order itself (Option A).
+                    channel_id = getattr(order, 'channel_id', None)
+
+                    # Back-compat: in environments where orders lacked channel_id, fall back to legacy tasks table (safe)
+                    if not channel_id:
+                        from sqlalchemy import text
+                        try:
+                            res = await db.execute(text("SELECT channel_id FROM tasks WHERE order_id = :oid LIMIT 1"), {"oid": order.id})
+                            row = res.first()
+                            channel_id = row[0] if row and row[0] is not None else None
+                        except Exception:
+                            channel_id = None
 
                     if channel_id:
                         # Resolve role_id for channel-scoped role matching required_role

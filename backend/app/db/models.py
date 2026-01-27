@@ -296,6 +296,10 @@ class Order(Base):
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by = relationship("User", foreign_keys=[created_by_id])
 
+    # New: channel context for orders (links to legacy Channel where messages originate)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=True)
+    channel = relationship("Channel")
+
     tasks = relationship("Task", back_populates="order", order_by="Task.id")
 
 
