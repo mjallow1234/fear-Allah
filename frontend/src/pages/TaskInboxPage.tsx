@@ -276,7 +276,7 @@ export default function TaskInboxPage() {
           <div className="py-12 text-center">
             <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
             <p className="text-[#949ba4]">
-              {activeTab === 'created' ? 'No tasks created by you' : 'No completed tasks'}
+              {activeTab === 'created' ? 'No tasks created by you' : 'No available tasks'}
             </p>
           </div>
         ) : activeTab === 'my-tasks' ? (
@@ -335,21 +335,8 @@ export default function TaskInboxPage() {
               <TaskCard
                 key={task.id}
                 task={task}
-                currentUserId={user?.id || 0}
-                isCompleting={false}
-                onComplete={handleComplete}
-                onClick={() => setSelectedTask(task)}
-                // Claim handler for available tasks
-                onClaim={async (taskId: number) => {
-                  const ok = await claimTask(taskId)
-                  if (ok) {
-                    // After successful claim, refresh views
-                    const role = operationalRoleName ? operationalRoleName.toLowerCase().replace(/\s+/g, '_') : null
-                    await fetchAvailableTasks(role)
-                    await fetchMyAssignments()
-                  }
-                }}
                 isAvailableView={true}
+                onClaim={() => claimTask(task.id)}
               />
             ))}
           </div>
