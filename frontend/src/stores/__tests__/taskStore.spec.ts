@@ -34,4 +34,18 @@ describe('TaskStore available tasks and claim', () => {
     // fetchMyAssignments and fetchAvailableTasks invoked (api.get called at least)
     expect(api.get).toHaveBeenCalled()
   })
+
+  it('claimTask should refresh available tasks with operational role from currentUser', async () => {
+    // Set currentUser operational role
+    const auth = await import('../../stores/authStore')
+    auth.useAuthStore.setState({ currentUser: { operational_role_name: 'Foreman' } } as any)
+
+    ;(api.post as unknown as vi.Mock).mockResolvedValueOnce({ data: {} })
+    ;(api.get as unknown as vi.Mock).mockResolvedValue({ data: [] }) // used by fetchMyAssignments
+
+    const ok = await useTaskStore.getState().claimTask(555)
+    expect(ok).toBe(true)
+    // Ensure available-tasks GET used normalized role param
+    expect(api.get).toHaveBeenCalledWith('/api/automation/available-tasks', { params: { role: 'foreman' } })
+  })
 })
