@@ -335,8 +335,14 @@ export default function TaskInboxPage() {
               <TaskCard
                 key={task.id}
                 task={task}
+                currentUserId={user?.id || 0}
+                isCompleting={false}
+                onComplete={handleComplete}
+                onClick={() => setSelectedTask(task)}
                 isAvailableView={true}
-                onClaim={() => claimTask(task.id)}
+                onClaim={async (taskId: number) => {
+                  await claimTask(taskId)
+                }}
               />
             ))}
           </div>
