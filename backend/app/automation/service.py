@@ -45,6 +45,10 @@ class ClaimNotFoundError(ClaimError):
     """Raised when a task to claim does not exist."""
 
 
+class ClaimInvalidStateError(ClaimError):
+    """Raised when a claim is attempted on a task that is not in an open state."""
+
+
 class AutomationService:
     """
     Service layer for the automation engine.
@@ -78,36 +82,43 @@ class AutomationService:
         if not task:
             raise ClaimNotFoundError("Task not found")
 
-        # Resolve user and check permissions
+        # Resolve user and check minimal authorization
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
         if not user:
             raise ClaimPermissionError("User not found")
 
-        # Enforce required_role if present
+        # NOTE: Task claiming is global-role based. It intentionally does NOT depend on chat channels.
+        # Authorization rules (only):
+        # - Task must be OPEN to be claimable (unless admin override)
+        # - If task.required_role is set, user must have the global role or be a system admin
+        from fastapi import HTTPException
+
+        # Role-based authorization (403)
         if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
-            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="permission_denied")
             raise ClaimPermissionError("User does not have required role to claim this task")
 
-        # If task is already claimed by the same user, treat as idempotent success
-        if task.status == AutomationTaskStatus.claimed and task.claimed_by_user_id == user_id:
-            return task
+        # Handle current task status cases
+        if task.status == AutomationTaskStatus.claimed:
+            # If already claimed by same user, idempotent success
+            if task.claimed_by_user_id == user_id:
+                return task
 
-        # If the task is CLAIMED by someone else and no override requested -> conflict
-        if task.status == AutomationTaskStatus.claimed and task.claimed_by_user_id and task.claimed_by_user_id != user_id and not (user.is_system_admin and override):
-            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
-            raise ClaimConflictError("Task already claimed by another user")
+            # If admin and override=True, allow override (handled below)
+            if user.is_system_admin and override:
+                # allow to continue to override path
+                pass
+            else:
+                await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
+                raise ClaimConflictError("Task already claimed by another user")
 
-        # Proceed with atomic update to claim the task (guards against races)
-        user_result = await db.execute(select(User).where(User.id == user_id))
-        user = user_result.scalar_one_or_none()
-        if not user:
-            raise ClaimPermissionError("User not found")
+        # For any non-open state (e.g., pending, done) that is not an admin override, reject with 400
+        if task.status != AutomationTaskStatus.open:
+            if not (user.is_system_admin and override):
+                raise ClaimInvalidStateError("Task is not open for claim")
 
-        # Enforce required_role if present
-        if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
-            await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="permission_denied")
-            raise ClaimPermissionError("User does not have required role to claim this task")
+        # Normal claim path — perform an atomic UPDATE so concurrent claim attempts race on the DB
+
 
         # If another user already claimed - conflict unless admin override
         if task.claimed_by_user_id and task.claimed_by_user_id != user_id:
@@ -306,8 +317,16 @@ class AutomationService:
         except Exception as e:
             logger.warning(f"[Automation] Failed to emit task.created webhook: {e}")
 
-        # If task has required_role, emit TASK_OPENED event and notify role members + admins
+        # If task has required_role, mark it OPEN (claim-based workflow) and emit TASK_OPENED event.
         if task.required_role:
+            # Ensure the task is OPEN and unclaimed so it can be claimed by users with the required global role.
+            if task.status != AutomationTaskStatus.open:
+                task.status = AutomationTaskStatus.open
+                task.claimed_by_user_id = None
+                db.add(task)
+                await db.commit()
+                await db.refresh(task)
+
             await AutomationService._safe_log_event(
                 db=db,
                 task_id=task.id,

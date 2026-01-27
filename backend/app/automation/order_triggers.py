@@ -165,75 +165,17 @@ class OrderAutomationTriggers:
                 required_role=initial_required_role,
             )
             
-            # If this is an operational (role-based) task, attempt to grant the order creator
-            # (or a resolved operational user) the matching channel role so they can claim.
+            # Ensure operational tasks start in OPEN state (claim-based workflow).
+            # IMPORTANT: Task claiming is based on global roles and must NOT depend on chat channels.
+            # Do NOT auto-assign channel roles, infer channel_id, or mutate channel membership here.
             if task.required_role:
-                try:
-                    # Prefer explicit channel context from the Order itself (Option A).
-                    channel_id = getattr(order, 'channel_id', None)
-
-                    # Back-compat: in environments where orders lacked channel_id, fall back to legacy tasks table (safe)
-                    if not channel_id:
-                        from sqlalchemy import text
-                        try:
-                            res = await db.execute(text("SELECT channel_id FROM tasks WHERE order_id = :oid LIMIT 1"), {"oid": order.id})
-                            row = res.first()
-                            channel_id = row[0] if row and row[0] is not None else None
-                        except Exception:
-                            channel_id = None
-
-                    if channel_id:
-                        # Resolve role_id for channel-scoped role matching required_role
-                        from app.db.models import Role, ChannelRoleAssignment, ChannelMember
-                        role_res = await db.execute(select(Role).where(Role.name == task.required_role, Role.scope == "channel"))
-                        role_obj = role_res.scalar_one_or_none()
-                        if role_obj:
-                            role_id = role_obj.id
-
-                            # Determine candidate user to receive the channel role: first try to resolve an active user for that operational role,
-                            # fallback to the order creator
-                            candidate_user_id = None
-                            try:
-                                candidate_user_id = await OrderAutomationTriggers._find_user_by_role(db, task.required_role)
-                            except Exception:
-                                candidate_user_id = None
-
-                            if not candidate_user_id:
-                                candidate_user_id = created_by_id
-
-                            # Ensure user is a member of the channel
-                            member_q = await db.execute(
-                                select(ChannelMember).where(
-                                    ChannelMember.user_id == candidate_user_id,
-                                    ChannelMember.channel_id == channel_id
-                                )
-                            )
-                            if not member_q.scalar_one_or_none():
-                                cm = ChannelMember(user_id=candidate_user_id, channel_id=channel_id)
-                                db.add(cm)
-
-                            # Add ChannelRoleAssignment if not present
-                            cra_q = await db.execute(
-                                select(ChannelRoleAssignment).where(
-                                    ChannelRoleAssignment.user_id == candidate_user_id,
-                                    ChannelRoleAssignment.channel_id == channel_id,
-                                    ChannelRoleAssignment.role_id == role_id
-                                )
-                            )
-                            if not cra_q.scalar_one_or_none():
-                                assignment = ChannelRoleAssignment(user_id=candidate_user_id, channel_id=channel_id, role_id=role_id)
-                                db.add(assignment)
-
-                            await db.commit()
-                except Exception as e:
-                    logger.warning(f"[OrderAutomation] Failed to ensure channel role for task {task.id}: {e}")
-
-                # Ensure operational tasks start in OPEN state (claim-based workflow). Do not auto-transition to pending/in_progress.
-                task.status = AutomationTaskStatus.open
-                task.claimed_by_user_id = None
-                db.add(task)
-                await db.commit()
-                await db.refresh(task)
+                # Do not overwrite a task that is already IN_PROGRESS (e.g., requester assignment was created earlier).
+                if task.status != AutomationTaskStatus.in_progress:
+                    task.status = AutomationTaskStatus.open
+                    task.claimed_by_user_id = None
+                    db.add(task)
+                    await db.commit()
+                    await db.refresh(task)
 
             logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
 
@@ -318,6 +260,19 @@ class OrderAutomationTriggers:
                 if assignment:
                     assignments.append(assignment)
                     logger.info(f"[OrderAutomation] Assigned user {user_id} to task {task.id} (role={role_hint})")
+
+                    # If a concrete user was assigned (e.g., requester assigned to order creator),
+                    # ensure the automation task progresses to IN_PROGRESS so order status can reflect activity.
+                    try:
+                        # Only advance the task to IN_PROGRESS for non-operational tasks.
+                        # Operational tasks (with a required_role) should remain OPEN so they can be claimed.
+                        if user_id and task.status != AutomationTaskStatus.in_progress and not task.required_role:
+                            task.status = AutomationTaskStatus.in_progress
+                            db.add(task)
+                            await db.commit()
+                            await db.refresh(task)
+                    except Exception as e:
+                        logger.warning(f"[OrderAutomation] Failed to set task {task.id} in_progress after assignment: {e}")
                 else:
                     logger.debug(f"[OrderAutomation] Assignment not created (maybe duplicate): task={task.id}, role={role_hint}, user_id={user_id}")
             else:

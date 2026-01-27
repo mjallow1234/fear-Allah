@@ -13,7 +13,7 @@ from app.core.logging import automation_logger
 from app.db.database import get_db
 from app.db.models import User
 from app.db.enums import AutomationTaskType, AutomationTaskStatus
-from app.automation.service import AutomationService, ClaimConflictError, ClaimPermissionError, ClaimNotFoundError
+from app.automation.service import AutomationService, ClaimConflictError, ClaimPermissionError, ClaimInvalidStateError, ClaimNotFoundError
 from app.automation.schemas import (
     TaskCreate,
     TaskResponse,
@@ -357,6 +357,8 @@ async def claim_task_endpoint(
         raise HTTPException(status_code=403, detail="You are not allowed to claim this task")
     except ClaimConflictError:
         raise HTTPException(status_code=409, detail="Task already claimed")
+    except ClaimInvalidStateError:
+        raise HTTPException(status_code=400, detail="Task is not open for claim")
     except Exception as e:
         automation_logger.error("Claim failed", error=e, task_id=task_id, user_id=user_id)
         raise HTTPException(status_code=500, detail=str(e))

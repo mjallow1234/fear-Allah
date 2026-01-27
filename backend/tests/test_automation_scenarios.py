@@ -138,26 +138,15 @@ async def test_order_creation_triggers_tasks(client: AsyncClient, test_session):
     assert task is not None
     assert task.status == AutomationTaskStatus.open
 
-    # Ensure channel role assignment was created so claim can succeed
-    # Register and set foreman role on a user
+    # Create a foreman user with global role and attempt claim. No channel setup required.
     foreman_headers = await register_and_login(client, "foreman1@test.com", "foreman1")
     from sqlalchemy import update
-    from app.db.models import User, ChannelRoleAssignment, Role
+    from app.db.models import User
     await test_session.execute(update(User).where(User.username == 'foreman1').values(role='foreman', is_active=True))
     await test_session.commit()
 
-    # Find the foreman role_id (channel scope)
-    role_res = await test_session.execute(select(Role).where(Role.name == 'foreman', Role.scope == 'channel'))
-    role_obj = role_res.scalar_one_or_none()
-
-    # Check channel role assignment exists for the foreman on the channel where the command was executed
-    res = await test_session.execute(select(ChannelRoleAssignment).where(ChannelRoleAssignment.user_id == (await (await test_session.execute(select(User).where(User.username == 'foreman1'))).scalar_one()).id, ChannelRoleAssignment.channel_id == channel_id, ChannelRoleAssignment.role_id == (role_obj.id if role_obj else None)))
-    cra = res.scalar_one_or_none()
-
-    # If the legacy tasks table didn't provide channel info in this test DB, it's acceptable for CRA to be None
-    # but if it exists then claim should succeed. Proceed to attempt claim.
-
-    claim_resp = await client.post(f"/api/automation/tasks/{task.id}/claim", headers=foreman_headers)
+    # Claim should succeed based on global role only (no channel membership required)
+    claim_resp = await client.post(f"/api/automation/tasks/{task.id}/claim", json={}, headers=foreman_headers)
     assert claim_resp.status_code == 200
 
     # Refresh and assert claimed state

@@ -53,8 +53,8 @@ async def test_order_creates_automation_task(
     assert auto_data["has_automation"] == True
     assert "task_id" in auto_data
     assert auto_data["title"] == f"Restock Order #{order_id}"
-    # Since requester assignment is created on order creation, task becomes IN_PROGRESS
-    assert auto_data["task_status"].upper() == "IN_PROGRESS"
+    # For order-created tasks with operational required roles, tasks are kept OPEN (claim-based workflow)
+    assert auto_data["task_status"].upper() == "OPEN"
 
 
 @pytest.mark.anyio
