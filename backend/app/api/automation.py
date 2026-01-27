@@ -343,12 +343,8 @@ async def claim_task_endpoint(
 ):
     """Claim a task. Admins may pass override=True to take over an existing claim."""
     user_id = current_user["user_id"]
-    user = await _get_user(db, user_id)
 
-    # If override requested, ensure user is admin
-    if payload.override and not user.is_system_admin:
-        raise HTTPException(status_code=403, detail="Only admins can override claims")
-
+    # NOTE: Do not perform permission lookups here. Authorization is enforced in AutomationService.claim_task().
     try:
         task = await AutomationService.claim_task(db=db, task_id=task_id, user_id=user_id, override=payload.override)
     except ClaimNotFoundError:
