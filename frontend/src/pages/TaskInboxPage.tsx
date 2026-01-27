@@ -130,6 +130,13 @@ export default function TaskInboxPage() {
   // Count pending assignments
   const pendingCount = myAssignments.filter(a => a.status === 'PENDING' || a.status === 'IN_PROGRESS').length
 
+  console.log('[DEBUG][TaskInbox]', {
+    activeTab,
+    availableTasksCount: availableTasks?.length,
+    tasksCount: tasks?.length,
+    filteredTasksCount: filteredTasks?.length,
+  });
+
   return (
     <div className="h-screen flex flex-col bg-[#313338] overflow-hidden">
       {/* Header */}
