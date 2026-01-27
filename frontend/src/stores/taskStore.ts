@@ -144,7 +144,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       await api.post(`/api/automation/tasks/${taskId}/claim`, {})
       // Refresh my assignments and available tasks (role-based)
       await get().fetchMyAssignments()
-      const role = useAuthStore.getState().user?.role ?? null
+      const currentUser = useAuthStore.getState().currentUser
+      const roleRaw = currentUser?.operational_role_name ?? useAuthStore.getState().user?.role ?? null
+      const role = roleRaw ? roleRaw.toLowerCase().replace(/\s+/g, '_') : null
       await get().fetchAvailableTasks(role)
       // Also refresh general tasks list to reflect status change
       await get().fetchMyTasks()

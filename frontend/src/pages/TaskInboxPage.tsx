@@ -29,6 +29,9 @@ export default function TaskInboxPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore((state) => state.user)
+  // Read the active business/operational role from the authoritative currentUser (used by the UI header)
+  const operationalRoleName = useAuthStore((state) => state.currentUser?.operational_role_name ?? state.user?.role)
+
   const {
     tasks,
     myAssignments,
@@ -77,13 +80,13 @@ export default function TaskInboxPage() {
     if (activeTab === 'my-tasks') {
       fetchMyAssignments()
     } else if (activeTab === 'available') {
-      // Use role from auth store
-      const role = user?.role ?? null
+      // Use operational role name from currentUser (UI header) and normalize to backend enum (lowercase, underscores)
+      const role = operationalRoleName ? operationalRoleName.toLowerCase().replace(/\s+/g, '_') : null
       fetchAvailableTasks(role)
     } else {
       fetchMyTasks()
     }
-  }, [activeTab, fetchMyAssignments, fetchMyTasks, fetchAvailableTasks, user?.role])
+  }, [activeTab, fetchMyAssignments, fetchMyTasks, fetchAvailableTasks, operationalRoleName])
   
   // Get tasks based on active tab
   const getFilteredTasks = (): AutomationTask[] => {
@@ -328,7 +331,8 @@ export default function TaskInboxPage() {
                   const ok = await claimTask(taskId)
                   if (ok) {
                     // After successful claim, refresh views
-                    await fetchAvailableTasks(user?.role ?? null)
+                    const role = operationalRoleName ? operationalRoleName.toLowerCase().replace(/\s+/g, '_') : null
+                    await fetchAvailableTasks(role)
                     await fetchMyAssignments()
                   }
                 }}

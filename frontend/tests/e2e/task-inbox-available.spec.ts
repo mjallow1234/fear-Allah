@@ -6,6 +6,8 @@ test('Available Tasks tab fetches available-tasks and Claim triggers POST claim'
   let getCalled = false
   await page.route('**/api/automation/available-tasks**', route => {
     getCalled = true
+    // Ensure we include the active business role in query params
+    expect(route.request().url()).toContain('role=foreman')
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -19,6 +21,11 @@ test('Available Tasks tab fetches available-tasks and Claim triggers POST claim'
     postCalled = true
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 9999 }) })
   })
+
+  // Make user session with operational role 'foreman' available before app loads
+  const authPayload = JSON.stringify({ state: { token: 'test-token', user: { id: 1, username: 'foreman', operational_role_name: 'foreman' }, isAuthenticated: true } })
+  await page.addInitScript((token) => { try { localStorage.setItem('access_token', token) } catch (e) {} }, 'test-token')
+  await page.addInitScript((auth) => { try { localStorage.setItem('auth-storage', auth) } catch (e) {} }, authPayload)
 
   // Navigate to the Task Inbox page
   await page.goto('/')
