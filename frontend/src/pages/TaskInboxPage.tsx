@@ -105,6 +105,7 @@ export default function TaskInboxPage() {
   }
   
   const filteredTasks = getFilteredTasks()
+  const tasksToRender = activeTab === 'available' ? availableTasks : filteredTasks
   
   // Get assignment for a task
   const getAssignment = (taskId: number) => {
@@ -261,25 +262,12 @@ export default function TaskInboxPage() {
           ) : activeTab === 'my-tasks' && myAssignments.length === 0 ? (
             <div className="py-12 text-center">
               <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
-              <p className="text-[#949ba4]">No tasks assigned to you</p>
+              <p className="text-[#949ba4]">No pending tasks</p>
               <p className="text-[#72767d] text-sm mt-1">
                 Tasks will appear here when you're assigned to them
               </p>
-            </div>
-          ) : activeTab === 'available' && availableTasks.length === 0 ? (
-          <div className="py-12 text-center">
-            <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
-            <p className="text-[#949ba4]">No available tasks</p>
-            <p className="text-[#72767d] text-sm mt-1">Tasks matching your active role will appear here</p>
-          </div>
-        ) : activeTab !== 'my-tasks' && filteredTasks.length === 0 ? (
-          <div className="py-12 text-center">
-            <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
-            <p className="text-[#949ba4]">
-              {activeTab === 'created' ? 'No tasks created by you' : 'No available tasks'}
-            </p>
-          </div>
-        ) : activeTab === 'my-tasks' ? (
+            </div> 
+  ) : activeTab === 'my-tasks' ? (
           // Show assignments directly when we don't have full task data
           <div className="space-y-3">
             {myAssignments.map((assignment) => {
@@ -329,34 +317,29 @@ export default function TaskInboxPage() {
               )
             })}
           </div>
-        ) : activeTab === 'available' ? (
-          <div className="space-y-3">
-            {availableTasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                currentUserId={user?.id || 0}
-                isCompleting={false}
-                onComplete={handleComplete}
-                onClick={() => setSelectedTask(task)}
-                isAvailableView={true}
-                onClaim={async (taskId: number) => {
-                  await claimTask(taskId)
-                }}
-              />
-            ))}
+        ) : tasksToRender.length === 0 ? (
+          <div className="py-12 text-center">
+            <ClipboardList size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
+            <p className="text-[#949ba4]">
+              {activeTab === 'created' ? 'No tasks created by you' : activeTab === 'available' ? 'No available tasks' : 'No completed tasks'}
+            </p>
+            {activeTab === 'available' && (
+              <p className="text-[#72767d] text-sm mt-1">Tasks matching your active role will appear here</p>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredTasks.map((task) => (
+            {tasksToRender.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}
-                assignment={getAssignment(task.id)}
+                assignment={activeTab === 'available' ? undefined : getAssignment(task.id)}
                 currentUserId={user?.id || 0}
-                isCompleting={completingTaskId === task.id}
+                isCompleting={activeTab === 'available' ? false : completingTaskId === task.id}
                 onComplete={handleComplete}
                 onClick={() => setSelectedTask(task)}
+                isAvailableView={activeTab === 'available'}
+                onClaim={activeTab === 'available' ? async (taskId: number) => { await claimTask(taskId) } : undefined}
               />
             ))}
           </div>
