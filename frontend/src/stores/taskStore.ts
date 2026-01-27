@@ -38,6 +38,7 @@ export interface AutomationTask {
   created_at: string
   updated_at: string | null
   assignments: TaskAssignment[]
+  required_role?: string | null
 }
 
 export interface TaskEvent {
@@ -53,6 +54,7 @@ interface TaskState {
   // Data
   tasks: AutomationTask[]
   myAssignments: TaskAssignment[]
+  availableTasks: AutomationTask[]
   selectedTask: AutomationTask | null
   taskEvents: TaskEvent[]
   
@@ -67,6 +69,8 @@ interface TaskState {
   // Actions
   fetchMyAssignments: () => Promise<void>
   fetchMyTasks: () => Promise<void>
+  fetchAvailableTasks: (role: string | null) => Promise<void>
+  claimTask: (taskId: number) => Promise<boolean>
   fetchTaskDetails: (taskId: number) => Promise<void>
   fetchTaskEvents: (taskId: number) => Promise<void>
   completeAssignment: (taskId: number, notes?: string) => Promise<boolean>
@@ -86,6 +90,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   // Initial state
   tasks: [],
   myAssignments: [],
+  availableTasks: [],
   selectedTask: null,
   taskEvents: [],
   loading: false,
@@ -106,6 +111,48 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         error: err.response?.data?.detail || 'Failed to fetch assignments',
         loading: false 
       })
+    }
+  },
+
+  fetchAvailableTasks: async (role: string | null) => {
+    set({ loading: true, error: null })
+    try {
+      const params = role ? { params: { role } } : {}
+      console.log('[TaskStore] GET /api/automation/available-tasks', params)
+      const response = await api.get('/api/automation/available-tasks', params)
+      const data = response.data
+      const tasks = Array.isArray(data) ? data : (data.tasks || [])
+      set({ availableTasks: tasks, loading: false })
+      console.log('[TaskStore] available_tasks_count:', tasks.length)
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } }
+      console.error('[TaskStore] Failed to fetch available tasks:', error)
+      set({ 
+        error: err.response?.data?.detail || 'Failed to fetch available tasks',
+        loading: false 
+      })
+    }
+  },
+
+  claimTask: async (taskId: number) => {
+    set({ error: null })
+    // Optimistic remove from availableTasks
+    const prevAvail = get().availableTasks
+    set({ availableTasks: prevAvail.filter(t => t.id !== taskId) })
+    try {
+      console.log('[TaskStore] POST /api/automation/tasks/${taskId}/claim')
+      await api.post(`/api/automation/tasks/${taskId}/claim`, {})
+      // Refresh my assignments and available tasks (role-based)
+      await get().fetchMyAssignments()
+      const role = useAuthStore.getState().user?.role ?? null
+      await get().fetchAvailableTasks(role)
+      // Also refresh general tasks list to reflect status change
+      await get().fetchMyTasks()
+      return true
+    } catch (error: unknown) {
+      console.error('[TaskStore] Failed to claim task:', error)
+      set({ availableTasks: prevAvail, error: 'Failed to claim task' })
+      return false
     }
   },
   
@@ -269,6 +316,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   reset: () => set({
     tasks: [],
     myAssignments: [],
+    availableTasks: [],
     selectedTask: null,
     taskEvents: [],
     loading: false,

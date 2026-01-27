@@ -30,6 +30,9 @@ interface TaskCardProps {
   isCompleting: boolean
   onComplete: (taskId: number) => void
   onClick: () => void
+  // Available tasks view
+  isAvailableView?: boolean
+  onClaim?: (taskId: number) => Promise<void>
 }
 
 // Helper to normalize status to uppercase for config lookup
@@ -66,7 +69,9 @@ export default function TaskCard({
   currentUserId, 
   isCompleting, 
   onComplete, 
-  onClick 
+  onClick,
+  isAvailableView = false,
+  onClaim,
 }: TaskCardProps) {
   const [showConfirm, setShowConfirm] = useState(false)
   
@@ -170,7 +175,7 @@ export default function TaskCard({
             )}
           </div>
           
-          {/* Assignment status if viewing from My Tasks */}
+            {/* Assignment status if viewing from My Tasks */}
           {assignment && (
             <div className="mt-2 pt-2 border-t border-[#1f2023]">
               <div className="flex items-center gap-2 text-xs">
@@ -184,11 +189,28 @@ export default function TaskCard({
               </div>
             </div>
           )}
+
+          {/* Show required role for available tasks */}
+          {isAvailableView && task.required_role && (
+            <div className="mt-2 pt-2 border-t border-[#1f2023] flex items-center justify-between">
+              <div className="text-xs text-[#72767d]">Required role:</div>
+              <div className="text-sm text-white">{task.required_role}</div>
+            </div>
+          )}
         </div>
         
         {/* Action Button */}
         <div className="flex-shrink-0">
-          {canComplete && !showConfirm && (
+          {isAvailableView && onClaim && (
+            <button
+              onClick={async (e) => { e.stopPropagation(); if (onClaim) await onClaim(task.id) }}
+              className={clsx('flex items-center gap-2 px-3 py-2 rounded-lg transition-colors bg-[#5865f2] hover:bg-[#4752c4] text-white')}
+            >
+              Claim
+            </button>
+          )}
+
+          {(!isAvailableView) && canComplete && !showConfirm && (
             <button
               onClick={handleCompleteClick}
               disabled={isCompleting}

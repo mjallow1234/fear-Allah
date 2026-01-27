@@ -23,7 +23,7 @@ import { subscribeToTasks } from '../realtime/tasks'
 import TaskCard from '../components/Tasks/TaskCard'
 import TaskDetailsDrawer from '../components/Tasks/TaskDetailsDrawer'
 
-type TabType = 'my-tasks' | 'created' | 'completed'
+type TabType = 'my-tasks' | 'created' | 'completed' | 'available'
 
 export default function TaskInboxPage() {
   const navigate = useNavigate()
@@ -32,6 +32,7 @@ export default function TaskInboxPage() {
   const {
     tasks,
     myAssignments,
+    availableTasks,
     selectedTask,
     taskEvents,
     loading,
@@ -40,6 +41,8 @@ export default function TaskInboxPage() {
     error,
     fetchMyAssignments,
     fetchMyTasks,
+    fetchAvailableTasks,
+    claimTask,
     fetchTaskDetails,
     completeAssignment,
     setSelectedTask,
@@ -73,10 +76,14 @@ export default function TaskInboxPage() {
   useEffect(() => {
     if (activeTab === 'my-tasks') {
       fetchMyAssignments()
+    } else if (activeTab === 'available') {
+      // Use role from auth store
+      const role = user?.role ?? null
+      fetchAvailableTasks(role)
     } else {
       fetchMyTasks()
     }
-  }, [activeTab, fetchMyAssignments, fetchMyTasks])
+  }, [activeTab, fetchMyAssignments, fetchMyTasks, fetchAvailableTasks, user?.role])
   
   // Get tasks based on active tab
   const getFilteredTasks = (): AutomationTask[] => {
@@ -178,6 +185,19 @@ export default function TaskInboxPage() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('available')}
+            className={clsx(
+              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+              activeTab === 'available'
+                ? 'text-white border-[#5865f2]'
+                : 'text-[#949ba4] border-transparent hover:text-white'
+            )}
+          >
+            <User size={16} />
+            Available
+          </button>
+
           <button
             onClick={() => setActiveTab('created')}
             className={clsx(
@@ -292,6 +312,29 @@ export default function TaskInboxPage() {
                 />
               )
             })}
+          </div>
+        ) : activeTab === 'available' ? (
+          <div className="space-y-3">
+            {availableTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                currentUserId={user?.id || 0}
+                isCompleting={false}
+                onComplete={handleComplete}
+                onClick={() => setSelectedTask(task)}
+                // Claim handler for available tasks
+                onClaim={async (taskId: number) => {
+                  const ok = await claimTask(taskId)
+                  if (ok) {
+                    // After successful claim, refresh views
+                    await fetchAvailableTasks(user?.role ?? null)
+                    await fetchMyAssignments()
+                  }
+                }}
+                isAvailableView
+              />
+            ))}
           </div>
         ) : (
           <div className="space-y-3">
