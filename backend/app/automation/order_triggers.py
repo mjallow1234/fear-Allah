@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Order, AutomationTask, TaskAssignment, User
+from app.db.models import Order, AutomationTask, TaskAssignment, User, UserOperationalRole
 from app.db.enums import (
     OrderType, 
     OrderStatus,
@@ -180,17 +180,14 @@ class OrderAutomationTriggers:
             logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
 
             # Create assignments based on template.
-            # IMPORTANT: For claim-based tasks (task.required_role is set), do NOT create template assignments here.
-            # Claiming must be the first assignment; assignments for operational workflows should be created post-claim.
-            if not task.required_role:
-                await OrderAutomationTriggers._create_template_assignments(
-                    db=db,
-                    task=task,
-                    template=template,
-                    created_by_id=created_by_id,
-                )
-            else:
-                logger.info(f"[OrderAutomation] Skipping template assignments for claim-based task {task.id} (required_role={task.required_role})")
+            # For claim-based tasks we still create non-operational template assignments
+            # (e.g., 'requester') while skipping operational role assignments.
+            await OrderAutomationTriggers._create_template_assignments(
+                db=db,
+                task=task,
+                template=template,
+                created_by_id=created_by_id,
+            )
 
             # Phase 6.4: Send order created notification
             try:
@@ -227,10 +224,9 @@ class OrderAutomationTriggers:
         will skip creating any template assignments to ensure claiming is the
         first assignment operation.
         """
-        # Guard: do not create template assignments for claim-based tasks
-        if getattr(task, 'required_role', None):
-            logger.info(f"[OrderAutomation] Task {task.id} has required_role={task.required_role}; skipping template assignments")
-            return []
+        # For claim-based tasks we should not create operational role assignments (foreman/delivery),
+        # but we still allow creating non-operational assignments like 'requester'.
+        # The loop below will skip operational role_hints explicitly.
 
         assignments = []
         
@@ -323,11 +319,12 @@ class OrderAutomationTriggers:
 
         canonical_role = role_map.get(role_name, role_name)
 
-        # Find first active user with matching role (strict - no admin fallback)
+        # Find first active user with matching operational role (strict - no admin fallback)
         result = await db.execute(
             select(User)
+            .join(UserOperationalRole, User.id == UserOperationalRole.user_id)
             .where(User.is_active == True)
-            .where(User.role == canonical_role)
+            .where(UserOperationalRole.role == canonical_role)
             .order_by(User.id.asc())
             .limit(1)
         )

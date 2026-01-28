@@ -114,3 +114,50 @@ async def test_race_condition_two_simultaneous_claims(test_engine, test_session:
         assert claimed_by == successes[0][1]
     else:
         assert claimed_by is None
+
+
+@pytest.mark.anyio
+async def test_user_with_operational_role_can_claim(test_session: AsyncSession):
+    """User who has operational 'foreman' role can claim a task requiring 'foreman'."""
+    from app.db.models import User, UserOperationalRole, AutomationTask
+    from app.db.enums import AutomationTaskStatus, AutomationTaskType
+
+    # Create user and give operational role
+    u = User(email='opuser@example.com', username='opuser', hashed_password='x', is_active=True)
+    test_session.add(u)
+    await test_session.commit()
+    await test_session.refresh(u)
+
+    r = UserOperationalRole(user_id=u.id, role='foreman')
+    test_session.add(r)
+    await test_session.commit()
+    await test_session.refresh(u)  # Ensure relationship is loaded for has_operational_role() check
+
+    # Create an OPEN task requiring foreman
+    t = AutomationTask(task_type=AutomationTaskType.restock, status=AutomationTaskStatus.open, title='Op Role Task', created_by_id=u.id, required_role='foreman')
+    test_session.add(t)
+    await test_session.commit()
+    await test_session.refresh(t)
+
+    # Should succeed without raising
+    await AutomationService.claim_task(db=test_session, task_id=t.id, user_id=u.id)
+
+
+@pytest.mark.anyio
+async def test_user_without_operational_role_cannot_claim(test_session: AsyncSession):
+    """User without operational role cannot claim a task requiring 'foreman'."""
+    from app.db.models import User, AutomationTask
+    from app.db.enums import AutomationTaskStatus, AutomationTaskType
+
+    u = User(email='noop@example.com', username='noop', hashed_password='x', is_active=True)
+    test_session.add(u)
+    await test_session.commit()
+    await test_session.refresh(u)
+
+    t = AutomationTask(task_type=AutomationTaskType.restock, status=AutomationTaskStatus.open, title='Requires Foreman', created_by_id=u.id, required_role='foreman')
+    test_session.add(t)
+    await test_session.commit()
+    await test_session.refresh(t)
+
+    with pytest.raises(ClaimPermissionError):
+        await AutomationService.claim_task(db=test_session, task_id=t.id, user_id=u.id)

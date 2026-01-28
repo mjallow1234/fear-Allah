@@ -95,8 +95,9 @@ class AutomationService:
         from fastapi import HTTPException
 
         # Role-based authorization (403)
-        if task.required_role and (user.role != task.required_role) and not user.is_system_admin:
-            raise ClaimPermissionError("User does not have required role to claim this task")
+        # Use operational roles table for workflow permissions instead of the legacy users.role.
+        if task.required_role and (not user.has_operational_role(task.required_role)) and not user.is_system_admin:
+            raise ClaimPermissionError("User does not have required operational role to claim this task")
 
         # Handle current task status cases
         if task.status == AutomationTaskStatus.claimed:
@@ -485,8 +486,13 @@ class AutomationService:
         """Return tasks that are required for a role and currently unclaimed."""
         # Exclude tasks that already have any assignments — claiming must be the first assignment
         from sqlalchemy import select as _select
+        # Only consider operational role assignments (e.g., foreman, delivery) when determining
+        # whether a task is still 'available' to be claimed. Allow requester and other non-operational
+        # assignments to exist without blocking claim availability.
         assignment_exists = (
-            _select(TaskAssignment.id).where(TaskAssignment.task_id == AutomationTask.id)
+            _select(TaskAssignment.id)
+            .where(TaskAssignment.task_id == AutomationTask.id)
+            .where(TaskAssignment.role_hint.in_(['foreman', 'delivery']))
         )
 
         query = (

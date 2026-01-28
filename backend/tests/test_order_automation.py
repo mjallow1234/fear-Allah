@@ -74,17 +74,25 @@ async def test_order_auto_creates_assignments(
         username="foreman1",
         email="foreman1@example.com",
         hashed_password=get_password_hash("pw"),
-        role="foreman",
         is_active=True,
     )
     delivery = User(
         username="delivery1",
         email="delivery1@example.com",
         hashed_password=get_password_hash("pw"),
-        role="delivery",
         is_active=True,
     )
     test_session.add_all([foreman, delivery])
+    await test_session.commit()
+    await test_session.refresh(foreman)
+    await test_session.refresh(delivery)
+
+    # Add operational role rows for workflow resolution
+    from app.db.models import UserOperationalRole
+    test_session.add_all([
+        UserOperationalRole(user_id=foreman.id, role='foreman'),
+        UserOperationalRole(user_id=delivery.id, role='delivery'),
+    ])
     await test_session.commit()
     await test_session.refresh(foreman)
     await test_session.refresh(delivery)
@@ -128,7 +136,15 @@ async def test_assignment_placeholder_created_if_no_role_user(
     from app.db.models import User
     from sqlalchemy import update
 
-    await test_session.execute(update(User).where(User.role == 'foreman').values(is_active=False))
+    # Deactivate any users that hold the operational 'foreman' role
+    from app.db.models import UserOperationalRole
+    await test_session.execute(
+        update(User).where(
+            User.id.in_(
+                select(UserOperationalRole.user_id).where(UserOperationalRole.role == 'foreman')
+            )
+        ).values(is_active=False)
+    )
     await test_session.commit()
 
     # Create an AGENT_RESTOCK order
@@ -171,8 +187,21 @@ async def test_foreman_sees_assigned_task_in_inbox(
     from sqlalchemy import update
     from app.db.models import User
 
-    await test_session.execute(update(User).where(User.username == 'foreman1').values(role='foreman', is_active=True))
-    await test_session.execute(update(User).where(User.username == 'delivery1').values(role='delivery', is_active=True))
+    # Ensure users are active and grant operational roles
+    await test_session.execute(update(User).where(User.username == 'foreman1').values(is_active=True))
+    await test_session.execute(update(User).where(User.username == 'delivery1').values(is_active=True))
+    await test_session.commit()
+
+    # Insert operational roles for foreman1 and delivery1
+    from app.db.models import UserOperationalRole, User as DBUser
+    res = await test_session.execute(select(DBUser).where(DBUser.username == 'foreman1'))
+    foreman = res.scalar_one_or_none()
+    res2 = await test_session.execute(select(DBUser).where(DBUser.username == 'delivery1'))
+    delivery = res2.scalar_one_or_none()
+    test_session.add_all([
+        UserOperationalRole(user_id=foreman.id, role='foreman'),
+        UserOperationalRole(user_id=delivery.id, role='delivery'),
+    ])
     await test_session.commit()
 
     # Login as foreman
@@ -380,10 +409,15 @@ async def test_role_resolution_by_role_not_username(async_client_authenticated: 
     from sqlalchemy import select
 
     # Create a foreman user with a non-prefixed username
-    foreman = User(username='bilal', email='bilal@example.com', hashed_password=get_password_hash('pw'), role='foreman', is_active=True)
+    foreman = User(username='bilal', email='bilal@example.com', hashed_password=get_password_hash('pw'), is_active=True)
     test_session.add(foreman)
     await test_session.commit()
     await test_session.refresh(foreman)
+
+    # Give the user the operational 'foreman' role
+    from app.db.models import UserOperationalRole
+    test_session.add(UserOperationalRole(user_id=foreman.id, role='foreman'))
+    await test_session.commit()
 
     # Create an order which should produce an available task for foreman to claim
     order_resp = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': [{'product_id':1, 'quantity':1}]})
