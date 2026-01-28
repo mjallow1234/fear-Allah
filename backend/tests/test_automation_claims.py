@@ -161,3 +161,35 @@ async def test_user_without_operational_role_cannot_claim(test_session: AsyncSes
 
     with pytest.raises(ClaimPermissionError):
         await AutomationService.claim_task(db=test_session, task_id=t.id, user_id=u.id)
+
+
+@pytest.mark.anyio
+async def test_claim_inserts_task_claimed_event(test_session: AsyncSession):
+    """Claiming a task should insert a TaskEvent with TaskEventType.task_claimed."""
+    from app.db.models import User, UserOperationalRole, AutomationTask, TaskEvent
+    from app.db.enums import AutomationTaskStatus, AutomationTaskType, TaskEventType
+
+    # Create user and give operational role
+    u = User(email='eventuser@example.com', username='eventuser', hashed_password='x', is_active=True)
+    test_session.add(u)
+    await test_session.commit()
+    await test_session.refresh(u)
+
+    r = UserOperationalRole(user_id=u.id, role='foreman')
+    test_session.add(r)
+    await test_session.commit()
+    await test_session.refresh(u)
+
+    # Create an OPEN task requiring foreman
+    t = AutomationTask(task_type=AutomationTaskType.restock, status=AutomationTaskStatus.open, title='Event Task', created_by_id=u.id, required_role='foreman')
+    test_session.add(t)
+    await test_session.commit()
+    await test_session.refresh(t)
+
+    # Claim the task (should not raise)
+    await AutomationService.claim_task(db=test_session, task_id=t.id, user_id=u.id)
+
+    # Verify TaskEvent exists with enum member
+    res = await test_session.execute(select(TaskEvent).where(TaskEvent.task_id == t.id, TaskEvent.event_type == TaskEventType.task_claimed))
+    ev = res.scalar_one_or_none()
+    assert ev is not None, "Expected a TaskEvent of type task_claimed to be created on claim"
