@@ -13,6 +13,8 @@ from app.db.enums import (
 )
 
 
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -43,6 +45,18 @@ class User(Base):
     messages = relationship("Message", back_populates="author", foreign_keys="[Message.author_id]")
     team_memberships = relationship("TeamMember", back_populates="user")
     channel_memberships = relationship("ChannelMember", back_populates="user")
+
+    # Operational roles (workflow participation) - separate from system role
+    operational_roles = relationship(
+        "UserOperationalRole",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    def has_operational_role(self, role: str) -> bool:
+        """Return True if the user has the given operational role."""
+        return any(r.role == role for r in getattr(self, 'operational_roles', []))
 
 
 class Team(Base):
@@ -212,6 +226,21 @@ class MessageReaction(Base):
     # Relationships
     message = relationship("Message", back_populates="reactions")
     user = relationship("User")
+
+
+class UserOperationalRole(Base):
+    __tablename__ = "user_operational_roles"
+    __table_args__ = (
+        UniqueConstraint("user_id", "role", name="uq_user_operational_role"),
+        Index("ix_user_operational_roles_user_id", "user_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(50), nullable=False)
+
+    # Relationship back to User
+    user = relationship("User", back_populates="operational_roles")
 
 
 class Notification(Base):
