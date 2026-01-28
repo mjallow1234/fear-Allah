@@ -18,13 +18,16 @@ def upgrade():
     conn = op.get_bind()
     dialect = conn.dialect.name
 
-    # Insert operational roles for users whose role is not 'admin' or 'member'.
-    # Use dialect-appropriate upsert/ignore semantics so this is idempotent.
+    # Backfill operational roles for users whose role is not a system role or 'member'.
+    # Use dialect-appropriate upsert/ignore semantics so this is idempotent and ENUM-safe.
     if dialect == 'postgresql':
         conn.execute(text(
             """
+            -- Backfill operational roles (idempotent)
             INSERT INTO user_operational_roles (user_id, role)
-            SELECT id, role FROM users WHERE role NOT IN ('system_admin', 'team_admin', 'member')
+            SELECT id, role::text
+            FROM users
+            WHERE role::text NOT IN ('member', 'system_admin', 'team_admin')
             ON CONFLICT (user_id, role) DO NOTHING
             """
         ))
@@ -33,18 +36,23 @@ def upgrade():
         conn.execute(text(
             """
             INSERT OR IGNORE INTO user_operational_roles (user_id, role)
-            SELECT id, role FROM users WHERE role NOT IN ('system_admin', 'team_admin', 'member')
+            SELECT id, role FROM users WHERE role NOT IN ('member', 'system_admin', 'team_admin')
             """
         ))
 
-    # Normalize users.role to 'member' for non-admins (idempotent)
-    conn.execute(text(
-        """
-        UPDATE users
-        SET role = 'member'
-        WHERE role NOT IN ('admin', 'member')
-        """
-    ))
+    # Normalize users.role to 'member' for non-system roles (idempotent)
+    if dialect == 'postgresql':
+        conn.execute(text("""
+            UPDATE users
+            SET role = 'member'
+            WHERE role::text NOT IN ('member', 'system_admin', 'team_admin')
+        """))
+    else:
+        conn.execute(text("""
+            UPDATE users
+            SET role = 'member'
+            WHERE role NOT IN ('member', 'system_admin', 'team_admin')
+        """))
 
 
 def downgrade():
