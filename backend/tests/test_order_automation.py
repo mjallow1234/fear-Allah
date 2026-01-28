@@ -103,6 +103,67 @@ async def test_foreman_completion_creates_delivery_task(
 
 
 @pytest.mark.anyio
+async def test_delivery_completion_closes_task_when_final(
+    async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
+):
+    """When the delivery task is completed and no remaining operational tasks exist, the automation should be closed."""
+    client, user_data = async_client_authenticated
+
+    # Create qualifying AGENT_RESTOCK order
+    order_resp = await client.post(
+        "/api/orders/",
+        json={"order_type": "AGENT_RESTOCK", "items": [{"product_id": 1, "quantity": 1}]},
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["order_id"]
+
+    # Complete foreman task to create delivery task
+    auto_resp = await client.get(f"/api/orders/{order_id}/automation")
+    assert auto_resp.status_code == 200
+    main_task_id = auto_resp.json()["task_id"]
+
+    from app.db.enums import AutomationTaskStatus
+    from app.automation.service import AutomationService
+
+    await AutomationService.update_task_status(db=test_session, task_id=main_task_id, new_status=AutomationTaskStatus.completed, user_id=None)
+
+    # Find delivery task
+    from sqlalchemy import select
+    from app.db.models import AutomationTask
+
+    res = await test_session.execute(
+        select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role == 'delivery')
+    )
+    tasks = res.scalars().all()
+    assert len(tasks) == 1
+    delivery_task = tasks[0]
+
+    # Record current count of tasks
+    res_all = await test_session.execute(select(AutomationTask).where(AutomationTask.related_order_id == order_id))
+    before_count = len(res_all.scalars().all())
+
+    # Complete delivery task
+    await AutomationService.update_task_status(db=test_session, task_id=delivery_task.id, new_status=AutomationTaskStatus.completed, user_id=None)
+
+    # Refresh delivery task
+    res = await test_session.execute(select(AutomationTask).where(AutomationTask.id == delivery_task.id))
+    dt = res.scalar_one()
+    assert getattr(dt.status, 'value', dt.status) == 'completed'
+
+    # Ensure no new tasks were created
+    res_all2 = await test_session.execute(select(AutomationTask).where(AutomationTask.related_order_id == order_id))
+    after_count = len(res_all2.scalars().all())
+    assert after_count == before_count, f"Expected no new tasks, before={before_count}, after={after_count}"
+
+    # Ensure no remaining operational tasks are open
+    res_remaining = await test_session.execute(
+        select(AutomationTask.id).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role.in_(['foreman','delivery']), ~AutomationTask.status.in_(['completed','cancelled']))
+    )
+    assert res_remaining.scalar_one_or_none() is None
+
+
+@pytest.mark.anyio
 async def test_order_auto_creates_assignments(
     async_client_authenticated: tuple[AsyncClient, dict],
     test_session: object,

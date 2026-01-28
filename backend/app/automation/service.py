@@ -545,6 +545,41 @@ class AutomationService:
             except Exception as e:
                 logger.warning(f"[Automation] Failed to chain foreman->delivery: {e}")
 
+            # If this was a DELIVERY task completion, ensure task closure and possibly close parent automation
+            try:
+                if getattr(task, 'required_role', None) == 'delivery':
+                    # Ensure delivery task closes if all assignments are done
+                    try:
+                        await AutomationService.close_task_if_all_done(db, task_id)
+                    except Exception as e:
+                        logger.warning(f"[Automation] close_task_if_all_done failed for delivery task {task_id}: {e}")
+
+                    # Check if there are any remaining operational (foreman/delivery) tasks for the same order
+                    if getattr(task, 'related_order_id', None):
+                        from app.db.models import AutomationTask as AT
+                        from app.db.enums import AutomationTaskStatus as ATS
+                        res = await db.execute(
+                            select(AT.id)
+                            .where(
+                                AT.related_order_id == task.related_order_id,
+                                AT.required_role.in_(['foreman', 'delivery']),
+                                ~AT.status.in_([ATS.completed, ATS.cancelled])
+                            )
+                            .limit(1)
+                        )
+                        remaining = res.scalar_one_or_none()
+                        if not remaining:
+                            # No more operational tasks remain — close the main order automation task if it's still open
+                            try:
+                                from app.automation.order_triggers import OrderAutomationTriggers
+                                parent = await OrderAutomationTriggers._get_order_automation_task(db, task.related_order_id)
+                                if parent and parent.id != task.id and parent.status not in (ATS.completed, ATS.cancelled):
+                                    await AutomationService.update_task_status(db, parent.id, ATS.completed, user_id=None)
+                            except Exception as e:
+                                logger.warning(f"[Automation] Failed to close parent automation task for order {task.related_order_id}: {e}")
+            except Exception as e:
+                logger.warning(f"[Automation] Delivery completion post-processing failed: {e}")
+
         logger.info(f"[Automation] Task {task_id} status: {old_status.value} → {new_status.value}")
         
         return task
