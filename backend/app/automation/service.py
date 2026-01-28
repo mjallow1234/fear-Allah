@@ -537,7 +537,14 @@ class AutomationService:
         
         await db.commit()
         await db.refresh(task)
-        
+
+        # After a task transitions to COMPLETED, possibly chain foreman completion to delivery task creation
+        if new_status == AutomationTaskStatus.completed:
+            try:
+                await AutomationService._maybe_chain_foreman_to_delivery(db, task)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to chain foreman->delivery: {e}")
+
         logger.info(f"[Automation] Task {task_id} status: {old_status.value} → {new_status.value}")
         
         return task
@@ -1037,7 +1044,69 @@ class AutomationService:
             return True
         
         return False
-    
+
+    @staticmethod
+    async def _maybe_chain_foreman_to_delivery(
+        db: AsyncSession,
+        task: AutomationTask,
+    ) -> None:
+        """
+        After a foreman task completes for a qualifying order type, create a single
+        delivery automation task if one does not already exist for the order.
+
+        Safety:
+        - Uses a DB-level existence check to avoid duplicates.
+        - Only runs for specific OrderType values: agent_restock, store_keeper_restock, customer_wholesale.
+        - Uses the existing AutomationService.create_task to create the delivery task (so existing hooks run).
+        """
+        # Quick guardrails
+        if not task:
+            return
+        if getattr(task, 'required_role', None) != 'foreman':
+            return
+        if not getattr(task, 'related_order_id', None):
+            return
+
+        # Local imports to avoid circular dependencies at module import time
+        from app.db.models import Order, AutomationTask as AT
+        from app.db.enums import OrderType, AutomationTaskStatus
+
+        # Resolve the order
+        res = await db.execute(select(Order).where(Order.id == task.related_order_id))
+        order = res.scalar_one_or_none()
+        if not order:
+            return
+
+        order_type = order.order_type.value if isinstance(order.order_type, OrderType) else order.order_type
+        allowed = {
+            OrderType.agent_restock.value,
+            OrderType.store_keeper_restock.value,
+            OrderType.customer_wholesale.value,
+        }
+        if order_type not in allowed:
+            return
+
+        # DB-level existence check: ensure at most one delivery task per order
+        exists_q = select(AT.id).where(AT.related_order_id == order.id, AT.required_role == 'delivery').limit(1)
+        ex = await db.execute(exists_q)
+        if ex.scalar_one_or_none():
+            return
+
+        # Create delivery task (do not auto-assign; created_by_id=0 to represent system)
+        try:
+            await AutomationService.create_task(
+                db=db,
+                task_type=task.task_type,
+                title=f"Deliver Order #{order.id}",
+                created_by_id=0,
+                related_order_id=order.id,
+                required_role='delivery',
+            )
+            logger.info(f"[Automation] Chained delivery task created for order {order.id}")
+        except Exception:
+            logger.exception(f"[Automation] Failed to create chained delivery task for order {order.id}")
+            raise
+
     # ---------------------- Event Logging ----------------------
     
     @staticmethod

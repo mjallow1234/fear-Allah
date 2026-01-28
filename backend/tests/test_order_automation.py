@@ -58,6 +58,51 @@ async def test_order_creates_automation_task(
 
 
 @pytest.mark.anyio
+async def test_foreman_completion_creates_delivery_task(
+    async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
+):
+    """When a foreman task completes for a qualifying order, create a single delivery task."""
+    client, user_data = async_client_authenticated
+
+    # Create a qualifying AGENT_RESTOCK order
+    order_resp = await client.post(
+        "/api/orders/",
+        json={
+            "order_type": "AGENT_RESTOCK",
+            "items": [{"product_id": 1, "quantity": 1}],
+        },
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["order_id"]
+
+    # Get automation task for the order (should be the foreman restock task)
+    auto_resp = await client.get(f"/api/orders/{order_id}/automation")
+    assert auto_resp.status_code == 200
+    task_id = auto_resp.json()["task_id"]
+
+    # Mark the foreman task as completed
+    from app.automation.service import AutomationService
+    from app.db.enums import AutomationTaskStatus
+
+    await AutomationService.update_task_status(db=test_session, task_id=task_id, new_status=AutomationTaskStatus.completed, user_id=None)
+
+    # Ensure exactly one delivery task exists for the order
+    from sqlalchemy import select
+    from app.db.models import AutomationTask
+
+    res = await test_session.execute(
+        select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role == 'delivery')
+    )
+    tasks = res.scalars().all()
+
+    assert len(tasks) == 1, f"Expected 1 delivery task, found {len(tasks)}"
+    dt = tasks[0]
+    assert getattr(dt.status, 'value', dt.status) == 'open'
+    assert dt.required_role == 'delivery'
+
+
+@pytest.mark.anyio
 async def test_order_auto_creates_assignments(
     async_client_authenticated: tuple[AsyncClient, dict],
     test_session: object,
