@@ -179,14 +179,19 @@ class OrderAutomationTriggers:
 
             logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
 
-            # Create assignments based on template
-            await OrderAutomationTriggers._create_template_assignments(
-                db=db,
-                task=task,
-                template=template,
-                created_by_id=created_by_id,
-            )
-            
+            # Create assignments based on template.
+            # IMPORTANT: For claim-based tasks (task.required_role is set), do NOT create template assignments here.
+            # Claiming must be the first assignment; assignments for operational workflows should be created post-claim.
+            if not task.required_role:
+                await OrderAutomationTriggers._create_template_assignments(
+                    db=db,
+                    task=task,
+                    template=template,
+                    created_by_id=created_by_id,
+                )
+            else:
+                logger.info(f"[OrderAutomation] Skipping template assignments for claim-based task {task.id} (required_role={task.required_role})")
+
             # Phase 6.4: Send order created notification
             try:
                 from app.automation.notification_hooks import on_order_created
@@ -213,11 +218,20 @@ class OrderAutomationTriggers:
     ) -> list[TaskAssignment]:
         """
         Create assignments for a task based on template configuration.
-        
+
         Resolves concrete users for roles (foreman, delivery) when possible.
         If no active user is found for a role, still create a TaskAssignment with
         user_id = None and log a warning.
+
+        Note: If `task.required_role` is set (claim-based workflow), this helper
+        will skip creating any template assignments to ensure claiming is the
+        first assignment operation.
         """
+        # Guard: do not create template assignments for claim-based tasks
+        if getattr(task, 'required_role', None):
+            logger.info(f"[OrderAutomation] Task {task.id} has required_role={task.required_role}; skipping template assignments")
+            return []
+
         assignments = []
         
         for assignment_cfg in template.get("assignments", []):

@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Any
 
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -483,11 +483,18 @@ class AutomationService:
         offset: int = 0,
     ) -> list[AutomationTask]:
         """Return tasks that are required for a role and currently unclaimed."""
+        # Exclude tasks that already have any assignments — claiming must be the first assignment
+        from sqlalchemy import select as _select
+        assignment_exists = (
+            _select(TaskAssignment.id).where(TaskAssignment.task_id == AutomationTask.id)
+        )
+
         query = (
             select(AutomationTask)
             .options(selectinload(AutomationTask.assignments))
             .where(AutomationTask.required_role == role)
             .where(AutomationTask.claimed_by_user_id == None)
+            .where(~exists(assignment_exists))
             .order_by(AutomationTask.created_at.desc())
             .limit(limit)
             .offset(offset)
