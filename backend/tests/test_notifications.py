@@ -450,5 +450,18 @@ async def test_notification_with_all_automation_fields(db_session: AsyncSession,
     assert extra["test_key"] == "test_value"
 
 
+@pytest.mark.asyncio
+async def test_notification_type_task_claimed_insert(db_session: AsyncSession, test_users):
+    """Test that a notification with type NotificationType.task_claimed can be inserted."""
+    user = test_users["user"]
+    service = NotificationService(db_session)
+    notification = await service.create_notification(
+        user_id=user.id,
+        notification_type=NotificationType.task_claimed,
+        title="Task Claimed Notification",
+    )
+    assert notification.id is not None
+    assert notification.type == NotificationType.task_claimed
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

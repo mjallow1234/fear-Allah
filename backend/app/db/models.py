@@ -248,7 +248,16 @@ class Notification(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type = Column(SAEnum(NotificationType, name="notificationtype", create_type=False), nullable=False)
+    type = Column(
+        SAEnum(
+            NotificationType,
+            name="notificationtype",
+            native_enum=True,
+            values_callable=lambda enum: [e.value for e in enum],
+            create_type=False,
+        ),
+        nullable=False,
+    )
     title = Column(String(255), nullable=False)
     content = Column(Text)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=True)
