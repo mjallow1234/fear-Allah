@@ -741,7 +741,16 @@ class TaskEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("automation_tasks.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Nullable for system events
-    event_type = Column(SAEnum(TaskEventType, name="taskeventtype", create_type=False), nullable=False)
+    event_type = Column(
+        SAEnum(
+            TaskEventType,
+            name="taskeventtype",
+            native_enum=True,
+            values_callable=lambda enum: [e.value for e in enum],
+            create_type=False,
+        ),
+        nullable=False,
+    )
     event_metadata = Column(Text, nullable=True)  # JSON for event-specific data (named event_metadata to avoid SQLAlchemy reserved name)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
