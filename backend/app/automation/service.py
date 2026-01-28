@@ -90,7 +90,7 @@ class AutomationService:
 
         # NOTE: Task claiming is global-role based. It intentionally does NOT depend on chat channels.
         # Authorization rules (only):
-        # - Task must be OPEN to be claimable (unless admin override)
+        # - Task must be OPEN or PENDING to be claimable (unless admin override)
         # - If task.required_role is set, user must have the global role or be a system admin
         from fastapi import HTTPException
 
@@ -112,8 +112,8 @@ class AutomationService:
                 await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
                 raise ClaimConflictError("Task already claimed by another user")
 
-        # For any non-open state (e.g., pending, done) that is not an admin override, reject with 400
-        if task.status != AutomationTaskStatus.open:
+        # For any state that is not OPEN or PENDING (e.g., done) that is not an admin override, reject with 400
+        if task.status not in (AutomationTaskStatus.open, AutomationTaskStatus.pending):
             if not (user.is_system_admin and override):
                 raise ClaimInvalidStateError("Task is not open for claim")
 
@@ -159,7 +159,7 @@ class AutomationService:
             update(AutomationTask)
             .where(
                 AutomationTask.id == task.id,
-                AutomationTask.status == AutomationTaskStatus.open,
+                AutomationTask.status.in_([AutomationTaskStatus.open, AutomationTaskStatus.pending]),
                 AutomationTask.claimed_by_user_id == None,
             )
             .values(claimed_by_user_id=user_id, claimed_at=now, status=AutomationTaskStatus.claimed)
