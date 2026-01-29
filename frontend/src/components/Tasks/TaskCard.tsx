@@ -22,12 +22,12 @@ import {
   AutomationTask, 
   TaskAssignment
 } from '../../stores/taskStore'
+import { useAuthStore } from '../../stores/authStore'
 
 interface TaskCardProps {
   task: AutomationTask
   assignment?: TaskAssignment
   currentUserId: number
-  currentUserIsAdmin?: boolean
   isCompleting: boolean
   onComplete: (taskId: number) => void
   onClick: () => void
@@ -75,6 +75,8 @@ export default function TaskCard({
   onClaim,
 }: TaskCardProps) {
   const [showConfirm, setShowConfirm] = useState(false)
+  const authUser = useAuthStore((s) => s.user)
+  const currentUserIsAdmin = authUser?.is_system_admin === true
   
   // Normalize status/type to uppercase for config lookup (backend may return lowercase)
   const normalizedTaskType = normalizeType(task.task_type)

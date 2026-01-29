@@ -331,7 +331,6 @@ export default function TaskInboxPage() {
                   task={task}
                   assignment={assignment}
                   currentUserId={user?.id || 0}
-                  currentUserIsAdmin={user?.is_system_admin}
                   isCompleting={completingTaskId === task.id}
                   onComplete={handleComplete}
                   onClick={() => setSelectedTask(task)}
@@ -357,7 +356,6 @@ export default function TaskInboxPage() {
                 task={task}
                 assignment={activeTab === 'available' ? undefined : getAssignment(task.id)}
                 currentUserId={user?.id || 0}
-                currentUserIsAdmin={user?.is_system_admin}
                 isCompleting={activeTab === 'available' ? false : completingTaskId === task.id}
                 onComplete={handleComplete}
                 onClick={() => setSelectedTask(task)}
