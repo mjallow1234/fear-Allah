@@ -535,6 +535,24 @@ class AutomationService:
             metadata={"old_status": old_status.value, "new_status": new_status.value}
         )
         
+        # Before committing, if this task is being completed, ensure all assignments are marked DONE atomically
+        if new_status == AutomationTaskStatus.completed:
+            try:
+                from app.db.models import TaskAssignment
+                from app.db.enums import AssignmentStatus
+                from datetime import datetime
+
+                now = datetime.utcnow()
+                await db.execute(
+                    update(TaskAssignment)
+                    .where(TaskAssignment.task_id == task_id)
+                    .where(TaskAssignment.status != AssignmentStatus.done)
+                    .values(status=AssignmentStatus.done, completed_at=now)
+                )
+                logger.info(f"[Automation] Auto-completed assignments for task {task_id} as part of task completion")
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to auto-complete assignments for task {task_id}: {e}")
+
         await db.commit()
         await db.refresh(task)
 
@@ -1058,6 +1076,22 @@ class AutomationService:
         )
         
         if pending_count == 0:
+            # Ensure any remaining assignments are marked DONE atomically before closing
+            try:
+                from app.db.models import TaskAssignment
+                from datetime import datetime
+
+                now = datetime.utcnow()
+                await db.execute(
+                    update(TaskAssignment)
+                    .where(TaskAssignment.task_id == task_id)
+                    .where(TaskAssignment.status != AssignmentStatus.done)
+                    .values(status=AssignmentStatus.done, completed_at=now)
+                )
+                logger.info(f"[Automation] Auto-completed assignments for task {task_id} as part of auto-close")
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to auto-complete assignments during auto-close for task {task_id}: {e}")
+
             task.status = AutomationTaskStatus.completed
             
             # Persist closed event directly to avoid runtime attr dependency
