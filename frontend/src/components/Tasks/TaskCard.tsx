@@ -78,7 +78,9 @@ export default function TaskCard({
   // Normalize status/type to uppercase for config lookup (backend may return lowercase)
   const normalizedTaskType = normalizeType(task.task_type)
   const normalizedTaskStatus = normalizeStatus(task.status)
-  const normalizedAssignmentStatus = assignment ? normalizeStatus(assignment.status) : null
+  // Determine assignment status; if the task is completed, show assignments as DONE (backend is source of truth)
+  let normalizedAssignmentStatus = assignment ? normalizeStatus(assignment.status) : null
+  if (normalizedTaskStatus === 'COMPLETED') normalizedAssignmentStatus = 'DONE'
   
   const typeConfig = taskTypeConfig[normalizedTaskType] || taskTypeConfig['CUSTOM']
   const status = statusConfig[normalizedTaskStatus] || statusConfig['PENDING']

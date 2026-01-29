@@ -94,6 +94,9 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
   const [_myRole, setMyRole] = useState<string | null>(null)
   const [_activeStep, setActiveStep] = useState<WorkflowStep | null>(null)
   const [_loadingWorkflow, setLoadingWorkflow] = useState(false)
+  // Admin form state
+  const [reassignUserId, setReassignUserId] = useState<string>('')
+  const [assignmentReassign, setAssignmentReassign] = useState<Record<number, { user?: string; role?: string }>>({})
   
   // Fetch workflow steps
   const fetchWorkflowSteps = async (taskId: number) => {
@@ -442,7 +445,76 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                 </div>
               </div>
             )}
+
+            {/* Order details (readonly, admin may view) */}
+            {task.order_details && Object.keys(task.order_details).length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <Package size={16} />
+                  Order Details
+                </h4>
+                <div className="bg-[#2b2d31] rounded-lg p-3">
+                  <pre className="text-xs text-[#949ba4] whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(task.order_details, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
             
+            {/* Admin Controls */}
+            {user?.is_system_admin && (
+              <div className="bg-[#2b2d31] rounded-lg p-3 mb-4">
+                <h4 className="text-sm font-semibold text-white mb-3">Admin Controls</h4>
+                <div className="flex items-center gap-2">
+                  <input
+                    placeholder="New user id"
+                    type="number"
+                    value={reassignUserId}
+                    onChange={(e) => setReassignUserId(e.target.value)}
+                    className="px-3 py-2 bg-[#1e1f22] border border-[#3f4147] rounded-lg text-white text-sm w-36"
+                  />
+                  <button
+                    onClick={async () => {
+                      const v = parseInt(reassignUserId, 10)
+                      if (!v) return alert('Enter a valid user id')
+                      if (!confirm(`Reassign task #${task.id} to user ${v}?`)) return
+                      try {
+                        await api.post(`/api/automation/tasks/${task.id}/reassign`, { new_user_id: v })
+                        setReassignUserId('')
+                        await fetchTaskDetails(task.id)
+                        await fetchTaskEvents(task.id)
+                        alert('Task reassigned')
+                      } catch (e) {
+                        console.error(e)
+                        alert('Failed to reassign task')
+                      }
+                    }}
+                    className="px-3 py-2 bg-[#5865f2] hover:bg-[#4752c4] text-white rounded-lg"
+                  >
+                    Reassign Task
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Soft-delete (cancel) task #${task.id}?`)) return
+                      try {
+                        await api.post(`/api/automation/tasks/${task.id}/delete`)
+                        await fetchTaskDetails(task.id)
+                        await fetchTaskEvents(task.id)
+                        alert('Task cancelled')
+                      } catch (e) {
+                        console.error(e)
+                        alert('Failed to delete task')
+                      }
+                    }}
+                    className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+                  >
+                    Cancel Task
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Assignments */}
             <div>
               <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
@@ -455,6 +527,8 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                 <div className="space-y-2">
                   {task.assignments.map((assignment) => {
                     const isMyAssignment = assignment.user_id === user?.id
+                    const assignmentStatus = normalizeStatus(assignment.status)
+                    const effectiveAssignmentStatus = normalizeStatus(task.status) === 'COMPLETED' ? 'DONE' : assignmentStatus
                     
                     return (
                       <div 
@@ -478,14 +552,14 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                           </div>
                           <span className={clsx(
                             'text-sm font-medium',
-                            assignmentStatusConfig[normalizeStatus(assignment.status)]?.color || 'text-gray-400'
+                            assignmentStatusConfig[effectiveAssignmentStatus]?.color || 'text-gray-400'
                           )}>
-                            {assignmentStatusConfig[normalizeStatus(assignment.status)]?.label || assignment.status}
+                            {assignmentStatusConfig[effectiveAssignmentStatus]?.label || effectiveAssignmentStatus}
                           </span>
                         </div>
                         
                         {/* Show completed status */}
-                        {isMyAssignment && normalizeStatus(assignment.status) === 'DONE' && (
+                        {(isMyAssignment && effectiveAssignmentStatus === 'DONE') && (
                           <div className="mt-3 pt-3 border-t border-[#1f2023] text-green-400 text-sm flex items-center gap-2">
                             <CheckCircle size={16} />
                             Assignment completed
@@ -494,6 +568,48 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                                 ({formatDate(assignment.completed_at)})
                               </span>
                             )}
+                          </div>
+                        )}
+
+                        {/* Admin: reassignment controls per assignment */}
+                        {user?.is_system_admin && (
+                          <div className="mt-3 pt-3 border-t border-[#1f2023] flex items-center gap-2">
+                            <input
+                              placeholder="New user id"
+                              type="number"
+                              value={assignmentReassign[assignment.id]?.user || ''}
+                              onChange={(e) => setAssignmentReassign(prev => ({ ...prev, [assignment.id]: { ...(prev[assignment.id] || {}), user: e.target.value } }))}
+                              className="px-3 py-2 bg-[#1e1f22] border border-[#3f4147] rounded-lg text-white text-sm w-32"
+                            />
+                            <input
+                              placeholder="New role (optional)"
+                              type="text"
+                              value={assignmentReassign[assignment.id]?.role || ''}
+                              onChange={(e) => setAssignmentReassign(prev => ({ ...prev, [assignment.id]: { ...(prev[assignment.id] || {}), role: e.target.value } }))}
+                              className="px-3 py-2 bg-[#1e1f22] border border-[#3f4147] rounded-lg text-white text-sm w-36"
+                            />
+                            <button
+                              onClick={async () => {
+                                const tmp = assignmentReassign[assignment.id] || {}
+                                const newUser = parseInt(tmp.user || '', 10)
+                                const newRole = tmp.role || null
+                                if (!newUser) return alert('Enter a valid user id')
+                                if (!confirm(`Reassign assignment #${assignment.id} to user ${newUser}?`)) return
+                                try {
+                                  await api.post(`/api/automation/assignments/${assignment.id}/reassign`, { new_user_id: newUser, new_role_hint: newRole })
+                                  setAssignmentReassign(prev => ({ ...prev, [assignment.id]: {} }))
+                                  await fetchTaskDetails(task.id)
+                                  await fetchTaskEvents(task.id)
+                                  alert('Assignment reassigned')
+                                } catch (e) {
+                                  console.error(e)
+                                  alert('Failed to reassign assignment')
+                                }
+                              }}
+                              className="px-3 py-2 bg-[#5865f2] hover:bg-[#4752c4] text-white rounded-lg"
+                            >
+                              Reassign
+                            </button>
                           </div>
                         )}
                       </div>
@@ -509,6 +625,9 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                 <Clock size={16} />
                 Activity Timeline ({events.length})
               </h4>
+              {user?.is_system_admin && (
+                <div className="text-xs text-[#72767d] mb-2">🔒 Admin audit entries are shown here.</div>
+              )}
               {events.length === 0 ? (
                 <p className="text-[#72767d] text-sm italic">No events recorded</p>
               ) : (

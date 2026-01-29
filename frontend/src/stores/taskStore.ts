@@ -35,6 +35,7 @@ export interface AutomationTask {
   created_by_id: number
   related_order_id: number | null
   metadata: Record<string, unknown> | null
+  order_details?: Record<string, unknown> | null
   created_at: string
   updated_at: string | null
   assignments: TaskAssignment[]

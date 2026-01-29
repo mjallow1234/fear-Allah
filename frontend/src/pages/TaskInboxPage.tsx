@@ -23,7 +23,7 @@ import { subscribeToTasks } from '../realtime/tasks'
 import TaskCard from '../components/Tasks/TaskCard'
 import TaskDetailsDrawer from '../components/Tasks/TaskDetailsDrawer'
 
-type TabType = 'my-tasks' | 'created' | 'completed' | 'available'
+type TabType = 'my-tasks' | 'created' | 'completed' | 'available' | 'all'
 
 export default function TaskInboxPage() {
   const navigate = useNavigate()
@@ -52,7 +52,8 @@ export default function TaskInboxPage() {
     clearError,
   } = useTaskStore()
   
-  const [activeTab, setActiveTab] = useState<TabType>('my-tasks')
+  // Admins default to 'all' to see every task; frontend must respect backend as source-of-truth
+  const [activeTab, setActiveTab] = useState<TabType>(user?.is_system_admin ? 'all' : 'my-tasks')
   
   // Subscribe to task events on mount
   useEffect(() => {
@@ -98,6 +99,8 @@ export default function TaskInboxPage() {
       return tasks.filter(t => taskIds.has(t.id))
     } else if (activeTab === 'created') {
       return tasks.filter(t => t.created_by_id === user?.id)
+    } else if (activeTab === 'all') {
+      return tasks
     } else {
       // Completed tab
       return tasks.filter(t => t.status === 'COMPLETED')
@@ -196,6 +199,20 @@ export default function TaskInboxPage() {
               </span>
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab('all')}
+            className={clsx(
+              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+              activeTab === 'all'
+                ? 'text-white border-[#5865f2]'
+                : 'text-[#949ba4] border-transparent hover:text-white'
+            )}
+          >
+            <ClipboardList size={16} />
+            All Tasks
+          </button>
+
           <button
             onClick={() => setActiveTab('available')}
             className={clsx(
