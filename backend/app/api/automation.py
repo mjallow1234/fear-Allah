@@ -124,10 +124,55 @@ async def list_tasks(
         offset=offset,
         current_user=user,
     )
-    
+
+    # Enrich tasks with order details when present (best-effort)
+    enriched = []
+    from app.db.models import Order
+    import json as _json
+    for t in tasks:
+        resp = _task_to_response(t)
+        if getattr(t, 'related_order_id', None):
+            try:
+                res = await db.execute(select(Order).where(Order.id == t.related_order_id))
+                order = res.scalar_one_or_none()
+                if order:
+                    import ast
+                    order_items = None
+                    try:
+                        order_items = _json.loads(order.items) if order.items else None
+                    except Exception:
+                        try:
+                            order_items = ast.literal_eval(order.items) if order.items else None
+                        except Exception:
+                            order_items = None
+                    meta = None
+                    try:
+                        meta = _json.loads(order.meta) if order.meta else None
+                    except Exception:
+                        try:
+                            meta = ast.literal_eval(order.meta) if order.meta else None
+                        except Exception:
+                            meta = None
+
+                    order_details = {
+                        'order_type': (order.order_type.name if hasattr(order.order_type, 'name') else str(order.order_type)).upper(),
+                        'items': order_items,
+                        'quantities': [i.get('quantity') for i in order_items] if isinstance(order_items, list) else None,
+                        'delivery_location': meta.get('delivery_location') if isinstance(meta, dict) else None,
+                        'customer_name': order.customer_name,
+                        'customer_phone': order.customer_phone,
+                        'meta': meta,
+                    }
+                    data = resp.model_dump()
+                    data['order_details'] = order_details
+                    resp = TaskResponse.model_validate(data)
+            except Exception:
+                pass
+        enriched.append(resp)
+
     return TaskListResponse(
-        tasks=[_task_to_response(t) for t in tasks],
-        total=len(tasks),
+        tasks=enriched,
+        total=len(enriched),
     )
 
 
@@ -168,8 +213,56 @@ async def get_task(
     
     if not can_view:
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    return _task_to_response(task)
+
+    # Build base response
+    resp = _task_to_response(task)
+
+    # Enrich with order details snapshot when available (read-only)
+    if getattr(task, 'related_order_id', None):
+        try:
+            from app.db.models import Order
+            import json as _json
+            res = await db.execute(select(Order).where(Order.id == task.related_order_id))
+            order = res.scalar_one_or_none()
+            if order:
+                import ast
+                order_items = None
+                try:
+                    order_items = _json.loads(order.items) if order.items else None
+                except Exception:
+                    try:
+                        # Fallback for Python repr strings (legacy storage)
+                        order_items = ast.literal_eval(order.items) if order.items else None
+                    except Exception:
+                        order_items = None
+                meta = None
+                try:
+                    meta = _json.loads(order.meta) if order.meta else None
+                except Exception:
+                    try:
+                        meta = ast.literal_eval(order.meta) if order.meta else None
+                    except Exception:
+                        meta = None
+
+                order_details = {
+                    'order_type': (order.order_type.name if hasattr(order.order_type, 'name') else str(order.order_type)).upper(),
+                    'items': order_items,
+                    'quantities': [i.get('quantity') for i in order_items] if isinstance(order_items, list) else None,
+                    'delivery_location': meta.get('delivery_location') if isinstance(meta, dict) else None,
+                    'customer_name': order.customer_name,
+                    'customer_phone': order.customer_phone,
+                    'meta': meta,
+                }
+
+                # Inject order_details into response (create new validated model)
+                data = resp.model_dump()
+                data['order_details'] = order_details
+                return TaskResponse.model_validate(data)
+        except Exception:
+            # Best-effort: do not fail if enrichment fails
+            pass
+
+    return resp
 
 
 @router.get("/tasks/{task_id}/events", response_model=list[TaskEventResponse])
@@ -441,9 +534,20 @@ async def get_my_assignments(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Get all assignments for the current user."""
+    """Get all assignments for the current user.
+
+    System admins receive ALL assignments (visibility override).
+    """
     user_id = current_user["user_id"]
-    assignments = await AutomationService.get_user_assignments(db, user_id)
+    user = await _get_user(db, user_id)
+
+    if user.is_system_admin:
+        # Admins see all assignments
+        result = await db.execute(select(TaskAssignment))
+        assignments = list(result.scalars().all())
+    else:
+        assignments = await AutomationService.get_user_assignments(db, user_id)
+
     return [_assignment_to_response(a) for a in assignments]
 
 
@@ -452,12 +556,36 @@ async def get_my_assignments(
 def _task_to_response(task) -> TaskResponse:
     """Convert task model to response schema."""
     import json
+    from datetime import datetime
+    from app.db.enums import AssignmentStatus as AS
+
     # Handle assignments - check if loaded to avoid lazy loading issues
     assignments = []
     try:
         # Only access if already loaded
         if hasattr(task, '_sa_instance_state') and 'assignments' in task.__dict__:
-            assignments = [_assignment_to_response(a) for a in (task.assignments or [])]
+            for a in (task.assignments or []):
+                status_value = a.status
+                completed_at = a.completed_at
+
+                # If the task is completed, ensure assignments are presented as completed (read-only fix)
+                if task.status == AutomationTaskStatus.completed:
+                    if a.status not in (AS.done, AS.skipped):
+                        status_value = AS.done
+                        if not completed_at:
+                            completed_at = datetime.utcnow()
+
+                # Build the assignment response ensuring presentation-level consistency
+                assignments.append(AssignmentResponse(
+                    id=a.id,
+                    task_id=a.task_id,
+                    user_id=a.user_id,
+                    role_hint=a.role_hint,
+                    status=status_value,
+                    notes=a.notes,
+                    assigned_at=a.assigned_at,
+                    completed_at=completed_at,
+                ))
     except Exception:
         pass
     

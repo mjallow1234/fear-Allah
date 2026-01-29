@@ -33,8 +33,8 @@ class TaskResponse(BaseModel):
     metadata: Optional[dict[str, Any]]
     created_at: datetime
     updated_at: Optional[datetime]
-    assignments: list["AssignmentResponse"] = []
-    
+    assignments: list["AssignmentResponse"] = []    # Optional read-only snapshot of related order data when this task is linked to an order
+    order_details: Optional[dict[str, Any]] = None    
     class Config:
         from_attributes = True
 

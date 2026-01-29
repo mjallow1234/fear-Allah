@@ -184,6 +184,58 @@ async def test_delivery_completion_closes_task_when_final(
 
 
 @pytest.mark.anyio
+async def test_auto_complete_assignments_on_task_completion(
+    async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
+):
+    """When an automation task is marked completed, any remaining assignments must be auto-completed."""
+    client, user_data = async_client_authenticated
+
+    # Create an order which creates an automation task
+    order_resp = await client.post(
+        "/api/orders/",
+        json={"order_type": "AGENT_RESTOCK", "items": [{"product_id": 1, "quantity": 1}]},
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["order_id"]
+
+    # Get automation task for the order
+    auto_resp = await client.get(f"/api/orders/{order_id}/automation")
+    assert auto_resp.status_code == 200
+    task_id = auto_resp.json()["task_id"]
+
+    # Create assignments in non-done states
+    from app.db.models import TaskAssignment, User
+    from app.core.security import get_password_hash
+
+    u1 = User(username='assign1', email='assign1@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    u2 = User(username='assign2', email='assign2@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    test_session.add_all([u1, u2])
+    await test_session.commit()
+    await test_session.refresh(u1)
+    await test_session.refresh(u2)
+
+    a1 = TaskAssignment(task_id=task_id, user_id=u1.id, role_hint='foreman', status='pending')
+    a2 = TaskAssignment(task_id=task_id, user_id=u2.id, role_hint='requester', status='in_progress')
+    test_session.add_all([a1, a2])
+    await test_session.commit()
+
+    # Complete the task
+    from app.automation.service import AutomationService
+    from app.db.enums import AutomationTaskStatus, AssignmentStatus
+
+    await AutomationService.update_task_status(db=test_session, task_id=task_id, new_status=AutomationTaskStatus.completed, user_id=None)
+
+    # Assert all assignments are now done with completed_at set
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
+    assigns = res.scalars().all()
+    assert len(assigns) >= 2
+    for a in assigns:
+        assert getattr(a.status, 'value', a.status) == AssignmentStatus.done.value
+        assert a.completed_at is not None
+
+
+@pytest.mark.anyio
 async def test_foreman_handover_step_creates_delivery_task(
     async_client_authenticated: tuple[AsyncClient, dict],
     test_session: object,
@@ -708,6 +760,16 @@ async def test_admin_can_complete_any_assignment(async_client_authenticated: tup
 
     # Admin posts to complete the assignment for the task - should succeed
     resp = await client.post(f'/api/automation/tasks/{task_id}/complete', json={'notes': 'admin complete'}, headers={'Authorization': f'Bearer {token}'})
+
+    # DEBUG: directly call service to capture exception stack if any
+    from app.automation.service import AutomationService
+    try:
+        await AutomationService.complete_assignment(db=test_session, task_id=task_id, user_id=admin.id)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise
+
     assert resp.status_code == 200
     data = resp.json()
     assert data['status'] in ('done', 'DONE', 'completed') or data['status'] is not None
@@ -725,3 +787,160 @@ async def test_delivery_endpoint_returns_200(async_client_authenticated: tuple[A
 
     resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_all_assignments_completed_when_task_completed(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """When a task is marked completed, all its assignments should be marked DONE with completed_at set."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import TaskAssignment
+    from app.db.enums import AssignmentStatus, AutomationTaskStatus
+    from sqlalchemy import select
+
+    # Create a task via API
+    resp = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'complete sync test'})
+    assert resp.status_code == 201
+    task_id = resp.json()['id']
+
+    # Insert two assignments for the task in various states
+    a1 = TaskAssignment(task_id=task_id, user_id=None, role_hint='foreman', status=AssignmentStatus.in_progress)
+    a2 = TaskAssignment(task_id=task_id, user_id=None, role_hint='delivery', status=AssignmentStatus.in_progress)
+    test_session.add_all([a1, a2])
+    await test_session.commit()
+
+    # Mark the automation task as completed via service
+    from app.automation.service import AutomationService
+    await AutomationService.update_task_status(db=test_session, task_id=task_id, new_status=AutomationTaskStatus.completed)
+
+    # Verify assignments updated
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
+    assignments = res.scalars().all()
+    assert len(assignments) >= 2
+    for a in assignments:
+        assert getattr(a.status, 'value', a.status) == AssignmentStatus.done.value
+        assert a.completed_at is not None
+
+
+@pytest.mark.anyio
+async def test_admin_sees_all_tasks(client: AsyncClient, test_session: object):
+    """Admin user should see all tasks regardless of creator."""
+
+    # Create two normal users and let each create a task
+    await client.post('/api/auth/register', json={'email': 'u1@example.com', 'password': 'Password123!', 'username': 'u1'})
+    login1 = await client.post('/api/auth/login', json={'identifier': 'u1', 'password': 'Password123!'})
+    token1 = login1.json()['access_token']
+
+    await client.post('/api/auth/register', json={'email': 'u2@example.com', 'password': 'Password123!', 'username': 'u2'})
+    login2 = await client.post('/api/auth/login', json={'identifier': 'u2', 'password': 'Password123!'})
+    token2 = login2.json()['access_token']
+
+    # User1 creates a task
+    t1 = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'user1 task'}, headers={'Authorization': f'Bearer {token1}'})
+    assert t1.status_code == 201
+    id1 = t1.json()['id']
+
+    # User2 creates a task
+    t2 = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'user2 task'}, headers={'Authorization': f'Bearer {token2}'})
+    assert t2.status_code == 201
+    id2 = t2.json()['id']
+
+    # Create an admin user directly in DB
+    from app.db.models import User
+    from app.core.security import get_password_hash
+    admin = User(username='admin_vis', email='admin_vis@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
+    # Login as admin
+    login_admin = await client.post('/api/auth/login', json={'identifier': 'admin_vis', 'password': 'pw'})
+    token_admin = login_admin.json()['access_token']
+
+    # Admin should see both tasks
+    resp_admin = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {token_admin}'})
+    assert resp_admin.status_code == 200
+    ids = [t['id'] for t in resp_admin.json().get('tasks', [])]
+    assert id1 in ids and id2 in ids
+
+    # User1 should only see their own task
+    resp_user1 = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {token1}'})
+    ids_user1 = [t['id'] for t in resp_user1.json().get('tasks', [])]
+    assert id1 in ids_user1 and id2 not in ids_user1
+
+
+@pytest.mark.anyio
+async def test_admin_override_does_not_break_task_state(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Admin override completion should mark assignments done and not break task state."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User, TaskAssignment
+    from app.core.security import get_password_hash
+    from sqlalchemy import select
+
+    # Create foreman user and admin
+    foreman = User(username='foreman_override', email='fo@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    admin = User(username='admin_override', email='ao@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add_all([foreman, admin])
+    await test_session.commit()
+    await test_session.refresh(foreman)
+    await test_session.refresh(admin)
+
+    # Create a task and assign foreman
+    resp = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'override test'})
+    assert resp.status_code == 201
+    task_id = resp.json()['id']
+
+    # Add assignment to foreman
+    await test_session.execute(
+        TaskAssignment.__table__.insert().values(task_id=task_id, user_id=foreman.id, role_hint='foreman', status='in_progress')
+    )
+    await test_session.commit()
+
+    # Login as admin
+    login = await client.post('/api/auth/login', json={'identifier': 'admin_override', 'password': 'pw'})
+    token = login.json()['access_token']
+
+    # Admin posts to complete the assignment for the task - should succeed
+    resp2 = await client.post(f'/api/automation/tasks/{task_id}/complete', json={'notes': 'admin override'}, headers={'Authorization': f'Bearer {token}'})
+    assert resp2.status_code == 200
+
+    # Verify assignment marked done
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
+    assignment = res.scalar_one_or_none()
+    status_val = getattr(assignment.status, 'value', assignment.status)
+    assert str(status_val).lower() == 'done'
+    assert assignment.completed_at is not None
+
+
+@pytest.mark.anyio
+async def test_task_details_include_order_data(async_client_authenticated: tuple[AsyncClient, dict]):
+    """Task details endpoint should include order_details when linked to an order."""
+    client, _ = async_client_authenticated
+
+    # Create an order with extended info
+    order_resp = await client.post('/api/orders/', json={
+        'order_type': 'AGENT_RESTOCK',
+        'items': [{'product_id': 11, 'quantity': 3}],
+        'customer_name': 'Alice',
+        'customer_phone': '555-0100',
+        'metadata': {'delivery_location': 'Warehouse A'}
+    })
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()['order_id']
+
+    # Get the automation task created for this order
+    auto_resp = await client.get(f'/api/orders/{order_id}/automation')
+    task_id = auto_resp.json()['task_id']
+
+    # Fetch task details
+    t_resp = await client.get(f'/api/automation/tasks/{task_id}')
+    assert t_resp.status_code == 200
+    data = t_resp.json()
+    assert 'order_details' in data and data['order_details'] is not None
+    od = data['order_details']
+    assert od['order_type'] == 'AGENT_RESTOCK'
+    assert isinstance(od['items'], list)
+    assert od['quantities'] == [3]
+    assert od['customer_name'] == 'Alice'
+    assert od['customer_phone'] == '555-0100'
