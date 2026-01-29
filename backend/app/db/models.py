@@ -55,7 +55,22 @@ class User(Base):
     )
 
     def has_operational_role(self, role: str) -> bool:
-        """Return True if the user has the given operational role."""
+        """Return True if the user has the given operational role.
+
+        This checks both explicit operational role assignments and the legacy
+        global `role` column so tests that set `role='foreman'` continue to work
+        as expected.
+        """
+        # Check legacy global role column (could be an Enum or a string)
+        role_val = None
+        if hasattr(self, 'role') and self.role is not None:
+            try:
+                role_val = self.role.value if hasattr(self.role, 'value') else self.role
+            except Exception:
+                role_val = self.role
+        if role_val == role:
+            return True
+
         return any(r.role == role for r in getattr(self, 'operational_roles', []))
 
 

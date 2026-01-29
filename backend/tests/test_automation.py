@@ -246,3 +246,57 @@ async def test_available_tasks_endpoint(
     data2 = avail_resp2.json()
     tasks2 = data2.get('tasks', [])
     assert not any(t['id'] == task_id for t in tasks2), f"Task {task_id} still appeared in available tasks after claim"
+
+
+@pytest.mark.anyio
+async def test_my_assignments_admin_returns_200(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Admin GET /my-assignments should return 200 (fix NameError import bug)."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User
+    from app.core.security import get_password_hash
+
+    admin = User(username='my_assign_admin', email='my_assign_admin@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
+    login = await client.post('/api/auth/login', json={'identifier': 'my_assign_admin', 'password': 'pw'})
+    token = login.json()['access_token']
+
+    resp = await client.get('/api/automation/my-assignments', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    # Should be a list
+    assert isinstance(resp.json(), list)
+
+
+@pytest.mark.anyio
+async def test_admin_force_complete_task_with_no_assignments(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """System admin should be able to force-complete a task even when no assignments exist."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User
+    from app.core.security import get_password_hash
+
+    # Create a task with no assignments
+    create = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'no assignments'})
+    assert create.status_code == 201
+    task_id = create.json()['id']
+
+    # Create admin and login
+    admin = User(username='force_no_assign_admin', email='fna@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
+    login = await client.post('/api/auth/login', json={'identifier': 'force_no_assign_admin', 'password': 'pw'})
+    token = login.json()['access_token']
+
+    # Admin posts to complete with empty body
+    res = await client.post(f'/api/automation/tasks/{task_id}/complete', json={}, headers={'Authorization': f'Bearer {token}'})
+    assert res.status_code == 200
+
+    # Verify task status is COMPLETED
+    t_resp = await client.get(f'/api/automation/tasks/{task_id}')
+    assert t_resp.status_code == 200
+    assert t_resp.json()['status'].upper() == 'COMPLETED'

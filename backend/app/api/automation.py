@@ -2,9 +2,10 @@
 Automation Engine API Endpoints (Phase 6.1)
 Task management endpoints for the new automation engine.
 """
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from app.db.models import TaskAssignment
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -592,7 +593,7 @@ async def assign_user(
     return _assignment_to_response(assignment)
 
 
-@router.post("/tasks/{task_id}/complete", response_model=AssignmentResponse)
+@router.post("/tasks/{task_id}/complete", response_model=Union[AssignmentResponse, TaskResponse])
 async def complete_my_assignment(
     task_id: int,
     payload: AssignmentComplete,
@@ -604,6 +605,10 @@ async def complete_my_assignment(
     
     Only the assigned user can complete their assignment.
     Validates that the corresponding workflow task is active before allowing completion.
+
+    Admins: can force-complete a task when there are no assignments. In that case
+    the task is marked completed and a `TaskResponse` is returned (and an audit
+    log is created).
     """
     user_id = current_user["user_id"]
     
@@ -615,7 +620,44 @@ async def complete_my_assignment(
             notes=payload.notes,
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # If assignment not found, allow system admins to force-complete a task
+        # only when there are no assignments present.
+        try:
+            user = await _get_user(db, user_id)
+        except Exception:
+            raise HTTPException(status_code=404, detail=str(e))
+
+        if user.is_system_admin:
+            # Load the task with assignments to check if any exist
+            task = await AutomationService.get_task(db, task_id, include_assignments=True)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            if task.assignments:
+                # There are assignments; the admin should use the assignment-complete flow
+                raise HTTPException(status_code=400, detail="Cannot force-complete: task has assignments")
+
+            # Perform force-complete via existing update method to ensure consistency
+            task = await AutomationService.update_task_status(
+                db=db,
+                task_id=task_id,
+                new_status=AutomationTaskStatus.completed,
+                user_id=user_id,
+            )
+
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            # Audit the admin action
+            try:
+                from app.services.audit import log_audit_from_user, AuditActions
+                await log_audit_from_user(db, user, action=AuditActions.TASK_COMPLETE, target_type='task', target_id=task.id, description='admin force-complete task with no assignments')
+            except Exception:
+                pass
+
+            return _task_to_response(task)
+        else:
+            raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except RuntimeError as e:
