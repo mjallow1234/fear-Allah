@@ -90,7 +90,7 @@ async def create_order_endpoint(request: CreateOrderRequest, current_user: dict 
             db, 
             request.order_type, 
             items=str(request.items), 
-            metadata=str(extended_meta),
+            metadata=extended_meta,
             created_by_id=user_id,
             # Pass extended fields to the order directly
             reference=request.reference,
