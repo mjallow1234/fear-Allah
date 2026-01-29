@@ -61,7 +61,7 @@ class AssignmentResponse(BaseModel):
     """Schema for assignment response"""
     id: int
     task_id: int
-    user_id: int
+    user_id: Optional[int] = None
     role_hint: Optional[str]
     status: AssignmentStatus
     notes: Optional[str]

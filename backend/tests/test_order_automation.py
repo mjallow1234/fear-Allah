@@ -914,6 +914,40 @@ async def test_admin_override_does_not_break_task_state(async_client_authenticat
 
 
 @pytest.mark.anyio
+async def test_admin_force_complete_unassigned_assignment(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Admin force-complete should return assignment with user_id = None for role-only placeholders."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User, TaskAssignment
+    from app.core.security import get_password_hash
+
+    # Create a task
+    resp = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'role-only assignment'})
+    assert resp.status_code == 201
+    task_id = resp.json()['id']
+
+    # Insert a placeholder assignment (role-only, no user bound)
+    placeholder = TaskAssignment(task_id=task_id, user_id=None, role_hint='delivery', status='pending')
+    test_session.add(placeholder)
+    await test_session.commit()
+    await test_session.refresh(placeholder)
+
+    # Create and login as admin
+    admin = User(username='force_admin', email='force_admin@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
+    login = await client.post('/api/auth/login', json={'identifier': 'force_admin', 'password': 'pw'})
+    token = login.json()['access_token']
+
+    # Admin posts to complete — should succeed and return assignment response with user_id == None
+    res = await client.post(f'/api/automation/tasks/{task_id}/complete', json={}, headers={'Authorization': f'Bearer {token}'})
+    assert res.status_code == 200
+    data = res.json()
+    assert 'user_id' in data and data['user_id'] is None
+
+@pytest.mark.anyio
 async def test_task_details_include_order_data(async_client_authenticated: tuple[AsyncClient, dict]):
     """Task details endpoint should include order_details when linked to an order."""
     client, _ = async_client_authenticated
