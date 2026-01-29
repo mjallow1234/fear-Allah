@@ -28,16 +28,32 @@ def upgrade():
 
     # Insert a system user (id=0) to represent the system as a task creator.
     # Use ON CONFLICT DO NOTHING so this is safe to run multiple times and in different environments.
+    # System user required for automation_tasks.created_by_id FK integrity.
     op.execute("""
-    INSERT INTO users (id, username, display_name, email, hashed_password, is_active, is_system_admin, created_at)
+    INSERT INTO users (
+        id,
+        username,
+        display_name,
+        email,
+        hashed_password,
+        status,
+        role,
+        is_active,
+        is_system_admin,
+        created_at,
+        updated_at
+    )
     VALUES (
         0,
         'system',
         'System',
         'system@localhost',
         '',
+        'offline',        -- users.status enum (use 'offline' since 'active' is not in enum)
+        'system_admin',   -- users.role enum
         TRUE,
         TRUE,
+        now(),
         now()
     )
     ON CONFLICT DO NOTHING;
