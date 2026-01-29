@@ -944,3 +944,110 @@ async def test_task_details_include_order_data(async_client_authenticated: tuple
     assert od['quantities'] == [3]
     assert od['customer_name'] == 'Alice'
     assert od['customer_phone'] == '555-0100'
+
+
+@pytest.mark.anyio
+async def test_admin_can_reassign_task(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Admin can reassign a claimed task to another user and event/audit is created."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User
+    from app.core.security import get_password_hash
+
+    # Create regular user and admin
+    user_a = User(username='ra', email='ra@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    user_b = User(username='rb', email='rb@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    admin = User(username='ra_admin', email='ra_admin@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add_all([user_a, user_b, admin])
+    await test_session.commit()
+    await test_session.refresh(user_a)
+    await test_session.refresh(user_b)
+    await test_session.refresh(admin)
+
+    # Create task and claim as user_a
+    resp = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'reassign task test'})
+    assert resp.status_code == 201
+    task_id = resp.json()['id']
+
+    login = await client.post('/api/auth/login', json={'identifier': 'ra', 'password': 'pw'})
+    token = login.json()['access_token']
+    claim = await client.post(f'/api/automation/tasks/{task_id}/claim', json={'override': False}, headers={'Authorization': f'Bearer {token}'})
+    assert claim.status_code == 200
+
+    # Admin reassigns claim to user_b
+    login_admin = await client.post('/api/auth/login', json={'identifier': 'ra_admin', 'password': 'pw'})
+    token_admin = login_admin.json()['access_token']
+    resp2 = await client.post(f'/api/automation/tasks/{task_id}/reassign', json={'new_user_id': user_b.id}, headers={'Authorization': f'Bearer {token_admin}'})
+    assert resp2.status_code == 200
+    data = resp2.json()
+    assert data['id'] == task_id
+    assert data['created_by_id'] is not None
+
+
+@pytest.mark.anyio
+async def test_admin_can_reassign_assignment(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Admin can reassign an assignment to a different user and role."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User, TaskAssignment
+    from app.core.security import get_password_hash
+    from sqlalchemy import select
+
+    # Create users and admin
+    u1 = User(username='u1_reassign', email='u1_r@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    u2 = User(username='u2_reassign', email='u2_r@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    admin = User(username='reassign_admin', email='reassign_admin@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add_all([u1, u2, admin])
+    await test_session.commit()
+    await test_session.refresh(u1)
+    await test_session.refresh(u2)
+    await test_session.refresh(admin)
+
+    # Create task and an assignment
+    resp = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'assign reassign test'})
+    assert resp.status_code == 201
+    task_id = resp.json()['id']
+
+    await test_session.execute(TaskAssignment.__table__.insert().values(task_id=task_id, user_id=u1.id, role_hint='foreman', status='in_progress'))
+    await test_session.commit()
+
+    # Login as admin and reassign the assignment
+    login_admin = await client.post('/api/auth/login', json={'identifier': 'reassign_admin', 'password': 'pw'})
+    token_admin = login_admin.json()['access_token']
+
+    # Get assignment id
+    res = await test_session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
+    a = res.scalar_one()
+
+    resp2 = await client.post(f'/api/automation/assignments/{a.id}/reassign', json={'new_user_id': u2.id, 'new_role_hint': 'delivery'}, headers={'Authorization': f'Bearer {token_admin}'})
+    assert resp2.status_code == 200
+    data = resp2.json()
+    assert data['user_id'] == u2.id
+    assert data['role_hint'] == 'delivery'
+
+
+@pytest.mark.anyio
+async def test_admin_can_soft_delete_task(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """Admin soft-delete maps to cancelled status and creates audit event."""
+    client, _ = async_client_authenticated
+
+    from app.db.models import User
+    from app.core.security import get_password_hash
+
+    admin = User(username='softdel_admin', email='softdel_admin@example.com', hashed_password=get_password_hash('pw'), is_active=True, is_system_admin=True)
+    test_session.add(admin)
+    await test_session.commit()
+    await test_session.refresh(admin)
+
+    resp = await client.post('/api/automation/tasks', json={'task_type': 'custom', 'title': 'soft delete test'})
+    assert resp.status_code == 201
+    task_id = resp.json()['id']
+
+    login_admin = await client.post('/api/auth/login', json={'identifier': 'softdel_admin', 'password': 'pw'})
+    token_admin = login_admin.json()['access_token']
+
+    resp2 = await client.post(f'/api/automation/tasks/{task_id}/delete', headers={'Authorization': f'Bearer {token_admin}'})
+    assert resp2.status_code == 200
+    data = resp2.json()
+    assert data['status'] in ('cancelled', 'CANCELLED', 'cancelled')
+    

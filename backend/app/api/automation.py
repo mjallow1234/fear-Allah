@@ -454,6 +454,71 @@ async def claim_task_endpoint(
 
     return _task_to_response(task)
 
+
+@router.post("/tasks/{task_id}/reassign", response_model=TaskResponse)
+async def reassign_task_endpoint(
+    task_id: int,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Admin-only: reassign claimed user on a task."""
+    user_id = current_user["user_id"]
+    user = await _get_user(db, user_id)
+    if not user.is_system_admin:
+        raise HTTPException(status_code=403, detail="Only system admins can reassign tasks")
+
+    new_user_id = payload.get('new_user_id')
+    if not new_user_id:
+        raise HTTPException(status_code=400, detail="new_user_id is required")
+
+    task = await AutomationService.reassign_task(db=db, task_id=task_id, new_user_id=new_user_id, acting_user_id=user_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return _task_to_response(task)
+
+
+@router.post("/assignments/{assignment_id}/reassign", response_model=AssignmentResponse)
+async def reassign_assignment_endpoint(
+    assignment_id: int,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Admin-only: reassign an assignment to a different user or role."""
+    user_id = current_user["user_id"]
+    user = await _get_user(db, user_id)
+    if not user.is_system_admin:
+        raise HTTPException(status_code=403, detail="Only system admins can reassign assignments")
+
+    new_user_id = payload.get('new_user_id')
+    new_role = payload.get('new_role_hint')
+
+    assignment = await AutomationService.reassign_assignment(db=db, assignment_id=assignment_id, new_user_id=new_user_id, new_role_hint=new_role, acting_user_id=user_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    return _assignment_to_response(assignment)
+
+
+@router.post("/tasks/{task_id}/delete", response_model=TaskResponse)
+async def delete_task_endpoint(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Admin-only: soft delete (cancel) a task."""
+    user_id = current_user["user_id"]
+    user = await _get_user(db, user_id)
+    if not user.is_system_admin:
+        raise HTTPException(status_code=403, detail="Only system admins can delete tasks")
+
+    task = await AutomationService.soft_delete_task(db=db, task_id=task_id, acting_user_id=user_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return _task_to_response(task)
 # ---------------------- Assignment Endpoints ----------------------
 
 @router.post("/tasks/{task_id}/assign", response_model=AssignmentResponse, status_code=status.HTTP_201_CREATED)

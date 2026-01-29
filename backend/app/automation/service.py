@@ -1255,7 +1255,143 @@ class AutomationService:
             .order_by(TaskEvent.created_at)
         )
         return list(result.scalars().all())
-    
+
+    @staticmethod
+    async def reassign_task(
+        db: AsyncSession,
+        task_id: int,
+        new_user_id: int,
+        acting_user_id: int,
+    ) -> Optional[AutomationTask]:
+        """Reassign the claimed user on a task (admin-only operation)."""
+        from app.audit.logger import log_audit
+        # Load task
+        task = await AutomationService.get_task(db, task_id, include_assignments=False)
+        if not task:
+            return None
+
+        # Update claim
+        prev = task.claimed_by_user_id
+        task.claimed_by_user_id = new_user_id
+        task.claimed_at = datetime.utcnow()
+        db.add(task)
+
+        # Log TaskEvent
+        evt = TaskEvent(
+            task_id=task.id,
+            user_id=acting_user_id,
+            event_type=TaskEventType.task_reassigned,
+            event_metadata=json.dumps({"from_user_id": prev, "to_user_id": new_user_id}),
+        )
+        db.add(evt)
+
+        # Audit
+        try:
+            from app.services.audit import log_audit_from_user, AuditActions
+            actor_res = await db.execute(select(User).where(User.id == acting_user_id))
+            actor = actor_res.scalar_one_or_none()
+            await log_audit_from_user(db, actor, action=AuditActions.TASK_ASSIGN, target_type='task', target_id=task.id, description='admin reassign claim', meta={"from": prev, "to": new_user_id})
+        except Exception:
+            logger.warning(f"[Automation] Failed to write audit log for reassign task {task_id}")
+
+        try:
+            # Notify users
+            from app.services.notifications import notify_task_reassigned
+            await notify_task_reassigned(db=db, task_id=task.id, task_title=task.title, from_user_id=prev, to_user_id=new_user_id)
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to notify on task.reassigned: {e}")
+
+        await db.commit()
+        await db.refresh(task)
+        return task
+
+    @staticmethod
+    async def reassign_assignment(
+        db: AsyncSession,
+        assignment_id: int,
+        new_user_id: Optional[int] = None,
+        new_role_hint: Optional[str] = None,
+        acting_user_id: Optional[int] = None,
+    ) -> Optional[TaskAssignment]:
+        """Reassign an assignment to a different user or role (admin-only)."""
+        from app.audit.logger import log_audit
+        res = await db.execute(select(TaskAssignment).where(TaskAssignment.id == assignment_id))
+        assignment = res.scalar_one_or_none()
+        if not assignment:
+            return None
+
+        prev_user = assignment.user_id
+        prev_role = assignment.role_hint
+        changed = False
+        if new_user_id is not None and new_user_id != assignment.user_id:
+            assignment.user_id = new_user_id
+            changed = True
+        if new_role_hint is not None and new_role_hint != assignment.role_hint:
+            assignment.role_hint = new_role_hint
+            changed = True
+
+        if not changed:
+            return assignment
+
+        db.add(assignment)
+
+        # Log TaskEvent
+        evt = TaskEvent(
+            task_id=assignment.task_id,
+            user_id=acting_user_id,
+            event_type=TaskEventType.reassigned,
+            event_metadata=json.dumps({"from_user": prev_user, "to_user": assignment.user_id, "from_role": prev_role, "to_role": assignment.role_hint}),
+        )
+        db.add(evt)
+
+        # Audit
+        try:
+            from app.services.audit import log_audit_from_user, AuditActions
+            actor_res = await db.execute(select(User).where(User.id == acting_user_id))
+            actor = actor_res.scalar_one_or_none()
+            await log_audit_from_user(db, actor, action=AuditActions.TASK_ASSIGN, target_type='task_assignment', target_id=assignment.id, description='admin reassigned assignment', meta={"from_user": prev_user, "to_user": assignment.user_id, "from_role": prev_role, "to_role": assignment.role_hint})
+        except Exception:
+            logger.warning(f"[Automation] Failed to write audit log for reassign assignment {assignment_id}")
+
+        await db.commit()
+        await db.refresh(assignment)
+        return assignment
+
+    @staticmethod
+    async def soft_delete_task(
+        db: AsyncSession,
+        task_id: int,
+        acting_user_id: Optional[int] = None,
+    ) -> Optional[AutomationTask]:
+        """Soft-delete a task (implemented as cancel) and log audit.
+        Note: We use status=cancelled as soft-delete since schema changes are not allowed."""
+        from app.audit.logger import log_audit
+        task = await AutomationService.get_task(db, task_id, include_assignments=False)
+        if not task:
+            return None
+
+        task.status = AutomationTaskStatus.cancelled
+        db.add(task)
+
+        evt = TaskEvent(
+            task_id=task.id,
+            user_id=acting_user_id,
+            event_type=TaskEventType.cancelled,
+            event_metadata=json.dumps({"reason": "admin_soft_delete"}),
+        )
+        db.add(evt)
+
+        try:
+            from app.services.audit import log_audit_from_user, AuditActions
+            actor_res = await db.execute(select(User).where(User.id == acting_user_id))
+            actor = actor_res.scalar_one_or_none()
+            await log_audit_from_user(db, actor, action=AuditActions.TASK_DELETE, target_type='task', target_id=task.id, description='admin soft delete')
+        except Exception:
+            logger.warning(f"[Automation] Failed to write audit log for soft delete task {task_id}")
+
+        await db.commit()
+        await db.refresh(task)
+        return task    
     # ---------------------- Permission Checks ----------------------
     
     @staticmethod
