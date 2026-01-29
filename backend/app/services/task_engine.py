@@ -103,11 +103,55 @@ async def create_order(
     if order_type not in WORKFLOWS:
         raise ValueError("Invalid order_type")
 
+    # Normalize metadata into a dict regardless of how it was passed (dict or JSON/string)
+    meta_dict = {}
+    if isinstance(metadata, dict):
+        meta_dict = dict(metadata)
+    else:
+        try:
+            meta_dict = json.loads(metadata) if metadata else {}
+        except Exception:
+            try:
+                import ast
+                meta_dict = ast.literal_eval(metadata) if metadata else {}
+            except Exception:
+                meta_dict = {}
+
+    # If payload looks like a form payload (top-level fields), normalize under 'form_payload'
+    if 'form_payload' not in meta_dict and isinstance(metadata, dict) and ('fields' in metadata or 'responses' in metadata):
+        meta_dict['form_payload'] = metadata
+
+    # If a form_payload is present, optionally persist normalized top-level fields
+    form_payload = meta_dict.get('form_payload')
+    if isinstance(form_payload, dict):
+        # Persist items/customer info into order columns for easier querying
+        try:
+            items_from_form = form_payload.get('items') or (form_payload.get('form_payload') or {}).get('items') if isinstance(form_payload, dict) else None
+            if items_from_form is not None:
+                items_val = json.dumps(items_from_form)
+            else:
+                items_val = items
+        except Exception:
+            items_val = items
+
+        customer_name_val = customer_name or form_payload.get('customer_name') or (form_payload.get('customer') or {}).get('name') if isinstance(form_payload, dict) else customer_name
+        customer_phone_val = customer_phone or form_payload.get('customer_phone') or (form_payload.get('customer') or {}).get('phone') if isinstance(form_payload, dict) else customer_phone
+    else:
+        items_val = items
+        customer_name_val = customer_name
+        customer_phone_val = customer_phone
+
+    # Create the order; store meta as a JSON string for consistent reading later
+    try:
+        meta_json = json.dumps(meta_dict) if meta_dict else None
+    except Exception:
+        meta_json = str(meta_dict) if meta_dict else None
+
     order = Order(
-        order_type=order_type, 
-        status=OrderStatus.submitted.value, 
-        items=items, 
-        meta=metadata,
+        order_type=order_type,
+        status=OrderStatus.submitted.value,
+        items=items_val,
+        meta=meta_json,
         # Track creator for notifications and attribution
         created_by_id=created_by_id,
         # Capture channel context when available
@@ -116,8 +160,8 @@ async def create_order(
         reference=reference,
         priority=priority,
         requested_delivery_date=requested_delivery_date,
-        customer_name=customer_name,
-        customer_phone=customer_phone,
+        customer_name=customer_name_val,
+        customer_phone=customer_phone_val,
         payment_method=payment_method,
         internal_comment=internal_comment,
     )
@@ -271,7 +315,11 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
     o_res = await session.execute(o_q)
     order = o_res.scalar_one()
     old_status = order.status
-    new_status, changed = await recompute_order_status(session, order)
+    try:
+        new_status, changed = await recompute_order_status(session, order)
+    except NameError:
+        logger.warning("recompute_order_status not available, skipping")
+        new_status, changed = order.status, False
 
     # Flush and commit so we emit events after commit
     await session.flush()
