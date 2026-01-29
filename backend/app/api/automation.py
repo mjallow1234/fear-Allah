@@ -145,6 +145,7 @@ async def list_tasks(
                             order_items = ast.literal_eval(order.items) if order.items else None
                         except Exception:
                             order_items = None
+
                     meta = None
                     try:
                         meta = _json.loads(order.meta) if order.meta else None
@@ -154,13 +155,31 @@ async def list_tasks(
                         except Exception:
                             meta = None
 
+                    # Fallbacks: sometimes items or customer info live inside meta/form payloads
+                    if not order_items and isinstance(meta, dict):
+                        order_items = meta.get('items') or meta.get('line_items') or (meta.get('form_payload') or {}).get('items')
+
+                    quantities = None
+                    if isinstance(order_items, list):
+                        try:
+                            quantities = [int(i.get('quantity')) if isinstance(i.get('quantity'), (int, str)) else None for i in order_items]
+                        except Exception:
+                            quantities = None
+
+                    delivery_location = None
+                    if isinstance(meta, dict):
+                        delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or (meta.get('form_payload') or {}).get('delivery_location')
+
+                    customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('name') if isinstance(meta, dict) else order.customer_name
+                    customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else order.customer_phone
+
                     order_details = {
                         'order_type': (order.order_type.name if hasattr(order.order_type, 'name') else str(order.order_type)).upper(),
                         'items': order_items,
-                        'quantities': [i.get('quantity') for i in order_items] if isinstance(order_items, list) else None,
-                        'delivery_location': meta.get('delivery_location') if isinstance(meta, dict) else None,
-                        'customer_name': order.customer_name,
-                        'customer_phone': order.customer_phone,
+                        'quantities': quantities,
+                        'delivery_location': delivery_location,
+                        'customer_name': customer_name,
+                        'customer_phone': customer_phone,
                         'meta': meta,
                     }
                     data = resp.model_dump()
@@ -244,13 +263,31 @@ async def get_task(
                     except Exception:
                         meta = None
 
+                # Fallbacks for items/customer info
+                if not order_items and isinstance(meta, dict):
+                    order_items = meta.get('items') or meta.get('line_items') or (meta.get('form_payload') or {}).get('items')
+
+                quantities = None
+                if isinstance(order_items, list):
+                    try:
+                        quantities = [int(i.get('quantity')) if isinstance(i.get('quantity'), (int, str)) else None for i in order_items]
+                    except Exception:
+                        quantities = None
+
+                delivery_location = None
+                if isinstance(meta, dict):
+                    delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or (meta.get('form_payload') or {}).get('delivery_location')
+
+                customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or ((meta.get('customer') or {}).get('name') if isinstance(meta, dict) else None)
+                customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or ((meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else None)
+
                 order_details = {
                     'order_type': (order.order_type.name if hasattr(order.order_type, 'name') else str(order.order_type)).upper(),
                     'items': order_items,
-                    'quantities': [i.get('quantity') for i in order_items] if isinstance(order_items, list) else None,
-                    'delivery_location': meta.get('delivery_location') if isinstance(meta, dict) else None,
-                    'customer_name': order.customer_name,
-                    'customer_phone': order.customer_phone,
+                    'quantities': quantities,
+                    'delivery_location': delivery_location,
+                    'customer_name': customer_name,
+                    'customer_phone': customer_phone,
                     'meta': meta,
                 }
 

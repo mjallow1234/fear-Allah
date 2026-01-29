@@ -27,6 +27,7 @@ interface TaskCardProps {
   task: AutomationTask
   assignment?: TaskAssignment
   currentUserId: number
+  currentUserIsAdmin?: boolean
   isCompleting: boolean
   onComplete: (taskId: number) => void
   onClick: () => void
@@ -92,7 +93,9 @@ export default function TaskCard({
     normalizedAssignmentStatus !== 'DONE' && 
     normalizedAssignmentStatus !== 'SKIPPED' &&
     normalizedTaskStatus !== 'COMPLETED' &&
-    normalizedTaskStatus !== 'CANCELLED'
+    normalizedTaskStatus !== 'CANCELLED' &&
+    // Admin users should not see execution UI
+    !(currentUserIsAdmin)
   
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr)

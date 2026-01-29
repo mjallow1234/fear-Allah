@@ -91,6 +91,8 @@ export default function TaskInboxPage() {
   
   // Get tasks based on active tab
   const getFilteredTasks = (): AutomationTask[] => {
+    const normalizeStatus = (s?: string) => (s || '').toString().toUpperCase()
+
     if (activeTab === 'my-tasks') {
       // Get tasks where user has assignments
       const taskIds = new Set(myAssignments.map(a => a.task_id))
@@ -102,8 +104,8 @@ export default function TaskInboxPage() {
     } else if (activeTab === 'all') {
       return tasks
     } else {
-      // Completed tab
-      return tasks.filter(t => t.status === 'COMPLETED')
+      // Completed tab: use task.status (not assignment status)
+      return tasks.filter(t => normalizeStatus(t.status) === 'COMPLETED')
     }
   }
   
@@ -182,23 +184,25 @@ export default function TaskInboxPage() {
       {/* Tabs */}
       <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6">
         <div className="max-w-4xl mx-auto flex gap-1">
-          <button
-            onClick={() => setActiveTab('my-tasks')}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
-              activeTab === 'my-tasks'
-                ? 'text-white border-[#5865f2]'
-                : 'text-[#949ba4] border-transparent hover:text-white'
-            )}
-          >
-            <User size={16} />
-            My Tasks
-            {pendingCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
-                {pendingCount}
-              </span>
-            )}
-          </button>
+          {!user?.is_system_admin && (
+            <button
+              onClick={() => setActiveTab('my-tasks')}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+                activeTab === 'my-tasks'
+                  ? 'text-white border-[#5865f2]'
+                  : 'text-[#949ba4] border-transparent hover:text-white'
+              )}
+            >
+              <User size={16} />
+              My Tasks
+              {pendingCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab('all')}
@@ -327,6 +331,7 @@ export default function TaskInboxPage() {
                   task={task}
                   assignment={assignment}
                   currentUserId={user?.id || 0}
+                  currentUserIsAdmin={user?.is_system_admin}
                   isCompleting={completingTaskId === task.id}
                   onComplete={handleComplete}
                   onClick={() => setSelectedTask(task)}
@@ -352,6 +357,7 @@ export default function TaskInboxPage() {
                 task={task}
                 assignment={activeTab === 'available' ? undefined : getAssignment(task.id)}
                 currentUserId={user?.id || 0}
+                currentUserIsAdmin={user?.is_system_admin}
                 isCompleting={activeTab === 'available' ? false : completingTaskId === task.id}
                 onComplete={handleComplete}
                 onClick={() => setSelectedTask(task)}

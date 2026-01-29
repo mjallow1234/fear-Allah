@@ -947,6 +947,43 @@ async def test_task_details_include_order_data(async_client_authenticated: tuple
 
 
 @pytest.mark.anyio
+async def test_task_details_include_order_data_from_meta(async_client_authenticated: tuple[AsyncClient, dict]):
+    """Task details endpoint should include order_details when order stores info in meta."""
+    client, _ = async_client_authenticated
+
+    # Create an order that stores items/customer in meta
+    order_resp = await client.post('/api/orders/', json={
+        'order_type': 'AGENT_RESTOCK',
+        'items': [],
+        'customer_name': None,
+        'customer_phone': None,
+        'metadata': {
+            'items': [{'product_id': 22, 'quantity': 5}],
+            'delivery_location': 'Secondary Warehouse',
+            'customer_name': 'Bob',
+            'customer_phone': '555-0200'
+        }
+    })
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()['order_id']
+
+    # Get the automation task created for this order
+    auto_resp = await client.get(f'/api/orders/{order_id}/automation')
+    task_id = auto_resp.json()['task_id']
+
+    # Fetch task details
+    t_resp = await client.get(f'/api/automation/tasks/{task_id}')
+    assert t_resp.status_code == 200
+    data = t_resp.json()
+    assert 'order_details' in data and data['order_details'] is not None
+    od = data['order_details']
+    assert isinstance(od['items'], list)
+    assert od['quantities'] == [5]
+    assert od['customer_name'] == 'Bob'
+    assert od['delivery_location'] == 'Secondary Warehouse'
+
+
+@pytest.mark.anyio
 async def test_admin_can_reassign_task(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
     """Admin can reassign a claimed task to another user and event/audit is created."""
     client, _ = async_client_authenticated

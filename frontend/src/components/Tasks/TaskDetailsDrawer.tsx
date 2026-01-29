@@ -221,8 +221,8 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               )}
             </div>
             
-            {/* My Tasks Checklist - Shows user's assigned steps */}
-            {mySteps.length > 0 && (
+            {/* My Tasks Checklist - Shows user's assigned steps (hidden for admins) */}
+            {mySteps.length > 0 && !user?.is_system_admin && (
               <div className="bg-[#1e1f22] rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <CheckCircle size={16} className="text-[#5865f2]" />
@@ -230,7 +230,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                 </h4>
                 <div className="space-y-3">
                   {mySteps.map((step) => {
-                    const canComplete = step.is_active && !step.is_done
+                    const canComplete = step.is_active && !step.is_done && !user?.is_system_admin
                     const isCompleting = completingStepId === step.id
                     const isExpanded = expandedStepId === step.id
                     
@@ -492,6 +492,25 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                     className="px-3 py-2 bg-[#5865f2] hover:bg-[#4752c4] text-white rounded-lg"
                   >
                     Reassign Task
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Force complete task #${task.id}? This will mark all assignments DONE and close the task.`)) return
+                      try {
+                        await api.post(`/api/automation/tasks/${task.id}/complete`, { notes: 'admin force complete' })
+                        await fetchWorkflowSteps(task.id)
+                        await fetchTaskDetails(task.id)
+                        await fetchTaskEvents(task.id)
+                        alert('Task force-completed')
+                      } catch (e) {
+                        console.error(e)
+                        alert('Failed to force-complete task')
+                      }
+                    }}
+                    className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg"
+                  >
+                    Complete Task
                   </button>
 
                   <button
