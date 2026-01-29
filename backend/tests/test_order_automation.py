@@ -981,6 +981,46 @@ async def test_task_details_include_order_data(async_client_authenticated: tuple
 
 
 @pytest.mark.anyio
+async def test_task_details_include_order_data_from_form_payload(async_client_authenticated: tuple[AsyncClient, dict]):
+    """Task details endpoint should extract order data from dynamic form payloads."""
+    client, _ = async_client_authenticated
+
+    form_payload = {
+        'form_payload': {
+            'fields': [
+                {'name': 'products', 'type': 'items', 'value': [{'product_id': 11, 'quantity': 4}]},
+                {'name': 'customer_name', 'type': 'text', 'value': 'Charlie'},
+                {'name': 'phone', 'type': 'text', 'value': '555-0200'},
+                {'name': 'delivery_location', 'type': 'text', 'value': 'Warehouse B'},
+            ]
+        }
+    }
+
+    # Create an order that stores its payload in metadata and has no top-level items
+    order_resp = await client.post('/api/orders/', json={
+        'order_type': 'AGENT_RESTOCK',
+        'metadata': form_payload,
+    })
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()['order_id']
+
+    auto_resp = await client.get(f'/api/orders/{order_id}/automation')
+    task_id = auto_resp.json()['task_id']
+
+    t_resp = await client.get(f'/api/automation/tasks/{task_id}')
+    assert t_resp.status_code == 200
+    data = t_resp.json()
+    assert 'order_details' in data and data['order_details'] is not None
+    od = data['order_details']
+    assert isinstance(od['items'], list)
+    assert od['quantities'] == [4]
+    assert od['customer_name'] == 'Charlie'
+    assert od['customer_phone'] == '555-0200'
+    assert od['delivery_location'] == 'Warehouse B'
+    assert od['meta'] is not None and 'form_payload' in od['meta']
+
+
+@pytest.mark.anyio
 async def test_task_details_include_order_data_from_meta(async_client_authenticated: tuple[AsyncClient, dict]):
     """Task details endpoint should include order_details when order stores info in meta."""
     client, _ = async_client_authenticated

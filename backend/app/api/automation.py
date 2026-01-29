@@ -38,6 +38,93 @@ async def _get_user(db: AsyncSession, user_id: int) -> User:
     return user
 
 
+# Helper: normalize form-based payloads (best-effort)
+# Returns dict with possible keys: items, customer_name, customer_phone, delivery_location, form_payload
+def _extract_from_form_payload(meta: dict) -> dict:
+    """Best-effort extraction from dynamic form payloads or responses.
+
+    This function is intentionally permissive and searches common shapes:
+    - `form_payload` object with `fields` list of {name,type,value}
+    - `responses` list or dicts containing name/question/answer/value
+    - Flat mappings where keys may be 'items', 'products', 'line_items', 'customer_name', 'phone', etc.
+    """
+    if not isinstance(meta, dict):
+        return {}
+
+    # Prefer explicit keys if present
+    form_src = meta.get('form_payload') or meta.get('responses')
+
+    items = None
+    customer_name = None
+    customer_phone = None
+    delivery_location = None
+
+    def scan_obj(obj):
+        nonlocal items, customer_name, customer_phone, delivery_location
+        if isinstance(obj, dict):
+            # Special handling for common form field shapes
+            # e.g., {'name':'products', 'type':'items', 'value': [...]}
+            if 'type' in obj and ('value' in obj or 'answer' in obj):
+                ftype = str(obj.get('type') or '').lower()
+                fname = str(obj.get('name') or '').lower()
+                val = obj.get('value') if 'value' in obj else obj.get('answer')
+                if items is None and (ftype in ('items', 'products', 'line_items') or fname in ('items', 'products', 'line_items')):
+                    if isinstance(val, list):
+                        items = val
+                if customer_name is None and fname in ('customer_name',) and isinstance(val, str):
+                    # Only treat explicit 'customer_name' as customer name — avoid generic 'name' that is field metadata
+                    customer_name = val
+                if customer_phone is None and fname in ('phone', 'mobile') and isinstance(val, str):
+                    customer_phone = val
+                if delivery_location is None and fname in ('address', 'location', 'delivery_location') and isinstance(val, str):
+                    delivery_location = val
+
+                # Recurse into the value but avoid treating field metadata keys (like 'name') as actual values
+                scan_obj(val)
+                return
+
+            for k, v in obj.items():
+                lk = str(k).lower()
+                # Items candidates on keys
+                if items is None and lk in ('items', 'products', 'line_items'):
+                    if isinstance(v, list):
+                        items = v
+                # Name candidates
+                if customer_name is None and any(x in lk for x in ('customer_name', 'name')):
+                    if isinstance(v, str):
+                        customer_name = v
+                # Phone candidates
+                if customer_phone is None and any(x in lk for x in ('phone', 'mobile')):
+                    if isinstance(v, str):
+                        customer_phone = v
+                # Delivery/location
+                if delivery_location is None and any(x in lk for x in ('address', 'location', 'delivery_location')):
+                    if isinstance(v, str):
+                        delivery_location = v
+                # Recurse
+                scan_obj(v)
+        elif isinstance(obj, list):
+            for it in obj:
+                scan_obj(it)
+        return
+
+    # Try scanning the explicit form object first
+    if form_src is not None:
+        scan_obj(form_src)
+
+    # If items still not found, scan top-level meta keys for form-like data
+    if items is None:
+        scan_obj(meta)
+
+    return {
+        'items': items,
+        'customer_name': customer_name,
+        'customer_phone': customer_phone,
+        'delivery_location': delivery_location,
+        'form_payload': form_src,
+    }
+
+
 # ---------------------- Task Endpoints ----------------------
 
 @router.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -158,21 +245,56 @@ async def list_tasks(
 
                     # Fallbacks: sometimes items or customer info live inside meta/form payloads
                     if not order_items and isinstance(meta, dict):
-                        order_items = meta.get('items') or meta.get('line_items') or (meta.get('form_payload') or {}).get('items')
+                        # First, try legacy keys
+                        order_items = meta.get('items') or meta.get('line_items')
 
-                    quantities = None
-                    if isinstance(order_items, list):
-                        try:
-                            quantities = [int(i.get('quantity')) if isinstance(i.get('quantity'), (int, str)) else None for i in order_items]
-                        except Exception:
-                            quantities = None
+                        # Try to extract from dynamic form payload or responses
+                        form_info = _extract_from_form_payload(meta)
+                        if not order_items and form_info.get('items'):
+                            order_items = form_info.get('items')
 
-                    delivery_location = None
-                    if isinstance(meta, dict):
-                        delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or (meta.get('form_payload') or {}).get('delivery_location')
+                        # If form_info found fields, use them as fallbacks
+                        quantities = None
+                        if isinstance(order_items, list):
+                            try:
+                                quantities = [int(i.get('quantity') if isinstance(i.get('quantity'), (int, str)) else (i.get('qty') or None)) if isinstance(i, dict) else None for i in order_items]
+                            except Exception:
+                                quantities = None
 
-                    customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('name') if isinstance(meta, dict) else order.customer_name
-                    customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else order.customer_phone
+                        delivery_location = None
+                        if isinstance(meta, dict):
+                            delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or form_info.get('delivery_location')
+
+                        customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('name') if isinstance(meta, dict) else order.customer_name
+                        if not customer_name:
+                            customer_name = form_info.get('customer_name')
+
+                        customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else order.customer_phone
+                        if not customer_phone:
+                            customer_phone = form_info.get('customer_phone')
+
+                        # If we found a form payload, include it under meta for UI
+                        if form_info.get('form_payload'):
+                            # Preserve original meta but include normalized form under 'form_payload'
+                            try:
+                                meta = dict(meta)
+                                meta['form_payload'] = form_info.get('form_payload')
+                            except Exception:
+                                pass
+                    else:
+                        quantities = None
+                        if isinstance(order_items, list):
+                            try:
+                                quantities = [int(i.get('quantity')) if isinstance(i.get('quantity'), (int, str)) else None for i in order_items]
+                            except Exception:
+                                quantities = None
+
+                        delivery_location = None
+                        if isinstance(meta, dict):
+                            delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or (meta.get('form_payload') or {}).get('delivery_location')
+
+                        customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('name') if isinstance(meta, dict) else order.customer_name
+                        customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else order.customer_phone
 
                     order_details = {
                         'order_type': (order.order_type.name if hasattr(order.order_type, 'name') else str(order.order_type)).upper(),
@@ -264,23 +386,56 @@ async def get_task(
                     except Exception:
                         meta = None
 
-                # Fallbacks for items/customer info
+                # Fallbacks for items/customer info and support form-based responses
                 if not order_items and isinstance(meta, dict):
-                    order_items = meta.get('items') or meta.get('line_items') or (meta.get('form_payload') or {}).get('items')
+                    # Legacy direct keys
+                    order_items = meta.get('items') or meta.get('line_items')
 
-                quantities = None
-                if isinstance(order_items, list):
-                    try:
-                        quantities = [int(i.get('quantity')) if isinstance(i.get('quantity'), (int, str)) else None for i in order_items]
-                    except Exception:
-                        quantities = None
+                    # Try to extract from dynamic form payload / responses
+                    form_info = _extract_from_form_payload(meta)
+                    if not order_items and form_info.get('items'):
+                        order_items = form_info.get('items')
 
-                delivery_location = None
-                if isinstance(meta, dict):
-                    delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or (meta.get('form_payload') or {}).get('delivery_location')
+                    quantities = None
+                    if isinstance(order_items, list):
+                        try:
+                            quantities = [int(i.get('quantity') if isinstance(i.get('quantity'), (int, str)) else (i.get('qty') or None)) if isinstance(i, dict) else None for i in order_items]
+                        except Exception:
+                            quantities = None
 
-                customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or ((meta.get('customer') or {}).get('name') if isinstance(meta, dict) else None)
-                customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or ((meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else None)
+                    delivery_location = None
+                    if isinstance(meta, dict):
+                        delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or form_info.get('delivery_location')
+
+                    customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('name') if isinstance(meta, dict) else order.customer_name
+                    if not customer_name:
+                        customer_name = form_info.get('customer_name')
+
+                    customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or (meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else order.customer_phone
+                    if not customer_phone:
+                        customer_phone = form_info.get('customer_phone')
+
+                    # Preserve original meta and attach form_payload for UI rendering
+                    if form_info.get('form_payload'):
+                        try:
+                            meta = dict(meta)
+                            meta['form_payload'] = form_info.get('form_payload')
+                        except Exception:
+                            pass
+                else:
+                    quantities = None
+                    if isinstance(order_items, list):
+                        try:
+                            quantities = [int(i.get('quantity')) if isinstance(i.get('quantity'), (int, str)) else None for i in order_items]
+                        except Exception:
+                            quantities = None
+
+                    delivery_location = None
+                    if isinstance(meta, dict):
+                        delivery_location = meta.get('delivery_location') or (meta.get('delivery') or {}).get('location') or (meta.get('form_payload') or {}).get('delivery_location')
+
+                    customer_name = order.customer_name or (meta.get('customer_name') if isinstance(meta, dict) else None) or ((meta.get('customer') or {}).get('name') if isinstance(meta, dict) else None)
+                    customer_phone = order.customer_phone or (meta.get('customer_phone') if isinstance(meta, dict) else None) or ((meta.get('customer') or {}).get('phone') if isinstance(meta, dict) else None)
 
                 order_details = {
                     'order_type': (order.order_type.name if hasattr(order.order_type, 'name') else str(order.order_type)).upper(),

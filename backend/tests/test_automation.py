@@ -90,14 +90,56 @@ async def test_automation_task_lifecycle(
 
 
 @pytest.mark.anyio
-async def test_list_my_assignments(
-    async_client_authenticated: tuple[AsyncClient, dict],
-):
-    """Test getting assignments for current user."""
+async def test_task_marked_completed_when_last_assignment_done(async_client_authenticated: tuple[AsyncClient, dict], test_session: object):
+    """When the final assignment is completed, the task should be marked COMPLETED."""
     client, user_data = async_client_authenticated
-    user_id = user_data["user_id"]
-    
-    # Create and assign a task
+    user_id = user_data['user_id']
+
+    from app.db.models import User, TaskAssignment
+    from app.core.security import get_password_hash
+    from sqlalchemy import select
+
+    # Create two users
+    u1 = User(username='final_u1', email='fu1@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    u2 = User(username='final_u2', email='fu2@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    test_session.add_all([u1, u2])
+    await test_session.commit()
+    await test_session.refresh(u1)
+    await test_session.refresh(u2)
+
+    # Create a task
+    create_resp = await client.post('/api/automation/tasks', json={'task_type': 'CUSTOM', 'title': 'final assignment test'})
+    assert create_resp.status_code == 201
+    task_id = create_resp.json()['id']
+
+    # Assign both users
+    a1 = await client.post(f'/api/automation/tasks/{task_id}/assign', json={'user_id': u1.id})
+    assert a1.status_code == 201
+    a2 = await client.post(f'/api/automation/tasks/{task_id}/assign', json={'user_id': u2.id})
+    assert a2.status_code == 201
+
+    # Login as u1 and complete their assignment
+    login1 = await client.post('/api/auth/login', json={'identifier': 'fu1@example.com', 'password': 'pw'})
+    token1 = login1.json()['access_token']
+    resp1 = await client.post(f'/api/automation/tasks/{task_id}/complete', json={'notes': 'done1'}, headers={'Authorization': f'Bearer {token1}'})
+    assert resp1.status_code == 200
+
+    # Task should NOT yet be completed
+    t_resp = await client.get(f'/api/automation/tasks/{task_id}')
+    assert t_resp.status_code == 200
+    assert t_resp.json()['status'].upper() != 'COMPLETED'
+
+    # Login as u2 and complete their assignment
+    login2 = await client.post('/api/auth/login', json={'identifier': 'fu2@example.com', 'password': 'pw'})
+    token2 = login2.json()['access_token']
+    resp2 = await client.post(f'/api/automation/tasks/{task_id}/complete', json={'notes': 'done2'}, headers={'Authorization': f'Bearer {token2}'})
+    assert resp2.status_code == 200
+
+    # Now the task should be COMPLETED
+    t_resp2 = await client.get(f'/api/automation/tasks/{task_id}')
+    assert t_resp2.status_code == 200
+    assert t_resp2.json()['status'].upper() == 'COMPLETED'
+
     create_resp = await client.post(
         "/api/automation/tasks",
         json={
