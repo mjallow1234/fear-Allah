@@ -538,14 +538,8 @@ class AutomationService:
         await db.commit()
         await db.refresh(task)
 
-        # After a task transitions to COMPLETED, possibly chain foreman completion to delivery task creation
+        # If this was a DELIVERY task completion, ensure task closure and possibly close parent automation
         if new_status == AutomationTaskStatus.completed:
-            try:
-                await AutomationService._maybe_chain_foreman_to_delivery(db, task)
-            except Exception as e:
-                logger.warning(f"[Automation] Failed to chain foreman->delivery: {e}")
-
-            # If this was a DELIVERY task completion, ensure task closure and possibly close parent automation
             try:
                 if getattr(task, 'required_role', None) == 'delivery':
                     # Ensure delivery task closes if all assignments are done
@@ -749,6 +743,14 @@ class AutomationService:
         Returns:
             The updated TaskAssignment or None if not found
         """
+        # Determine admin status early so it's available in all branches
+        is_admin = False
+        actor = None
+        if user_id is not None:
+            actor_result = await db.execute(select(User).where(User.id == user_id))
+            actor = actor_result.scalar_one_or_none()
+            is_admin = bool(actor and getattr(actor, 'is_system_admin', False))
+
         # Find the assignment (prefer explicit assignment_id when provided)
         if assignment_id is not None:
             result = await db.execute(
@@ -757,10 +759,6 @@ class AutomationService:
         else:
             # If the actor is a system admin, they are allowed to complete any assignment
             # for the task; select the first non-done assignment for the task.
-            actor_result = await db.execute(select(User).where(User.id == user_id))
-            actor = actor_result.scalar_one_or_none()
-            is_admin = bool(actor and getattr(actor, 'is_system_admin', False))
-
             if is_admin:
                 result = await db.execute(
                     select(TaskAssignment).where(
@@ -993,6 +991,13 @@ class AutomationService:
                 # Don't fail the assignment completion if workflow fails
                 # The assignment is still marked done
 
+            # If this was the foreman handover step, chain delivery task creation regardless of engine success
+            try:
+                if getattr(workflow_task_to_complete, 'step_key', None) == 'foreman_handover':
+                    await AutomationService._maybe_chain_foreman_to_delivery(db, automation_task)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to chain foreman handover->delivery: {e}")
+
         await db.commit()
         # Refresh the assignment object
         await db.refresh(assignment)
@@ -1129,7 +1134,7 @@ class AutomationService:
 
         # Create delivery task (do not auto-assign; created_by_id=0 to represent system)
         try:
-            await AutomationService.create_task(
+            new_task = await AutomationService.create_task(
                 db=db,
                 task_type=task.task_type,
                 title=f"Deliver Order #{order.id}",
@@ -1138,6 +1143,18 @@ class AutomationService:
                 required_role='delivery',
             )
             logger.info(f"[Automation] Chained delivery task created for order {order.id}")
+
+            # Mark the foreman automation task as completed since handover occurred
+            try:
+                from app.db.enums import AutomationTaskStatus as ATS
+                if task.status not in (ATS.completed, ATS.cancelled):
+                    task.status = ATS.completed
+                    db.add(task)
+                    await db.commit()
+                    await db.refresh(task)
+                    logger.info(f"[Automation] Foreman task {task.id} marked completed after handover")
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to mark foreman task completed after handover: {e}")
         except Exception:
             logger.exception(f"[Automation] Failed to create chained delivery task for order {order.id}")
             raise
