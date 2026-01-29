@@ -118,10 +118,10 @@ class UserListItem(BaseModel):
     role: str
     is_active: bool
     is_system_admin: bool
-    is_banned: bool
-    is_muted: bool
+    is_banned: Optional[bool] = False
+    is_muted: Optional[bool] = False
     created_at: Optional[datetime]
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
