@@ -81,13 +81,13 @@ async def test_foreman_completion_creates_delivery_task(
     assert auto_resp.status_code == 200
     task_id = auto_resp.json()["task_id"]
 
-    # Mark the foreman task as completed
+    # Mark the foreman task as completed (legacy behavior should NOT create delivery task)
     from app.automation.service import AutomationService
     from app.db.enums import AutomationTaskStatus
 
     await AutomationService.update_task_status(db=test_session, task_id=task_id, new_status=AutomationTaskStatus.completed, user_id=None)
 
-    # Ensure exactly one delivery task exists for the order
+    # Ensure NO delivery task exists for the order (chaining occurs only on handover step completion)
     from sqlalchemy import select
     from app.db.models import AutomationTask
 
@@ -96,11 +96,7 @@ async def test_foreman_completion_creates_delivery_task(
     )
     tasks = res.scalars().all()
 
-    assert len(tasks) == 1, f"Expected 1 delivery task, found {len(tasks)}"
-    dt = tasks[0]
-    assert getattr(dt.status, 'value', dt.status) == 'open'
-    assert dt.required_role == 'delivery'
-
+    assert len(tasks) == 0, f"Expected 0 delivery tasks (no handover step), found {len(tasks)}"
 
 @pytest.mark.anyio
 async def test_delivery_completion_closes_task_when_final(
@@ -123,10 +119,33 @@ async def test_delivery_completion_closes_task_when_final(
     assert auto_resp.status_code == 200
     main_task_id = auto_resp.json()["task_id"]
 
-    from app.db.enums import AutomationTaskStatus
-    from app.automation.service import AutomationService
+    # Simulate foreman handover step completion to create delivery task
+    from app.db.models import Task
+    from app.db.enums import TaskStatus
 
-    await AutomationService.update_task_status(db=test_session, task_id=main_task_id, new_status=AutomationTaskStatus.completed, user_id=None)
+    wf = Task(order_id=order_id, step_key='foreman_handover', title='Hand Over to Delivery', status=TaskStatus.active)
+    test_session.add(wf)
+    # Mark any earlier foreman step (e.g., assemble_items) as done so handover is the active step
+    from sqlalchemy import update
+    await test_session.execute(update(Task).where(Task.order_id == order_id, Task.step_key == 'assemble_items').values(status=TaskStatus.done))
+    await test_session.commit()
+    await test_session.refresh(wf)
+
+    # Create a foreman assignment and a foreman user to complete it
+    from app.db.models import TaskAssignment, User
+    from app.core.security import get_password_hash
+    foreman_user = User(username='foreman_complete2', email='foreman_complete2@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    test_session.add(foreman_user)
+    await test_session.commit()
+    await test_session.refresh(foreman_user)
+
+    assignment = TaskAssignment(task_id=main_task_id, user_id=foreman_user.id, role_hint='foreman', status='pending')
+    test_session.add(assignment)
+    await test_session.commit()
+    await test_session.refresh(assignment)
+
+    from app.automation.service import AutomationService
+    await AutomationService.complete_assignment(db=test_session, task_id=main_task_id, user_id=foreman_user.id, assignment_id=assignment.id)
 
     # Find delivery task
     from sqlalchemy import select
@@ -144,6 +163,7 @@ async def test_delivery_completion_closes_task_when_final(
     before_count = len(res_all.scalars().all())
 
     # Complete delivery task
+    from app.db.enums import AutomationTaskStatus
     await AutomationService.update_task_status(db=test_session, task_id=delivery_task.id, new_status=AutomationTaskStatus.completed, user_id=None)
 
     # Refresh delivery task
@@ -161,6 +181,69 @@ async def test_delivery_completion_closes_task_when_final(
         select(AutomationTask.id).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role.in_(['foreman','delivery']), ~AutomationTask.status.in_(['completed','cancelled']))
     )
     assert res_remaining.scalar_one_or_none() is None
+
+
+@pytest.mark.anyio
+async def test_foreman_handover_step_creates_delivery_task(
+    async_client_authenticated: tuple[AsyncClient, dict],
+    test_session: object,
+):
+    """When the foreman handover workflow step is completed, a delivery automation task should be created."""
+    client, user_data = async_client_authenticated
+
+    # Create qualifying AGENT_RESTOCK order
+    order_resp = await client.post(
+        "/api/orders/",
+        json={"order_type": "AGENT_RESTOCK", "items": [{"product_id": 1, "quantity": 1}]},
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["order_id"]
+
+    # Get automation task for the order
+    auto_resp = await client.get(f"/api/orders/{order_id}/automation")
+    assert auto_resp.status_code == 200
+    main_task_id = auto_resp.json()["task_id"]
+
+    # Insert an active workflow task with step_key 'foreman_handover' for this order
+    from app.db.models import Task
+    from app.db.enums import TaskStatus
+
+    wf = Task(order_id=order_id, step_key='foreman_handover', title='Hand Over to Delivery', status=TaskStatus.active)
+    test_session.add(wf)
+    # Mark any earlier foreman step (e.g., assemble_items) as done so handover is the active step
+    from sqlalchemy import update
+    await test_session.execute(update(Task).where(Task.order_id == order_id, Task.step_key == 'assemble_items').values(status=TaskStatus.done))
+    await test_session.commit()
+    await test_session.refresh(wf)
+
+    # Create a foreman assignment on the automation task and a foreman user to complete it
+    from app.db.models import TaskAssignment, User
+    from app.core.security import get_password_hash
+    foreman_user = User(username='foreman_complete', email='foreman_complete@example.com', hashed_password=get_password_hash('pw'), is_active=True)
+    test_session.add(foreman_user)
+    await test_session.commit()
+    await test_session.refresh(foreman_user)
+
+    assignment = TaskAssignment(task_id=main_task_id, user_id=foreman_user.id, role_hint='foreman', status='pending')
+    test_session.add(assignment)
+    await test_session.commit()
+    await test_session.refresh(assignment)
+
+    # Complete the foreman assignment (as the foreman user)
+    from app.automation.service import AutomationService
+    await AutomationService.complete_assignment(db=test_session, task_id=main_task_id, user_id=foreman_user.id, assignment_id=assignment.id)
+
+    # Assert that a delivery automation task exists for the order
+    from sqlalchemy import select
+    from app.db.models import AutomationTask
+
+    res = await test_session.execute(select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role == 'delivery'))
+    tasks = res.scalars().all()
+
+    assert len(tasks) == 1, f"Expected 1 delivery task, found {len(tasks)}"
+    dt = tasks[0]
+    assert getattr(dt.status, 'value', dt.status) == 'open'
+    assert dt.required_role == 'delivery'
 
 
 @pytest.mark.anyio
