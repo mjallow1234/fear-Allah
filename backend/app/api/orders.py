@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -61,12 +61,35 @@ async def create_order_endpoint(request: CreateOrderRequest, current_user: dict 
         await log_audit(db, db_user, action="create", resource="orders", success=False, reason="permission_denied")
         raise
 
+    # Temporary runtime verification: log raw HTTP body and parsed payload
+    try:
+        orders_logger.info(
+            "[ORDER-API] raw_body=%s",
+            await http_request.body(),
+        )
+        orders_logger.info(
+            "[ORDER-API] parsed_payload=%s",
+            request.model_dump(),
+        )
+    except Exception:
+        orders_logger.warning("[ORDER-API] failed to log raw_body/parsed_payload")
+
     orders_logger.info(
         "Creating order",
         user_id=user_id,
         order_type=request.order_type,
         items_count=len(request.items),
     )
+
+    # Temporary runtime verification log (remove after verification)
+    try:
+        orders_logger.info(
+            "[ORDER-CREATE] payload_keys=%s meta=%s",
+            list(request.model_dump().keys()),
+            extended_meta,
+        )
+    except Exception:
+        orders_logger.warning("[ORDER-CREATE] failed to log payload_keys/meta")
 
     try:
         # Build extended metadata dict with new fields

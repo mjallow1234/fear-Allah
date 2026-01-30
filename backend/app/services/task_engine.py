@@ -195,6 +195,15 @@ async def create_order(
     except Exception:
         meta_json = str(meta_dict) if meta_dict else None
 
+    # Temporary runtime verification log (remove after verification)
+    try:
+        logger.info(
+            "[ORDER-CREATE] create_order meta=%s",
+            meta_dict,
+        )
+    except Exception:
+        logger.warning("[ORDER-CREATE] failed to log meta_dict")
+
     order = Order(
         order_type=order_type,
         status=OrderStatus.submitted.value,
