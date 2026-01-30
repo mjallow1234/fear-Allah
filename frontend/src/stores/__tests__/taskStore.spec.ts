@@ -48,4 +48,16 @@ describe('TaskStore available tasks and claim', () => {
     // Ensure available-tasks GET used normalized role param
     expect(api.get).toHaveBeenCalledWith('/api/automation/available-tasks', { params: { role: 'foreman' } })
   })
+
+  it('completeWorkflowStep should post to workflow-step complete endpoint and refresh data', async () => {
+    ;(api.post as unknown as vi.Mock).mockResolvedValueOnce({ data: {} })
+    ;(api.get as unknown as vi.Mock).mockResolvedValue({ data: [] }) // used by fetchMyAssignments/fetchMyTasks
+
+    const ok = await useTaskStore.getState().completeWorkflowStep(123, 'delivered')
+
+    expect(ok).toBe(true)
+    expect(api.post).toHaveBeenCalledWith('/api/automation/tasks/123/workflow-step/complete', { notes: 'delivered' })
+    // fetchMyAssignments/fetchMyTasks should have triggered GET calls
+    expect(api.get).toHaveBeenCalled()
+  })
 })
