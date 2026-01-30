@@ -72,6 +72,28 @@ async def test_race_condition_two_simultaneous_claims(test_engine, test_session:
     from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession, create_async_engine
     from sqlalchemy.orm import sessionmaker
 
+
+@pytest.mark.anyio
+async def test_http_claim_endpoint_allows_user_to_claim(async_client_authenticated: tuple[AsyncClient, dict], test_session: AsyncSession):
+    client, user_data = async_client_authenticated
+
+    # Create an OPEN task
+    create_resp = await client.post("/api/automation/tasks", json={"task_type": "retail", "title": "HTTP Claim Test"})
+    assert create_resp.status_code == 201
+    task_id = create_resp.json()["id"]
+
+    # Claim via HTTP endpoint
+    claim_resp = await client.post(f"/api/automation/tasks/{task_id}/claim", json={})
+    assert claim_resp.status_code == 200
+
+    # Verify DB shows claimed_by_user_id is set to our user
+    result = await test_session.execute(select(AutomationTask.claimed_by_user_id).where(AutomationTask.id == task_id))
+    cid = result.scalar_one_or_none()
+    assert cid is not None
+    # Use raw sessions to simulate two concurrent request handlers
+    from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
     async_session_factory = sessionmaker(test_engine, class_=_AsyncSession, expire_on_commit=False)
 
     # Create two users

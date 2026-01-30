@@ -765,6 +765,46 @@ async def assign_user(
     return _assignment_to_response(assignment)
 
 
+@router.post("/tasks/{task_id}/claim", response_model=TaskResponse)
+async def claim_task_endpoint(
+    task_id: int,
+    payload: ClaimRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Claim an available automation task and create a TaskAssignment.
+    """
+    user_id = current_user["user_id"]
+    override = False
+    if payload is not None:
+        try:
+            override = bool(payload.override)
+        except Exception:
+            override = False
+
+    try:
+        task = await AutomationService.claim_task(
+            db=db,
+            task_id=task_id,
+            user_id=user_id,
+            override=override,
+        )
+    except ClaimPermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ClaimConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ClaimInvalidStateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ClaimNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        automation_logger.error("Unhandled error during claim", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+    return _task_to_response(task)
+
+
 @router.post("/tasks/{task_id}/complete", response_model=Union[AssignmentResponse, TaskResponse])
 async def complete_my_assignment(
     task_id: int,
