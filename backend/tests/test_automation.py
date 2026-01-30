@@ -71,22 +71,23 @@ async def test_automation_task_lifecycle(
     assert completed_assignment["status"].upper() == "DONE"
     assert completed_assignment["notes"] == "Task completed successfully"
 
-    # 6. Verify task auto-closed
+    # 6. Verify task not auto-closed (assignment completion should not close the task)
     get_resp3 = await client.get(f"/api/automation/tasks/{task_id}")
-    assert get_resp3.json()["status"].upper() == "COMPLETED"
+    assert get_resp3.json()["status"].upper() == "IN_PROGRESS"
     
     # 7. Get events (audit trail)
     events_resp = await client.get(f"/api/automation/tasks/{task_id}/events")
     assert events_resp.status_code == 200
     events = events_resp.json()
-    assert len(events) >= 4  # created, assigned, step_completed, closed
+    # At least: created, assigned, step_completed
+    assert len(events) >= 3
     
     event_types = [e["event_type"] for e in events]
     event_types_upper = [et.upper() for et in event_types]
     assert "CREATED" in event_types_upper
     assert "ASSIGNED" in event_types_upper
     assert "STEP_COMPLETED" in event_types_upper
-    assert "CLOSED" in event_types_upper
+    assert "CLOSED" not in event_types_upper
 
 
 @pytest.mark.anyio
@@ -135,10 +136,10 @@ async def test_task_marked_completed_when_last_assignment_done(async_client_auth
     resp2 = await client.post(f'/api/automation/tasks/{task_id}/complete', json={'notes': 'done2'}, headers={'Authorization': f'Bearer {token2}'})
     assert resp2.status_code == 200
 
-    # Now the task should be COMPLETED
+    # Now the task should NOT be auto-completed (assignment completion does not close automation)
     t_resp2 = await client.get(f'/api/automation/tasks/{task_id}')
     assert t_resp2.status_code == 200
-    assert t_resp2.json()['status'].upper() == 'COMPLETED'
+    assert t_resp2.json()['status'].upper() != 'COMPLETED'
 
     create_resp = await client.post(
         "/api/automation/tasks",

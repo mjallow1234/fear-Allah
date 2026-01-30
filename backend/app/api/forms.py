@@ -1209,6 +1209,7 @@ async def submit_form(
         form=form,
         data=payload.data,
         user_id=current_user["user_id"],
+        submission=submission,
     )
     
     # Update submission record

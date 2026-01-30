@@ -44,6 +44,7 @@ class FormSubmissionService:
         form: Form,
         data: dict,
         user_id: int,
+        submission: Optional[FormSubmission] = None,
     ) -> Tuple[str, int, Optional[str]]:
         """
         Submit form data to the appropriate service.
@@ -69,7 +70,8 @@ class FormSubmissionService:
             return "failed", 0, f"No handler for service: {service_target}"
         
         try:
-            result_id = await handler(db, mapped_data, user_id)
+            # Pass submission through to handlers so they can persist raw form payload if needed
+            result_id = await handler(db, mapped_data, user_id, submission=submission)
             return "processed", result_id, None
         except ValueError as e:
             logger.error(f"Validation error in form submission: {e}")
@@ -139,7 +141,7 @@ class FormSubmissionService:
 # Service Handlers
 # ============================================================================
 
-async def handle_sales_submission(db: AsyncSession, data: dict, user_id: int) -> int:
+async def handle_sales_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission for sales service."""
     from app.services.sales import SalesService
     
@@ -165,15 +167,39 @@ async def handle_sales_submission(db: AsyncSession, data: dict, user_id: int) ->
     return sale.id
 
 
-async def handle_orders_submission(db: AsyncSession, data: dict, user_id: int) -> int:
-    """Handle form submission for orders service."""
+async def handle_orders_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
+    """Handle form submission for orders service.
+
+    If a FormSubmission record is available, attach the full raw submission payload
+    into the order metadata under `form_payload` without filtering or normalization.
+    """
     from app.services.task_engine import create_order
-    
+
+    # Build metadata dict preserving any mapped metadata field
+    meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+
+    # Attach raw form submission payload and IDs when available (do not mutate submitted data)
+    if submission is not None:
+        try:
+            form_payload = json.loads(submission.data) if isinstance(submission.data, str) else submission.data
+        except Exception:
+            form_payload = submission.data
+
+        try:
+            meta = dict(meta) if meta is not None else {}
+            meta["form_payload"] = form_payload
+            meta["form_submission_id"] = submission.id
+            meta["form_id"] = submission.form_id
+            meta["form_version"] = submission.form_version
+        except Exception:
+            # Best-effort: do not fail submission on meta attach
+            logger.warning("[FormSubmission] Failed to attach form submission meta to order metadata")
+
     order = await create_order(
         session=db,
         order_type=data.get("order_type", "agent_restock"),
         items=json.dumps(data.get("items")) if data.get("items") else None,
-        metadata=json.dumps(data.get("metadata")) if data.get("metadata") else None,
+        metadata=meta if meta else None,
         created_by_id=user_id,
         # Optional fields from forms extension
         reference=data.get("reference"),
@@ -187,7 +213,7 @@ async def handle_orders_submission(db: AsyncSession, data: dict, user_id: int) -
     return order.id
 
 
-async def handle_inventory_submission(db: AsyncSession, data: dict, user_id: int) -> int:
+async def handle_inventory_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission for inventory adjustments."""
     from app.services.inventory import InventoryService
     
@@ -229,7 +255,7 @@ async def handle_inventory_submission(db: AsyncSession, data: dict, user_id: int
     return result.id if hasattr(result, 'id') else 0
 
 
-async def handle_raw_materials_submission(db: AsyncSession, data: dict, user_id: int) -> int:
+async def handle_raw_materials_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission for raw material transactions."""
     from app.db.models import RawMaterial, RawMaterialTransaction
     from sqlalchemy import select
@@ -263,7 +289,7 @@ async def handle_raw_materials_submission(db: AsyncSession, data: dict, user_id:
     return transaction.id
 
 
-async def handle_production_submission(db: AsyncSession, data: dict, user_id: int) -> int:
+async def handle_production_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission for production batches."""
     from app.db.models import ProductionBatch, BatchInput, BatchOutput
     

@@ -1024,68 +1024,15 @@ class AutomationService:
         except Exception as e:
             logger.warning(f"[Automation] Failed to emit task.completed webhook: {e}")
 
-        # --- New: if this was the final assignment, mark the task as COMPLETED and emit event ---
-        try:
-            # Count any pending (non-done/non-skipped) assignments
-            pending_q = select(func.count()).select_from(TaskAssignment).where(
-                TaskAssignment.task_id == task_id,
-                ~TaskAssignment.status.in_([AssignmentStatus.done, AssignmentStatus.skipped])
-            )
-            pending_res = await db.execute(pending_q)
-            pending_count = int(pending_res.scalar_one() or 0)
+        # --- NOTE: Assignment completion no longer auto-closes automation tasks ---
+        # Per policy, automation task status changes only when the final workflow
+        # Task row is completed (via the workflow engine) or via explicit admin actions.
+        # We intentionally do NOT auto-mark the automation task as COMPLETED here.
 
-            if pending_count == 0:
-                # Load the automation task
-                task_res = await db.execute(select(AutomationTask).where(AutomationTask.id == task_id))
-                task_obj = task_res.scalar_one_or_none()
-                if task_obj and task_obj.status != AutomationTaskStatus.completed:
-                    task_obj.status = AutomationTaskStatus.completed
+        # Previously we attempted an auto-close based on pending assignments; that logic
+        # has been removed to avoid premature automation task completion.
 
-                    # Persist completion timestamp into task_metadata (no schema change)
-                    try:
-                        meta = json.loads(task_obj.task_metadata) if task_obj.task_metadata else {}
-                    except Exception:
-                        meta = {}
-                    try:
-                        meta['completed_at'] = now.isoformat()
-                        task_obj.task_metadata = json.dumps(meta)
-                    except Exception:
-                        pass
-
-                    # Emit closed event (we use 'closed' as the task-level completion event)
-                    evt = TaskEvent(
-                        task_id=task_id,
-                        user_id=user_id,
-                        event_type=TaskEventType.closed,
-                        event_metadata=json.dumps({"reason": "all_assignments_completed", "assignment_id": assignment.id}),
-                    )
-                    db.add(evt)
-
-                    await db.commit()
-                    await db.refresh(task_obj)
-
-                    # Emit expected frontend event for automation task completion
-                    try:
-                        from app.services.task_engine import emit_event
-                        await emit_event("automation_task.completed", {"task_id": task_obj.id})
-                    except Exception:
-                        logger.warning("Failed to emit automation_task.completed event")
-
-                    # Send auto-closed notification
-                    try:
-                        from app.automation.notification_hooks import on_task_auto_closed
-                        await on_task_auto_closed(db, task_obj, "all assignments completed")
-                    except Exception as e:
-                        logger.warning(f"[Automation] Failed to send auto-close notification: {e}")
-
-                    logger.info(f"[Automation] Task {task_id} marked completed after last assignment done")
-        except Exception:
-            logger.exception("Error while checking/marking final assignment completion")
-
-        # Check if all assignments are done and optionally close task (fallback)
-        closed = await AutomationService.close_task_if_all_done(db, task_id)
-        if closed:
-            logger.info(f"[Automation] Task {task_id} closed after all assignments completed")
+        # Do not call close_task_if_all_done() here — leave auto-closure to workflow-driven handlers.
 
         return assignment
     
@@ -1119,7 +1066,9 @@ class AutomationService:
         )
         
         if pending_count == 0:
-            # Ensure any remaining assignments are marked DONE atomically before closing
+            # Ensure any remaining assignments are marked DONE atomically (best-effort),
+            # but do NOT change automation task status here. Automation completion is
+            # driven by workflow completion (order/task engine) or admin actions.
             try:
                 from app.db.models import TaskAssignment
                 from datetime import datetime
@@ -1131,33 +1080,9 @@ class AutomationService:
                     .where(TaskAssignment.status != AssignmentStatus.done)
                     .values(status=AssignmentStatus.done, completed_at=now)
                 )
-                logger.info(f"[Automation] Auto-completed assignments for task {task_id} as part of auto-close")
+                logger.info(f"[Automation] Auto-completed assignments for task {task_id} as part of auto-close (assignments-only)")
             except Exception as e:
                 logger.warning(f"[Automation] Failed to auto-complete assignments during auto-close for task {task_id}: {e}")
-
-            task.status = AutomationTaskStatus.completed
-            
-            # Persist closed event directly to avoid runtime attr dependency
-            evt = TaskEvent(
-                task_id=task_id,
-                user_id=None,
-                event_type=TaskEventType.closed,
-                event_metadata=json.dumps({"reason": "all_assignments_completed"}),
-            )
-            db.add(evt)
-            await db.flush()
-            
-            await db.commit()
-            
-            logger.info(f"[Automation] Task {task_id} auto-closed: all assignments completed")
-            
-            # Phase 6.4: Send auto-close notification
-            try:
-                from app.automation.notification_hooks import on_task_auto_closed
-                await on_task_auto_closed(db, task, "all assignments completed")
-            except Exception as e:
-                logger.error(f"[Automation] Failed to send auto-close notification: {e}")
-            
             return True
         
         return False
