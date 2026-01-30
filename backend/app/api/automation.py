@@ -593,106 +593,123 @@ async def get_active_workflow_step(
     }
 
 
-@router.post("/tasks/{task_id}/cancel", response_model=TaskResponse)
-async def cancel_task(
+@router.post("/tasks/{task_id}/workflow-step/complete", response_model=TaskResponse)
+async def complete_workflow_step_endpoint(
     task_id: int,
+    payload: AssignmentComplete,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Cancel a task."""
+    """
+    Complete the active workflow step for the given automation task.
+
+    This resolves the active workflow Task for the automation task's related order
+    (scoped to the role for the automation task when applicable) and invokes the
+    workflow engine to complete it. This endpoint ONLY completes the workflow
+    step (Task row) and does NOT auto-complete automation assignments or the
+    automation task itself. Automation task completion is driven by the
+    workflow engine and order status handlers.
+    """
     user_id = current_user["user_id"]
-    
-    can_manage = await AutomationService.can_manage_task(db, task_id, user_id)
-    
-    if not can_manage:
-        raise HTTPException(status_code=403, detail="Only creator or admin can cancel")
-    
-    task = await AutomationService.update_task_status(
-        db=db,
-        task_id=task_id,
-        new_status=AutomationTaskStatus.cancelled,
-        user_id=user_id,
-    )
-    
-    if not task:
+
+    # Resolve automation task
+    from app.db.models import AutomationTask, Task
+    from app.services.task_engine import WORKFLOWS, complete_task as engine_complete_task
+    from app.db.enums import TaskStatus
+
+    result = await db.execute(select(AutomationTask).where(AutomationTask.id == task_id))
+    automation_task = result.scalar_one_or_none()
+    if not automation_task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    return _task_to_response(task)
 
+    if not automation_task.related_order_id:
+        raise HTTPException(status_code=400, detail="No workflow associated with this automation task")
 
-@router.post("/tasks/{task_id}/claim", response_model=TaskResponse)
-async def claim_task_endpoint(
-    task_id: int,
-    payload: ClaimRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """Claim a task. Admins may pass override=True to take over an existing claim."""
-    user_id = current_user["user_id"]
+    # Get workflow definition
+    from app.db.models import Order
+    order_result = await db.execute(select(Order).where(Order.id == automation_task.related_order_id))
+    order = order_result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Related order not found")
 
-    # NOTE: Do not perform permission lookups here. Authorization is enforced in AutomationService.claim_task().
+    workflow_def = WORKFLOWS.get(order.order_type, [])
+
+    # Determine allowed step keys for this automation task based on its required_role or assignments
+    allowed_step_keys = set()
+    # If task has a required_role, use it to determine allowed steps
+    req_role = getattr(automation_task, 'required_role', None)
+    if req_role:
+        # Map role to workflow steps (same as complete_assignment logic)
+        role_to_steps = {
+            "foreman": ["assemble_items", "foreman_handover"],
+            "delivery": ["delivery_received", "deliver_items", "accept_delivery"],
+            "requester": ["confirm_received"],
+        }
+        allowed_step_keys = set(role_to_steps.get(req_role, []))
+
+    # Find active workflow task that matches allowed steps (if any) otherwise any active step for the order
+    tasks_q = await db.execute(select(Task).where(Task.order_id == automation_task.related_order_id).order_by(Task.id))
+    workflow_tasks = tasks_q.scalars().all()
+
+    active_task = None
+    for t in workflow_tasks:
+        if t.status == TaskStatus.active or t.status == TaskStatus.active.value:
+            if not allowed_step_keys or t.step_key in allowed_step_keys:
+                active_task = t
+                break
+
+    if not active_task:
+        raise HTTPException(status_code=403, detail="No active workflow step available for this automation task")
+
+    # Permission check: allow system admin, task.assigned_user_id owner, automation assignment holder, or operational role
+    user_res = await db.execute(select(User).where(User.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    assigned_to_role = None
+    step_def = next((s for s in workflow_def if s.get("step_key") == active_task.step_key), None)
+    if step_def:
+        assigned_to_role = step_def.get("assigned_to")
+
+    allowed = False
+    if getattr(user, 'is_system_admin', False):
+        allowed = True
+    elif active_task.assigned_user_id and active_task.assigned_user_id == user_id:
+        allowed = True
+    elif assigned_to_role == 'requester' and automation_task.created_by_id == user_id:
+        allowed = True
+    else:
+        # Check if user has an assignment on the automation task with matching role_hint
+        from app.db.models import TaskAssignment
+        ares = await db.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id, TaskAssignment.user_id == user_id, TaskAssignment.role_hint == assigned_to_role))
+        arow = ares.scalar_one_or_none()
+        if arow:
+            allowed = True
+        # Also allow users with operational role matching assigned_to_role
+        if not allowed and assigned_to_role and user.has_operational_role(assigned_to_role):
+            allowed = True
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail=f"You are not allowed to complete the active '{active_task.step_key}' step")
+
+    # Invoke workflow engine to complete the active task
     try:
-        task = await AutomationService.claim_task(db=db, task_id=task_id, user_id=user_id, override=payload.override)
-    except ClaimNotFoundError:
-        raise HTTPException(status_code=404, detail="Task not found")
-    except ClaimPermissionError:
-        raise HTTPException(status_code=403, detail="You are not allowed to claim this task")
-    except ClaimConflictError:
-        raise HTTPException(status_code=409, detail="Task already claimed")
-    except ClaimInvalidStateError:
-        raise HTTPException(status_code=400, detail="Task is not open for claim")
+        await engine_complete_task(db, active_task.id, user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        automation_logger.error("Claim failed", error=e, task_id=task_id, user_id=user_id)
-        raise HTTPException(status_code=500, detail=str(e))
+        automation_logger.error("Unhandled error completing workflow step", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
-    return _task_to_response(task)
+    # Return the updated automation task (with assignments)
+    updated = await AutomationService.get_task(db, task_id, include_assignments=True)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Task not found after update")
 
-
-@router.post("/tasks/{task_id}/reassign", response_model=TaskResponse)
-async def reassign_task_endpoint(
-    task_id: int,
-    payload: dict,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """Admin-only: reassign claimed user on a task."""
-    user_id = current_user["user_id"]
-    user = await _get_user(db, user_id)
-    if not user.is_system_admin:
-        raise HTTPException(status_code=403, detail="Only system admins can reassign tasks")
-
-    new_user_id = payload.get('new_user_id')
-    if not new_user_id:
-        raise HTTPException(status_code=400, detail="new_user_id is required")
-
-    task = await AutomationService.reassign_task(db=db, task_id=task_id, new_user_id=new_user_id, acting_user_id=user_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    return _task_to_response(task)
-
-
-@router.post("/assignments/{assignment_id}/reassign", response_model=AssignmentResponse)
-async def reassign_assignment_endpoint(
-    assignment_id: int,
-    payload: dict,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """Admin-only: reassign an assignment to a different user or role."""
-    user_id = current_user["user_id"]
-    user = await _get_user(db, user_id)
-    if not user.is_system_admin:
-        raise HTTPException(status_code=403, detail="Only system admins can reassign assignments")
-
-    new_user_id = payload.get('new_user_id')
-    new_role = payload.get('new_role_hint')
-
-    assignment = await AutomationService.reassign_assignment(db=db, assignment_id=assignment_id, new_user_id=new_user_id, new_role_hint=new_role, acting_user_id=user_id)
-    if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-
-    return _assignment_to_response(assignment)
+    return _task_to_response(updated)
 
 
 @router.post("/tasks/{task_id}/delete", response_model=TaskResponse)
