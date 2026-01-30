@@ -260,6 +260,13 @@ async def test_workflow_step_complete_endpoint_enforces_ordering_and_completion(
     resp2 = await client.post(f'/api/automation/tasks/{delivery_task_id}/workflow-step/complete', json={'notes': 'delivery done'}, headers={'Authorization': f'Bearer {t2}'})
     assert resp2.status_code == 200
 
+    # The delivery automation task should NOT be auto-completed yet (order not finished)
+    from app.db.models import AutomationTask as AT
+    res_d = await test_session.execute(__import__('sqlalchemy').select(AT).where(AT.id == delivery_task_id))
+    delivery_row = res_d.scalar_one()
+    d_status = delivery_row.status.name.upper() if hasattr(delivery_row.status, 'name') else str(delivery_row.status).upper()
+    assert d_status != 'COMPLETED', 'Delivery automation task should not be completed until final workflow step'
+
     # Deliver remaining workflow steps (deliver_items, accept_delivery) and final confirm_received to complete order
     from app.db.models import Order
     # Re-fetch tasks to get updated ids

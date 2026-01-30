@@ -400,11 +400,34 @@ class OrderAutomationTriggers:
         order: Order,
         user_id: Optional[int],
     ) -> None:
-        """Handle order completion - close automation task."""
+        """Handle order completion - close automation task.
+
+        Guard: Only close the automation task when ALL workflow tasks for the related
+        order are completed. This prevents automation tasks from being closed when
+        an order is prematurely reported as completed due to partial workflow progress.
+        """
         task = await OrderAutomationTriggers._get_order_automation_task(db, order.id)
         if not task:
             return
-        
+
+        # Ensure all required workflow tasks are completed before closing automation
+        try:
+            from app.db.models import Task as OrderTask
+            from app.db.enums import TaskStatus as OrderTaskStatus
+
+            remaining_q = select(OrderTask).where(
+                OrderTask.order_id == order.id,
+                OrderTask.required == True,
+                OrderTask.status != OrderTaskStatus.done.value,
+            ).limit(1)
+            rem_res = await db.execute(remaining_q)
+            remaining = rem_res.scalar_one_or_none()
+            if remaining:
+                logger.info(f"[OrderAutomation] Skipping automation close for order {order.id}: remaining workflow tasks exist (task id {remaining.id})")
+                return
+        except Exception as e:
+            logger.warning(f"[OrderAutomation] Failed to verify remaining workflow tasks: {e}")
+
         if task.status not in (AutomationTaskStatus.completed, AutomationTaskStatus.cancelled):
             await AutomationService.update_task_status(
                 db=db,
@@ -413,7 +436,7 @@ class OrderAutomationTriggers:
                 user_id=user_id,
             )
             logger.info(f"[OrderAutomation] Task {task.id} closed (order completed)")
-        
+
         # Phase 6.4: Send order completed notification
         try:
             from app.automation.notification_hooks import on_order_completed
