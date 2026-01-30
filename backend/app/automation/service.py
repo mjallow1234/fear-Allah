@@ -947,39 +947,24 @@ class AutomationService:
             # No workflow - fallback to old behavior
             should_mark_done = True
         
-        if should_mark_done:
-            # Mark assignment as DONE
-            if is_admin:
-                # System admins can complete any assignment regardless of ownership
-                upd = (
-                    update(TaskAssignment)
-                    .where(TaskAssignment.id == assignment.id)
-                    .where(TaskAssignment.status != AssignmentStatus.done)
-                    .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
-                )
-            else:
-                upd = (
-                    update(TaskAssignment)
-                    .where(TaskAssignment.id == assignment.id)
-                    .where(TaskAssignment.user_id == user_id)
-                    .where(TaskAssignment.status != AssignmentStatus.done)
-                    .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
-                )
+        # Always mark the current assignment as DONE (ignore previous `should_mark_done` gate and workflow-specific gating)
+        if is_admin:
+            # System admins can complete any assignment regardless of ownership
+            upd = (
+                update(TaskAssignment)
+                .where(TaskAssignment.id == assignment.id)
+                .where(TaskAssignment.status != AssignmentStatus.done)
+                .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
+            )
         else:
-            # Keep assignment as IN_PROGRESS (waiting for next role to acknowledge)
-            if is_admin:
-                upd = (
-                    update(TaskAssignment)
-                    .where(TaskAssignment.id == assignment.id)
-                    .values(status=AssignmentStatus.in_progress, notes=notes)
-                )
-            else:
-                upd = (
-                    update(TaskAssignment)
-                    .where(TaskAssignment.id == assignment.id)
-                    .where(TaskAssignment.user_id == user_id)
-                    .values(status=AssignmentStatus.in_progress, notes=notes)
-                )
+            # Regular users can only complete their own assignment
+            upd = (
+                update(TaskAssignment)
+                .where(TaskAssignment.id == assignment.id)
+                .where(TaskAssignment.user_id == user_id)
+                .where(TaskAssignment.status != AssignmentStatus.done)
+                .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
+            )
         logger.info(f"[Automation] DEBUG executing update for assignment={assignment.id}, is_admin={is_admin}, should_mark_done={should_mark_done}")
         res = await db.execute(upd)
         logger.info(f"[Automation] DEBUG update rowcount={getattr(res, 'rowcount', None)} for assignment={assignment.id}")
@@ -1078,6 +1063,13 @@ class AutomationService:
 
                     await db.commit()
                     await db.refresh(task_obj)
+
+                    # Emit expected frontend event for automation task completion
+                    try:
+                        from app.services.task_engine import emit_event
+                        await emit_event("automation_task.completed", {"task_id": task_obj.id})
+                    except Exception:
+                        logger.warning("Failed to emit automation_task.completed event")
 
                     # Send auto-closed notification
                     try:

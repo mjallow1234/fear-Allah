@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from app.db.models import Order, Task
@@ -128,14 +129,61 @@ async def create_order(
         try:
             items_from_form = form_payload.get('items') or (form_payload.get('form_payload') or {}).get('items') if isinstance(form_payload, dict) else None
             if items_from_form is not None:
-                items_val = json.dumps(items_from_form)
+                items_list = items_from_form if isinstance(items_from_form, list) else []
+                items_val = json.dumps(items_list)
             else:
-                items_val = items
+                # If API passed a python list in 'items' param, prefer that
+                try:
+                    items_list = items if isinstance(items, list) else (json.loads(items) if items else [])
+                except Exception:
+                    items_list = []
+                items_val = json.dumps(items_list) if items_list is not None else None
         except Exception:
-            items_val = items
+            items_val = json.dumps(items) if items is not None else None
 
         customer_name_val = customer_name or form_payload.get('customer_name') or (form_payload.get('customer') or {}).get('name') if isinstance(form_payload, dict) else customer_name
         customer_phone_val = customer_phone or form_payload.get('customer_phone') or (form_payload.get('customer') or {}).get('phone') if isinstance(form_payload, dict) else customer_phone
+    else:
+        # Non-form path: ensure items stored as JSON string when possible
+        try:
+            items_list = items if isinstance(items, list) else (json.loads(items) if items else [])
+            items_val = json.dumps(items_list) if items_list is not None else None
+        except Exception:
+            items_val = items
+        customer_name_val = customer_name
+        customer_phone_val = customer_phone
+
+    # Ensure meta includes delivery_location and quantities derived from items when possible
+    # Do not overwrite existing explicit meta entries
+    if 'delivery_location' not in meta_dict:
+        # Try to find delivery_location in form_payload or top-level meta
+        dl = None
+        if isinstance(form_payload, dict):
+            dl = form_payload.get('delivery_location') or (form_payload.get('delivery') or {}).get('location')
+        dl = dl or meta_dict.get('delivery_location')
+        if dl is not None:
+            meta_dict['delivery_location'] = dl
+
+    if 'quantities' not in meta_dict:
+        try:
+            qtys = None
+            # try extracting from items_list computed above
+            if 'items_list' in locals() and isinstance(items_list, list) and len(items_list) > 0:
+                q = []
+                for it in items_list:
+                    if isinstance(it, dict):
+                        qv = it.get('quantity') or it.get('qty')
+                        try:
+                            q.append(int(qv) if qv is not None else None)
+                        except Exception:
+                            q.append(None)
+                    else:
+                        q.append(None)
+                qtys = q
+            if qtys is not None:
+                meta_dict['quantities'] = qtys
+        except Exception:
+            pass
     else:
         items_val = items
         customer_name_val = customer_name
@@ -315,9 +363,15 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
     o_res = await session.execute(o_q)
     order = o_res.scalar_one()
     old_status = order.status
-    try:
-        new_status, changed = await recompute_order_status(session, order)
-    except NameError:
+    # Safely call recompute_order_status only if implemented (avoid NameError/crash)
+    ros = globals().get("recompute_order_status")
+    if callable(ros):
+        try:
+            new_status, changed = await ros(session, order)
+        except Exception as e:
+            logger.warning(f"recompute_order_status failed: {e}")
+            new_status, changed = order.status, False
+    else:
         logger.warning("recompute_order_status not available, skipping")
         new_status, changed = order.status, False
 
