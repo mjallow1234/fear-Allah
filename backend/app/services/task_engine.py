@@ -384,6 +384,28 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
         logger.warning("recompute_order_status not available, skipping")
         new_status, changed = order.status, False
 
+    # Safety check: only consider an order COMPLETED when ALL required workflow tasks are done.
+    # Prevent premature completion when there are remaining required workflow steps (e.g., next role's steps).
+    try:
+        if str(new_status).upper() == 'COMPLETED':
+            from app.db.models import Task as OrderTask
+            from app.db.enums import TaskStatus as OrderTaskStatus
+
+            remaining_q = select(OrderTask.id).where(
+                OrderTask.order_id == order.id,
+                OrderTask.required == True,
+                OrderTask.status != OrderTaskStatus.done.value,
+            ).limit(1)
+            rem_res = await session.execute(remaining_q)
+            remaining = rem_res.scalar_one_or_none()
+            if remaining:
+                logger.info(f"[TaskEngine] Suppressing order completion for order {order.id}: remaining workflow tasks exist (task id {remaining})")
+                # Cancel the completion transition
+                new_status = order.status
+                changed = False
+    except Exception as e:
+        logger.warning(f"[TaskEngine] Failed to verify remaining workflow tasks before completing order {order.id}: {e}")
+
     # Flush and commit so we emit events after commit
     await session.flush()
     await session.commit()
