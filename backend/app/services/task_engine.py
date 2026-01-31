@@ -457,6 +457,53 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
             except Exception as e:
                 logger.warning(f"[Automation] Failed to trigger status change automation: {e}")
 
+    # --- Delivery assignment lifecycle: ensure delivery assignments only mark DONE when all delivery workflow steps are complete ---
+    try:
+        # Determine the role assigned to the completed workflow step (if any)
+        wf_def = WORKFLOWS.get(order.order_type, [])
+        step_role = None
+        for s in wf_def:
+            if s.get('step_key') == task.step_key:
+                step_role = s.get('assigned_to')
+                break
+
+        if step_role == 'delivery':
+            # Find the order's automation task and delivery assignments
+            try:
+                from app.automation.order_triggers import OrderAutomationTriggers
+                from app.db.models import Task as OrderTask, TaskAssignment
+                from app.db.enums import TaskStatus as OrderTaskStatus, AssignmentStatus
+
+                automation_task = await OrderAutomationTriggers._get_order_automation_task(session, order.id)
+                if automation_task:
+                    # Compute remaining required delivery steps for the order
+                    role_steps = [s['step_key'] for s in wf_def if s.get('assigned_to') == 'delivery' and s.get('required', True)]
+                    has_remaining = False
+                    if role_steps:
+                        remaining_q = select(OrderTask.id).where(
+                            OrderTask.order_id == order.id,
+                            OrderTask.step_key.in_(role_steps),
+                            OrderTask.status != OrderTaskStatus.done.value,
+                        ).limit(1)
+                        rem_res = await session.execute(remaining_q)
+                        has_remaining = rem_res.scalar_one_or_none() is not None
+
+                    if not has_remaining:
+                        # No remaining delivery workflow steps - mark delivery assignments DONE for this automation task
+                        now = datetime.utcnow()
+                        await session.execute(
+                            update(TaskAssignment)
+                            .where(TaskAssignment.task_id == automation_task.id)
+                            .where(TaskAssignment.role_hint == 'delivery')
+                            .where(TaskAssignment.status != AssignmentStatus.done)
+                            .values(status=AssignmentStatus.done, completed_at=now)
+                        )
+                        logger.info(f"[TaskEngine] Marked delivery assignments DONE for automation task {automation_task.id} as all delivery steps completed for order {order.id}")
+            except Exception as e:
+                logger.warning(f"[TaskEngine] Failed to evaluate delivery assignment completion for order {order.id}: {e}")
+    except Exception as e:
+        logger.warning(f"[TaskEngine] Error in delivery assignment post-complete check: {e}")
+
     return task, next_task, order
 
     return task, next_task, order
