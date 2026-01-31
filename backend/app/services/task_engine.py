@@ -367,6 +367,34 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
             rqn = await session.execute(qn)
             next_task = rqn.scalar_one()
 
+    # If no immediate sequential next task was activated above, ensure we still
+    # activate the next pending *required* workflow step (if any).
+    # This avoids treating "no more steps for current role" as workflow completion
+    # and ensures downstream roles receive an ACTIVE task when appropriate.
+    if next_task is None:
+        try:
+            pending_q = select(Task.id).where(
+                Task.order_id == task.order_id,
+                Task.required == True,
+                Task.status == TaskStatus.pending.value,
+            ).order_by(Task.id).limit(1)
+            pend_res = await session.execute(pending_q)
+            pending_id = pend_res.scalar_one_or_none()
+            if pending_id is not None:
+                upd_p = (
+                    update(Task)
+                    .where(Task.id == pending_id)
+                    .where(Task.status == TaskStatus.pending.value)
+                    .values(status=TaskStatus.active.value, activated_at=datetime.utcnow())
+                )
+                res_upd_p = await session.execute(upd_p)
+                if res_upd_p.rowcount == 1:
+                    qn2 = select(Task).where(Task.id == pending_id)
+                    rqn2 = await session.execute(qn2)
+                    next_task = rqn2.scalar_one()
+        except Exception as e:
+            logger.warning(f"[TaskEngine] Failed to activate next pending required task for order {task.order_id}: {e}")
+
     # Recompute order status inside same session
     o_q = select(Order).where(Order.id == task.order_id)
     o_res = await session.execute(o_q)
