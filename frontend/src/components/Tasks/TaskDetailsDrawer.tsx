@@ -29,7 +29,24 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import api from '../../services/api'
 
+interface WorkflowStep {
+  id: number
+  step_key: string
+  title: string
+  action_label: string
+  assigned_to: string
+  status: string
+  is_active: boolean
+  is_done: boolean
+}
 
+interface WorkflowStepResponse {
+  active_step: WorkflowStep | null
+  all_steps: WorkflowStep[]
+  my_steps: WorkflowStep[]
+  my_role?: string
+  order_type?: string
+}
 
 interface TaskDetailsDrawerProps {
   task: AutomationTask | null
@@ -72,25 +89,39 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
   const [completingStepId, setCompletingStepId] = useState<number | null>(null)
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null)  // For showing notes input
   const [stepNotes, setStepNotes] = useState<string>('')  // Notes for current step
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
+  const [mySteps, setMySteps] = useState<WorkflowStep[]>([])
+  const [_myRole, setMyRole] = useState<string | null>(null)
+  const [_activeStep, setActiveStep] = useState<WorkflowStep | null>(null)
+  const [_loadingWorkflow, setLoadingWorkflow] = useState(false)
   // Admin form state
   const [reassignUserId, setReassignUserId] = useState<string>('')
   const [assignmentReassign, setAssignmentReassign] = useState<Record<number, { user?: string; role?: string }>>({})
+  
+  // Fetch workflow steps
+  const fetchWorkflowSteps = async (taskId: number) => {
+    try {
+      setLoadingWorkflow(true)
+      const response = await api.get<WorkflowStepResponse>(`/api/automation/tasks/${taskId}/workflow-step`)
+      setWorkflowSteps(response.data.all_steps || [])
+      setMySteps(response.data.my_steps || [])
+      setMyRole(response.data.my_role || null)
+      setActiveStep(response.data.active_step)
+    } catch (error) {
+      console.error('[TaskDetails] Failed to fetch workflow steps:', error)
+    } finally {
+      setLoadingWorkflow(false)
+    }
+  }
   
   // Refresh task details when drawer opens
   useEffect(() => {
     if (task) {
       fetchTaskDetails(task.id)
       fetchTaskEvents(task.id)
+      fetchWorkflowSteps(task.id)
     }
   }, [task?.id, fetchTaskDetails, fetchTaskEvents])
-
-  // All assignments and quick lookup of my assignment ids
-  const allAssignments = task?.assignments ?? []
-  const myAssignmentIds = new Set(
-    allAssignments
-      .filter(a => a.user_id === user?.id)
-      .map(a => a.id)
-  )
   
   if (!task) return null
   
@@ -190,27 +221,27 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               )}
             </div>
             
-            {/* Assignments checklist — show ALL assignments but only allow clicking your own */}
-            {allAssignments.length > 0 && (
+            {/* My Tasks Checklist - Shows user's assigned steps (hidden for admins) */}
+            {mySteps.length > 0 && !user?.is_system_admin && (
               <div className="bg-[#1e1f22] rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <CheckCircle size={16} className="text-[#5865f2]" />
-                  Assignments ({allAssignments.filter(a => a.status === 'DONE').length}/{allAssignments.length} completed)
+                  My Tasks ({mySteps.filter(s => s.is_done).length}/{mySteps.length} completed)
                 </h4>
                 <div className="space-y-3">
-                  {allAssignments.map((assignment) => {
-                    const isMine = myAssignmentIds.has(assignment.id)
-                    const canComplete = isMine && assignment.status !== 'done'
-                    const isCompleting = completingStepId === assignment.id
-                    const isExpanded = expandedStepId === assignment.id
-
+                  {mySteps.map((step) => {
+                    const canComplete = step.is_active && !step.is_done && !user?.is_system_admin
+                    const isCompleting = completingStepId === step.id
+                    const isExpanded = expandedStepId === step.id
+                    
                     const handleComplete = async () => {
                       if (!canComplete || isCompleting) return
-                      setCompletingStepId(assignment.id)
+                      setCompletingStepId(step.id)
                       try {
-                        const notes = stepNotes.trim() || (assignment.notes || `Completed assignment`)
+                        const notes = stepNotes.trim() || `Completed: ${step.action_label}`
                         const success = await completeAssignment(task.id, notes)
                         if (success) {
+                          await fetchWorkflowSteps(task.id)
                           fetchTaskDetails(task.id)
                           fetchTaskEvents(task.id)
                           setExpandedStepId(null)
@@ -220,38 +251,41 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                         setCompletingStepId(null)
                       }
                     }
-
+                    
                     return (
                       <div 
-                        key={assignment.id}
+                        key={step.id}
                         className={clsx(
                           "p-3 rounded-lg transition-all",
-                          assignment.status === 'done' && "bg-green-600/10",
-                          assignment.status !== 'done' && "bg-[#2b2d31]",
+                          step.is_done && "bg-green-600/10",
+                          step.is_active && !step.is_done && "bg-[#5865f2]/10 ring-1 ring-[#5865f2]",
+                          !step.is_active && !step.is_done && "bg-[#2b2d31] opacity-50"
                         )}
                       >
                         <div className="flex items-start gap-3">
                           {/* Checkbox */}
                           <button
                             onClick={() => {
-                              if (!isMine || isCompleting) return
+                              if (!canComplete || isCompleting) return
                               if (isExpanded) {
+                                // If already expanded, complete it
                                 handleComplete()
                               } else {
-                                setExpandedStepId(assignment.id)
+                                // Expand to show notes input
+                                setExpandedStepId(step.id)
                                 setStepNotes('')
                               }
                             }}
-                            disabled={!isMine || assignment.status === 'done' || isCompleting}
+                            disabled={!canComplete || isCompleting}
                             className={clsx(
                               "w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all",
-                              assignment.status === 'done' && "bg-green-600 border-green-600 text-white",
-                              isMine && assignment.status !== 'done' && !isCompleting && "border-[#5865f2] hover:bg-[#5865f2]/20 cursor-pointer",
-                              !isMine && assignment.status !== 'done' && "border-[#4e5058] cursor-not-allowed",
+                              step.is_done && "bg-green-600 border-green-600 text-white",
+                              canComplete && !isCompleting && "border-[#5865f2] hover:bg-[#5865f2]/20 cursor-pointer",
+                              !canComplete && !step.is_done && "border-[#4e5058] cursor-not-allowed",
                               isCompleting && "border-[#5865f2] animate-pulse"
                             )}
                           >
-                            {assignment.status === 'done' && <CheckCircle size={14} />}
+                            {step.is_done && <CheckCircle size={14} />}
                             {isCompleting && <Loader2 size={14} className="animate-spin text-[#5865f2]" />}
                           </button>
                           
@@ -259,30 +293,37 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                             <div className="flex items-center gap-2">
                               <span className={clsx(
                                 "text-sm font-medium",
-                                assignment.status === 'done' && "text-green-400 line-through",
-                                assignment.status !== 'done' && "text-white",
+                                step.is_done && "text-green-400 line-through",
+                                step.is_active && !step.is_done && "text-white",
+                                !step.is_active && !step.is_done && "text-[#72767d]"
                               )}>
-                                {assignment.role_hint ? assignment.role_hint : 'Task'}
-                                {!isMine && ' (assigned to another user)'}
+                                {step.title}
                               </span>
                             </div>
-
-                            {assignment.status === 'done' && (
-                              <span className="text-xs text-green-400 block mt-1">
-                                ✓ Completed
+                          
+                            {/* Action button label */}
+                            {canComplete && !isExpanded && (
+                              <span className="text-xs text-[#5865f2] font-medium block mt-1">
+                                Click checkbox to mark as "{step.action_label}"
                               </span>
                             )}
-
-                            {assignment.status !== 'done' && (
+                          
+                            {step.is_done && (
+                              <span className="text-xs text-green-400 block mt-1">
+                                ✓ {step.action_label}
+                              </span>
+                            )}
+                          
+                            {!step.is_active && !step.is_done && (
                               <span className="text-xs text-[#72767d] block mt-1">
-                                {assignment.notes || 'Click checkbox to mark done'}
+                                Waiting for previous step
                               </span>
                             )}
                           </div>
                         </div>
-
+                        
                         {/* Expanded notes input */}
-                        {isExpanded && isMine && (
+                        {isExpanded && canComplete && (
                           <div className="mt-3 pt-3 border-t border-[#3f4147] space-y-2">
                             <textarea
                               placeholder="Add a note (optional)..."
@@ -306,7 +347,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                                 ) : (
                                   <>
                                     <CheckCircle size={16} />
-                                    Complete assignment
+                                    {step.action_label}
                                   </>
                                 )}
                               </button>
@@ -326,9 +367,9 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                     )
                   })}
                 </div>
-
-                {/* Show message when all *my* assignments done */}
-                {myAssignmentIds.size > 0 && Array.from(myAssignmentIds).every(id => (allAssignments.find(a => a.id === id)?.status === 'done')) && (
+                
+                {/* Show message when all steps done */}
+                {mySteps.length > 0 && mySteps.every(s => s.is_done) && (
                   <div className="mt-3 p-3 bg-green-600/20 rounded-lg text-center">
                     <CheckCircle size={20} className="text-green-400 mx-auto mb-1" />
                     <span className="text-sm text-green-400 font-medium">All your tasks completed!</span>
@@ -337,6 +378,58 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               </div>
             )}
             
+            {/* Full Workflow Progress - Shows all steps */}
+            {workflowSteps.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <ArrowRight size={16} />
+                  Full Workflow Progress
+                </h4>
+                <div className="space-y-2">
+                  {workflowSteps.map((step, index) => (
+                    <div 
+                      key={step.id}
+                      className={clsx(
+                        "flex items-center gap-3 p-3 rounded-lg",
+                        step.is_active && "bg-[#5865f2]/20 ring-1 ring-[#5865f2]",
+                        step.is_done && "bg-green-600/10",
+                        !step.is_active && !step.is_done && "bg-[#2b2d31]"
+                      )}
+                    >
+                      <div className={clsx(
+                        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+                        step.is_done && "bg-green-600 text-white",
+                        step.is_active && "bg-[#5865f2] text-white",
+                        !step.is_active && !step.is_done && "bg-[#4e5058] text-[#949ba4]"
+                      )}>
+                        {step.is_done ? <CheckCircle size={14} /> : index + 1}
+                      </div>
+                      <div className="flex-1">
+                        <span className={clsx(
+                          "text-sm font-medium",
+                          step.is_active && "text-[#5865f2]",
+                          step.is_done && "text-green-400",
+                          !step.is_active && !step.is_done && "text-[#949ba4]"
+                        )}>
+                          {step.title}
+                        </span>
+                        <span className="text-xs text-[#72767d] block">
+                          {step.assigned_to === 'foreman' && '👷 Foreman'}
+                          {step.assigned_to === 'delivery' && '🚚 Delivery'}
+                          {step.assigned_to === 'requester' && '📋 Requester'}
+                        </span>
+                      </div>
+                      {step.is_done && (
+                        <span className="text-xs text-green-400">✓ {step.action_label}</span>
+                      )}
+                      {step.is_active && (
+                        <span className="text-xs text-[#5865f2] font-medium">Active</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             
             {/* Metadata (if any) */}
             {task.metadata && Object.keys(task.metadata).length > 0 && (
@@ -406,6 +499,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                       if (!confirm(`Force complete task #${task.id}? This will mark all assignments DONE and close the task.`)) return
                       try {
                         await api.post(`/api/automation/tasks/${task.id}/complete`, { notes: 'admin force complete' })
+                        await fetchWorkflowSteps(task.id)
                         await fetchTaskDetails(task.id)
                         await fetchTaskEvents(task.id)
                         alert('Task force-completed')
