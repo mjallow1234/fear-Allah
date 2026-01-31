@@ -40,10 +40,19 @@ async def test_foreman_handover_does_not_close_automation(client: AsyncClient, t
 
     # Reload automation task and ensure it is NOT closed
     from app.automation.order_triggers import OrderAutomationTriggers
+    from app.db.models import TaskAssignment, AutomationTask
+    from app.db.enums import AssignmentStatus
+
     task = await OrderAutomationTriggers._get_order_automation_task(test_session, order_id)
     assert task is not None
     t_status = task.status.name.upper() if hasattr(task.status, 'name') else str(task.status).upper()
     assert t_status in ('IN_PROGRESS', 'OPEN')
+
+    # Check the foreman assignment for this automation task was NOT marked done
+    res = await test_session.execute(__import__('sqlalchemy').select(TaskAssignment).where(TaskAssignment.task_id == task.id).where(TaskAssignment.role_hint == 'foreman'))
+    fa = res.scalars().first()
+    assert fa is not None
+    assert fa.status != AssignmentStatus.done.value
 
     # Ensure delivery task is now active (unlocked)
     dr_ref = await test_session.get(Task, dr.id)

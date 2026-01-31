@@ -909,7 +909,7 @@ class AutomationService:
                 elif step_key == "confirm_received":
                     acknowledges_role = "delivery"
             
-            # Mark the acknowledged role's assignment as DONE
+            # Mark the acknowledged role's assignment as DONE, but only if ALL workflow tasks for that role are done
             if acknowledges_role and automation_task:
                 # Find the assignment for the acknowledged role
                 ack_result = await db.execute(
@@ -920,12 +920,54 @@ class AutomationService:
                 )
                 ack_assignment = ack_result.scalar_one_or_none()
                 if ack_assignment and ack_assignment.status != AssignmentStatus.done:
-                    await db.execute(
-                        update(TaskAssignment)
-                        .where(TaskAssignment.id == ack_assignment.id)
-                        .values(status=AssignmentStatus.done, completed_at=now)
-                    )
-                    logger.info(f"[Automation] Cross-role acknowledgment: {role_hint} acknowledged receipt, marking {acknowledges_role}'s assignment as DONE")
+                    try:
+                        # Determine remaining workflow steps for the acknowledged role
+                        from app.db.models import Task as OrderTask, Order
+                        from app.services.task_engine import WORKFLOWS
+                        # Load order to determine workflow
+                        if getattr(automation_task, 'related_order_id', None):
+                            order_res = await db.execute(select(Order).where(Order.id == automation_task.related_order_id))
+                            order = order_res.scalar_one_or_none()
+                            if order:
+                                wf_def = WORKFLOWS.get(order.order_type, [])
+                                role_steps = [s['step_key'] for s in wf_def if s.get('assigned_to') == acknowledges_role and s.get('required', True)]
+                                if role_steps:
+                                    from app.db.enums import TaskStatus as OrderTaskStatus
+                                    remaining_q = select(OrderTask.id).where(
+                                        OrderTask.order_id == order.id,
+                                        OrderTask.step_key.in_(role_steps),
+                                        OrderTask.status != OrderTaskStatus.done.value,
+                                    ).limit(1)
+                                    rem_res = await db.execute(remaining_q)
+                                    has_remaining = rem_res.scalar_one_or_none() is not None
+                                    remaining = has_remaining
+                                else:
+                                    remaining = None
+                            else:
+                                remaining = None
+                        else:
+                            remaining = None
+                    except Exception:
+                        remaining = None
+
+                    if remaining is None:
+                        # Fallback: if we cannot determine, do not block - mark done
+                        await db.execute(
+                            update(TaskAssignment)
+                            .where(TaskAssignment.id == ack_assignment.id)
+                            .values(status=AssignmentStatus.done, completed_at=now)
+                        )
+                        logger.info(f"[Automation] Cross-role acknowledgment: marking {acknowledges_role}'s assignment as DONE (fallback)")
+                    elif remaining is False:
+                        # No remaining steps for this role - mark assignment DONE
+                        await db.execute(
+                            update(TaskAssignment)
+                            .where(TaskAssignment.id == ack_assignment.id)
+                            .values(status=AssignmentStatus.done, completed_at=now)
+                        )
+                        logger.info(f"[Automation] Cross-role acknowledgment: {role_hint} acknowledged receipt, marking {acknowledges_role}'s assignment as DONE")
+                    else:
+                        logger.info(f"[Automation] Cross-role acknowledgment: {role_hint} acknowledged receipt, but {acknowledges_role} has remaining workflow steps; not marking assignment DONE")
         except Exception:
             logger.exception("Error completing assignment")
             raise
@@ -947,42 +989,84 @@ class AutomationService:
             # No workflow - fallback to old behavior
             should_mark_done = True
         
-        # Always mark the current assignment as DONE (ignore previous `should_mark_done` gate and workflow-specific gating)
-        if is_admin:
-            # System admins can complete any assignment regardless of ownership
-            upd = (
-                update(TaskAssignment)
-                .where(TaskAssignment.id == assignment.id)
-                .where(TaskAssignment.status != AssignmentStatus.done)
-                .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
-            )
-        else:
-            # Regular users can only complete their own assignment
-            upd = (
-                update(TaskAssignment)
-                .where(TaskAssignment.id == assignment.id)
-                .where(TaskAssignment.user_id == user_id)
-                .where(TaskAssignment.status != AssignmentStatus.done)
-                .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
-            )
-        logger.info(f"[Automation] DEBUG executing update for assignment={assignment.id}, is_admin={is_admin}, should_mark_done={should_mark_done}")
-        res = await db.execute(upd)
-        logger.info(f"[Automation] DEBUG update rowcount={getattr(res, 'rowcount', None)} for assignment={assignment.id}")
-        if res.rowcount == 0:
-            # Could be concurrent modification or permission issue
-            logger.warning(f"[Automation] Failed to update assignment row: task={task_id}, assignment={assignment.id}")
-            raise RuntimeError("Failed to complete assignment")
+        # Determine whether to mark the current assignment as DONE based on workflow role completion
+        marked_done = False
 
-        # Update in-memory assignment object to reflect completed status for downstream consumers
-        try:
-            from app.db.enums import AssignmentStatus as AS
-            assignment.status = AS.done
-            assignment.completed_at = now
-            assignment.notes = notes
-            db.add(assignment)
-        except Exception:
-            # Fallback: proceed without failing if enum or assignment update not possible
-            pass
+        if is_admin:
+            # System admins may force-complete an assignment
+            upd = (
+                update(TaskAssignment)
+                .where(TaskAssignment.id == assignment.id)
+                .where(TaskAssignment.status != AssignmentStatus.done)
+                .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
+            )
+            res = await db.execute(upd)
+            marked_done = res.rowcount > 0
+        else:
+            # Regular users: mark DONE only if final step or all workflow tasks for their role are done
+            can_mark_done = should_mark_done
+
+            # If we have role_hint and an automation task linked to an order, compute remaining tasks for role
+            role_hint = assignment.role_hint
+            remaining = None
+            if not can_mark_done and role_hint and automation_task and getattr(automation_task, 'related_order_id', None):
+                try:
+                    from app.db.models import Task as OrderTask, Order
+                    from app.services.task_engine import WORKFLOWS
+
+                    order_res = await db.execute(select(Order).where(Order.id == automation_task.related_order_id))
+                    order = order_res.scalar_one_or_none()
+                    if order:
+                        wf_def = WORKFLOWS.get(order.order_type, [])
+                        role_steps = [s['step_key'] for s in wf_def if s.get('assigned_to') == role_hint and s.get('required', True)]
+                        if role_steps:
+                            from app.db.enums import TaskStatus as OrderTaskStatus
+                            remaining_q = select(OrderTask.id).where(
+                                OrderTask.order_id == order.id,
+                                OrderTask.step_key.in_(role_steps),
+                                OrderTask.status != OrderTaskStatus.done.value,
+                            ).limit(1)
+                            rem_res = await db.execute(remaining_q)
+                            has_remaining = rem_res.scalar_one_or_none() is not None
+                            remaining = has_remaining
+                except Exception as e:
+                    logger.warning(f"[Automation] Failed to compute remaining workflow steps for role {role_hint}: {e}")
+
+            # can_mark_done OR no remaining role tasks -> mark assignment done
+            if can_mark_done or (remaining is False):
+                # Mark assignment as done
+                upd = (
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == assignment.id)
+                    .where(TaskAssignment.user_id == user_id)
+                    .where(TaskAssignment.status != AssignmentStatus.done)
+                    .values(status=AssignmentStatus.done, completed_at=now, notes=notes)
+                )
+                res = await db.execute(upd)
+                marked_done = res.rowcount > 0
+            else:
+                # Do not mark assignment done; update notes only to record activity
+                upd = (
+                    update(TaskAssignment)
+                    .where(TaskAssignment.id == assignment.id)
+                    .where(TaskAssignment.user_id == user_id)
+                    .values(notes=notes)
+                )
+                await db.execute(upd)
+
+        logger.info(f"[Automation] DEBUG update performed for assignment={assignment.id}, marked_done={marked_done}")
+
+        if marked_done:
+            # Update in-memory assignment object to reflect completed status for downstream consumers
+            try:
+                from app.db.enums import AssignmentStatus as AS
+                assignment.status = AS.done
+                assignment.completed_at = now
+                assignment.notes = notes
+                db.add(assignment)
+            except Exception:
+                pass
+
 
         # Log the completion event
         evt = TaskEvent(
