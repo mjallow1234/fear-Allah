@@ -84,7 +84,7 @@ const assignmentStatusConfig: Record<string, { color: string; label: string }> =
 }
 
 export default function TaskDetailsDrawer({ task, events, loading, onClose }: TaskDetailsDrawerProps) {
-  const { fetchTaskDetails, fetchTaskEvents, completeAssignment, completeWorkflowStep } = useTaskStore()
+  const { fetchTaskDetails, fetchTaskEvents, completeAssignment } = useTaskStore()
   const user = useAuthStore((state) => state.user)
   const [completingStepId, setCompletingStepId] = useState<number | null>(null)
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null)  // For showing notes input
@@ -239,13 +239,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                       setCompletingStepId(step.id)
                       try {
                         const notes = stepNotes.trim() || `Completed: ${step.action_label}`
-
-                        // Use workflow-step specific endpoint for delivery steps to ensure
-                        // workflow semantics (e.g., order status transitions) are honored.
-                        const success = step.step_key === 'deliver_items'
-                          ? await completeWorkflowStep(task.id, notes)
-                          : await completeAssignment(task.id, notes)
-
+                        const success = await completeAssignment(task.id, notes)
                         if (success) {
                           await fetchWorkflowSteps(task.id)
                           fetchTaskDetails(task.id)

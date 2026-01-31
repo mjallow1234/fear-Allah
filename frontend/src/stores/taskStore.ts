@@ -75,7 +75,6 @@ interface TaskState {
   fetchTaskDetails: (taskId: number) => Promise<void>
   fetchTaskEvents: (taskId: number) => Promise<void>
   completeAssignment: (taskId: number, notes?: string) => Promise<boolean>
-  completeWorkflowStep: (taskId: number, notes?: string) => Promise<boolean>
   
   // Socket event handlers
   handleTaskAssigned: (data: { task_id: number; user_id: number; assignment: TaskAssignment }) => void
@@ -265,34 +264,6 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         error: err.response?.data?.detail || 'Failed to complete assignment',
         completingTaskId: null 
       })
-      return false
-    }
-  },
-
-  // New: complete the active workflow step for the given automation task.
-  // This endpoint specifically targets workflow-step completion and should be
-  // used for steps like `deliver_items` where workflow semantics differ from
-  // assignment completion. Returns true on success.
-  completeWorkflowStep: async (taskId: number, notes?: string) => {
-    set({ completingTaskId: taskId, error: null })
-    try {
-      await api.post(`/api/automation/tasks/${taskId}/workflow-step/complete`, { notes })
-
-      // Refresh relevant data
-      await get().fetchMyAssignments()
-      await get().fetchMyTasks()
-      try {
-        await useOrderStore.getState().fetchOrders()
-      } catch (e) {
-        console.warn('[TaskStore] Failed to refetch orders after workflow step completion:', e)
-      }
-
-      set({ completingTaskId: null })
-      return true
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } }
-      console.error('[TaskStore] Failed to complete workflow step:', error)
-      set({ error: err.response?.data?.detail || 'Failed to complete workflow step', completingTaskId: null })
       return false
     }
   },
