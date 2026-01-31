@@ -9,7 +9,7 @@ import json
 from typing import Optional
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -436,6 +436,23 @@ class OrderAutomationTriggers:
                 user_id=user_id,
             )
             logger.info(f"[OrderAutomation] Task {task.id} closed (order completed)")
+
+        # Ensure the linked AutomationTask row is explicitly marked completed (guard against cases
+        # where workflow completion did not update the automation row's status/timestamp).
+        try:
+            if task.status not in (AutomationTaskStatus.completed, AutomationTaskStatus.cancelled):
+                # If update_task_status didn't actually mark it (defensive), perform a direct update
+                now = datetime.utcnow()
+                await db.execute(
+                    update(AutomationTask)
+                    .where(AutomationTask.id == task.id)
+                    .where(AutomationTask.status != AutomationTaskStatus.completed)
+                    .values(status=AutomationTaskStatus.completed, completed_at=now)
+                )
+                await db.commit()
+                logger.info(f"[OrderAutomation] Explicitly set automation task {task.id} to COMPLETED (completed_at set)")
+        except Exception as e:
+            logger.warning(f"[OrderAutomation] Failed to explicitly set automation task completed for order {order.id}: {e}")
 
         # Phase 6.4: Send order completed notification
         try:

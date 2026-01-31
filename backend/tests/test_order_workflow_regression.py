@@ -138,3 +138,52 @@ async def test_delivery_steps_do_not_auto_complete_assignment(client: AsyncClien
     fa2 = res.scalars().first()
     assert fa2 is not None
     assert getattr(fa2.status, 'value', fa2.status) == 'done'
+
+
+@pytest.mark.anyio
+async def test_full_workflow_completion_closes_automation_task(client: AsyncClient, test_session):
+    # Verify that completing the final workflow step marks the automation task COMPLETED
+    # Setup users
+    await client.post('/api/auth/register', json={'email': 'f4@example.com', 'password': 'Password123!', 'username': 'foreman3'})
+    await client.post('/api/auth/register', json={'email': 'd4@example.com', 'password': 'Password123!', 'username': 'delivery3'})
+    login_f = await client.post('/api/auth/login', json={'identifier': 'f4@example.com', 'password': 'Password123!'})
+    login_d = await client.post('/api/auth/login', json={'identifier': 'd4@example.com', 'password': 'Password123!'})
+    tf = login_f.json()['access_token']
+    td = login_d.json()['access_token']
+
+    # Create AGENT_RESTOCK order as foreman
+    create = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': []}, headers={'Authorization': f'Bearer {tf}'})
+    if create.status_code != 201:
+        pytest.skip('Order creation not permitted in this environment')
+    order_id = create.json()['order_id']
+
+    # Find workflow tasks
+    from app.db.models import Task
+    res = await test_session.execute(__import__('sqlalchemy').select(Task).where(Task.order_id == order_id).order_by(Task.id))
+    tasks = res.scalars().all()
+
+    # Assign and complete each workflow step in order
+    for step_key, user_token, user_id in [
+        ('assemble_items', tf, 1),
+        ('foreman_handover', tf, 1),
+        ('delivery_received', td, 2),
+        ('deliver_items', td, 2),
+        ('confirm_received', tf, 1),
+    ]:
+        t = next((t for t in tasks if t.step_key == step_key), None)
+        assert t is not None, f"Missing workflow step {step_key}"
+        t.assigned_user_id = user_id
+        test_session.add(t)
+        await test_session.commit()
+
+        resp = await client.post(f'/api/tasks/{t.id}/complete', headers={'Authorization': f'Bearer {user_token}'})
+        assert resp.status_code == 200
+
+    # After final step, the order's automation task should be COMPLETED
+    from app.automation.order_triggers import OrderAutomationTriggers
+    at = await OrderAutomationTriggers._get_order_automation_task(test_session, order_id)
+    assert at is not None
+    # Normalize status to NAME if possible
+    t_status = at.status.name.upper() if hasattr(at.status, 'name') else str(at.status).upper()
+    assert t_status == 'COMPLETED'
+    assert getattr(at, 'completed_at', None) is not None
