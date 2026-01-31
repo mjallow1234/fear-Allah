@@ -436,12 +436,28 @@ class AutomationService:
                 .where(TaskAssignment.user_id == created_by_id)
             )
 
-            query = query.where(
-                or_(
-                    AutomationTask.created_by_id == created_by_id,
-                    exists(assignment_exists),
+            # Allow non-admin users to still see COMPLETED automation tasks for their operational role
+            # (e.g., delivery users should see completed delivery tasks). This is a read-only, presentation
+            # change that ensures users can observe completed tasks relevant to their role without
+            # modifying workflows or assignments.
+            role_val = getattr(current_user, 'role', None) if current_user is not None else None
+            if role_val:
+                from sqlalchemy import and_
+                # Include tasks created by the user, tasks assigned to the user, OR completed tasks for their role
+                query = query.where(
+                    or_(
+                        AutomationTask.created_by_id == created_by_id,
+                        exists(assignment_exists),
+                        and_(AutomationTask.required_role == role_val, AutomationTask.status == AutomationTaskStatus.completed),
+                    )
                 )
-            )
+            else:
+                query = query.where(
+                    or_(
+                        AutomationTask.created_by_id == created_by_id,
+                        exists(assignment_exists),
+                    )
+                )
 
         # Compute total matches BEFORE pagination (do not modify returned results)
         # Build a simple count query with the same WHERE clauses
@@ -457,12 +473,23 @@ class AutomationService:
                 .where(TaskAssignment.task_id == AutomationTask.id)
                 .where(TaskAssignment.user_id == created_by_id)
             )
-            count_q = count_q.where(
-                or_(
-                    AutomationTask.created_by_id == created_by_id,
-                    exists(assignment_exists),
+            role_val = getattr(current_user, 'role', None) if current_user is not None else None
+            if role_val:
+                from sqlalchemy import and_
+                count_q = count_q.where(
+                    or_(
+                        AutomationTask.created_by_id == created_by_id,
+                        exists(assignment_exists),
+                        and_(AutomationTask.required_role == role_val, AutomationTask.status == AutomationTaskStatus.completed),
+                    )
                 )
-            )
+            else:
+                count_q = count_q.where(
+                    or_(
+                        AutomationTask.created_by_id == created_by_id,
+                        exists(assignment_exists),
+                    )
+                )
 
         total_result = await db.execute(count_q)
         total_before_pagination = int(total_result.scalar_one())

@@ -187,3 +187,21 @@ async def test_full_workflow_completion_closes_automation_task(client: AsyncClie
     t_status = at.status.name.upper() if hasattr(at.status, 'name') else str(at.status).upper()
     assert t_status == 'COMPLETED'
     assert getattr(at, 'completed_at', None) is not None
+
+    # Delivery user should see the completed automation task in their task list
+    login_d2 = await client.post('/api/auth/login', json={'identifier': 'd4@example.com', 'password': 'Password123!'})
+    td2 = login_d2.json()['access_token']
+    resp = await client.get('/api/automation/tasks', headers={'Authorization': f'Bearer {td2}'})
+    assert resp.status_code == 200
+    data = resp.json()
+    # There should be at least one task with related_order_id == order_id and status == COMPLETED
+    found = False
+    for t in data.get('tasks', []):
+        if t.get('related_order_id') == order_id:
+            s = t.get('status')
+            # status may be enum value or string
+            s_up = s.upper() if isinstance(s, str) else (s.get('name').upper() if isinstance(s, dict) and s.get('name') else str(s).upper())
+            if s_up == 'COMPLETED':
+                found = True
+                break
+    assert found, f"Delivery user did not see completed automation task for order {order_id}"
