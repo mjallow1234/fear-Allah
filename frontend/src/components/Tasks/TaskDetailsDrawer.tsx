@@ -84,8 +84,13 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
     }
   }, [task?.id, fetchTaskDetails, fetchTaskEvents])
 
-  // Helper: get assignments belonging to current user for this task
-  const myAssignmentsForTask = task?.assignments?.filter(a => a.user_id === user?.id) ?? []
+  // All assignments and quick lookup of my assignment ids
+  const allAssignments = task?.assignments ?? []
+  const myAssignmentIds = new Set(
+    allAssignments
+      .filter(a => a.user_id === user?.id)
+      .map(a => a.id)
+  )
   
   if (!task) return null
   
@@ -185,16 +190,17 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               )}
             </div>
             
-            {/* My Tasks Checklist - Shows user's assigned assignments (hidden for admins) */}
-            {myAssignmentsForTask.length > 0 && !user?.is_system_admin && (
+            {/* Assignments checklist — show ALL assignments but only allow clicking your own */}
+            {allAssignments.length > 0 && (
               <div className="bg-[#1e1f22] rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <CheckCircle size={16} className="text-[#5865f2]" />
-                  My Tasks ({myAssignmentsForTask.filter(a => a.status === 'DONE').length}/{myAssignmentsForTask.length} completed)
+                  Assignments ({allAssignments.filter(a => a.status === 'DONE').length}/{allAssignments.length} completed)
                 </h4>
                 <div className="space-y-3">
-                  {myAssignmentsForTask.map((assignment) => {
-                    const canComplete = assignment.status !== 'DONE' && (assignment.user_id === user?.id || user?.is_system_admin)
+                  {allAssignments.map((assignment) => {
+                    const isMine = myAssignmentIds.has(assignment.id)
+                    const canComplete = isMine && assignment.status !== 'done'
                     const isCompleting = completingStepId === assignment.id
                     const isExpanded = expandedStepId === assignment.id
 
@@ -220,34 +226,32 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                         key={assignment.id}
                         className={clsx(
                           "p-3 rounded-lg transition-all",
-                          assignment.status === 'DONE' && "bg-green-600/10",
-                          assignment.status !== 'DONE' && "bg-[#2b2d31]",
+                          assignment.status === 'done' && "bg-green-600/10",
+                          assignment.status !== 'done' && "bg-[#2b2d31]",
                         )}
                       >
                         <div className="flex items-start gap-3">
                           {/* Checkbox */}
                           <button
                             onClick={() => {
-                              if (!canComplete || isCompleting) return
+                              if (!isMine || isCompleting) return
                               if (isExpanded) {
-                                // If already expanded, complete it
                                 handleComplete()
                               } else {
-                                // Expand to show notes input
                                 setExpandedStepId(assignment.id)
                                 setStepNotes('')
                               }
                             }}
-                            disabled={!canComplete || isCompleting}
+                            disabled={!isMine || assignment.status === 'done' || isCompleting}
                             className={clsx(
                               "w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all",
-                              assignment.status === 'DONE' && "bg-green-600 border-green-600 text-white",
-                              canComplete && !isCompleting && "border-[#5865f2] hover:bg-[#5865f2]/20 cursor-pointer",
-                              !canComplete && assignment.status !== 'DONE' && "border-[#4e5058] cursor-not-allowed",
+                              assignment.status === 'done' && "bg-green-600 border-green-600 text-white",
+                              isMine && assignment.status !== 'done' && !isCompleting && "border-[#5865f2] hover:bg-[#5865f2]/20 cursor-pointer",
+                              !isMine && assignment.status !== 'done' && "border-[#4e5058] cursor-not-allowed",
                               isCompleting && "border-[#5865f2] animate-pulse"
                             )}
                           >
-                            {assignment.status === 'DONE' && <CheckCircle size={14} />}
+                            {assignment.status === 'done' && <CheckCircle size={14} />}
                             {isCompleting && <Loader2 size={14} className="animate-spin text-[#5865f2]" />}
                           </button>
                           
@@ -255,20 +259,21 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                             <div className="flex items-center gap-2">
                               <span className={clsx(
                                 "text-sm font-medium",
-                                assignment.status === 'DONE' && "text-green-400 line-through",
-                                assignment.status !== 'DONE' && "text-white",
+                                assignment.status === 'done' && "text-green-400 line-through",
+                                assignment.status !== 'done' && "text-white",
                               )}>
                                 {assignment.role_hint ? assignment.role_hint : 'Task'}
+                                {!isMine && ' (assigned to another user)'}
                               </span>
                             </div>
 
-                            {assignment.status === 'DONE' && (
+                            {assignment.status === 'done' && (
                               <span className="text-xs text-green-400 block mt-1">
                                 ✓ Completed
                               </span>
                             )}
 
-                            {assignment.status !== 'DONE' && (
+                            {assignment.status !== 'done' && (
                               <span className="text-xs text-[#72767d] block mt-1">
                                 {assignment.notes || 'Click checkbox to mark done'}
                               </span>
@@ -277,7 +282,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                         </div>
 
                         {/* Expanded notes input */}
-                        {isExpanded && canComplete && (
+                        {isExpanded && isMine && (
                           <div className="mt-3 pt-3 border-t border-[#3f4147] space-y-2">
                             <textarea
                               placeholder="Add a note (optional)..."
@@ -322,8 +327,8 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                   })}
                 </div>
 
-                {/* Show message when all assignments done */}
-                {myAssignmentsForTask.length > 0 && myAssignmentsForTask.every(a => a.status === 'DONE') && (
+                {/* Show message when all *my* assignments done */}
+                {myAssignmentIds.size > 0 && Array.from(myAssignmentIds).every(id => (allAssignments.find(a => a.id === id)?.status === 'done')) && (
                   <div className="mt-3 p-3 bg-green-600/20 rounded-lg text-center">
                     <CheckCircle size={20} className="text-green-400 mx-auto mb-1" />
                     <span className="text-sm text-green-400 font-medium">All your tasks completed!</span>
