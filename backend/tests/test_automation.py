@@ -343,3 +343,34 @@ async def test_admin_force_complete_task_with_no_assignments(async_client_authen
     t_resp = await client.get(f'/api/automation/tasks/{task_id}')
     assert t_resp.status_code == 200
     assert t_resp.json()['status'].upper() == 'COMPLETED'
+
+
+@pytest.mark.anyio
+async def test_assignment_status_updates_on_completion(test_session: AsyncSession):
+    """Ensure completing an assignment sets its status to DONE."""
+    from app.db.models import User, AutomationTask, TaskAssignment
+    from app.automation.service import AutomationService
+    from app.db.enums import AssignmentStatus
+
+    # Create user and task
+    u = User(username='asst_user', email='asst@example.com', hashed_password='x', is_active=True)
+    test_session.add(u)
+    task = AutomationTask(task_type='restock', title='Assignment Status Test', created_by_id=1)
+    test_session.add(task)
+    await test_session.commit()
+    await test_session.refresh(u)
+    await test_session.refresh(task)
+
+    # Add assignment
+    assignment = TaskAssignment(task_id=task.id, user_id=u.id, role_hint='foreman')
+    test_session.add(assignment)
+    await test_session.commit()
+    await test_session.refresh(assignment)
+
+    # Complete via service
+    await AutomationService.complete_assignment(db=test_session, task_id=task.id, user_id=u.id)
+
+    # Reload and assert status
+    await test_session.refresh(assignment)
+    assert assignment.status == AssignmentStatus.done
+
