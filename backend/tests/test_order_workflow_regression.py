@@ -57,3 +57,84 @@ async def test_foreman_handover_does_not_close_automation(client: AsyncClient, t
     # Ensure delivery task is now active (unlocked)
     dr_ref = await test_session.get(Task, dr.id)
     assert dr_ref.status in ('ACTIVE', 'ACTIVE'.lower(), 'active',)
+
+
+@pytest.mark.anyio
+async def test_delivery_steps_do_not_auto_complete_assignment(client: AsyncClient, test_session):
+    # Setup users
+    await client.post('/api/auth/register', json={'email': 'f3@example.com', 'password': 'Password123!', 'username': 'foreman2'})
+    await client.post('/api/auth/register', json={'email': 'd3@example.com', 'password': 'Password123!', 'username': 'delivery2'})
+    login_f = await client.post('/api/auth/login', json={'identifier': 'f3@example.com', 'password': 'Password123!'})
+    login_d = await client.post('/api/auth/login', json={'identifier': 'd3@example.com', 'password': 'Password123!'})
+    tf = login_f.json()['access_token']
+    td = login_d.json()['access_token']
+
+    # Create order as foreman
+    create = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': []}, headers={'Authorization': f'Bearer {tf}'})
+    if create.status_code != 201:
+        pytest.skip('Order creation not permitted in this environment')
+    order_id = create.json()['order_id']
+
+    # Find workflow tasks
+    from app.db.models import Task, TaskAssignment
+    res = await test_session.execute(__import__('sqlalchemy').select(Task).where(Task.order_id == order_id).order_by(Task.id))
+    tasks = res.scalars().all()
+
+    fh = next((t for t in tasks if t.step_key == 'foreman_handover'), None)
+    dr = next((t for t in tasks if t.step_key == 'delivery_received'), None)
+    assert fh is not None and dr is not None
+
+    # Assign foreman and complete handover to unlock delivery steps
+    fh.assigned_user_id = 1
+    test_session.add(fh)
+    await test_session.commit()
+
+    resp = await client.post(f'/api/tasks/{fh.id}/complete', headers={'Authorization': f'Bearer {tf}'})
+    assert resp.status_code == 200
+
+    # Fetch automation task and create a delivery assignment (simulate assignment)
+    from app.automation.order_triggers import OrderAutomationTriggers
+    task = await OrderAutomationTriggers._get_order_automation_task(test_session, order_id)
+    assert task is not None
+
+    # Create delivery assignment explicitly
+    da = TaskAssignment(task_id=task.id, user_id=2, role_hint='delivery', status='in_progress')
+    test_session.add(da)
+    await test_session.commit()
+
+    # Assign delivery user to the delivery_received workflow step and complete it
+    dr.assigned_user_id = 2
+    test_session.add(dr)
+    await test_session.commit()
+
+    resp = await client.post(f'/api/tasks/{dr.id}/complete', headers={'Authorization': f'Bearer {td}'})
+    assert resp.status_code == 200
+
+    # Reload delivery assignment and ensure it is NOT marked done
+    res = await test_session.execute(__import__('sqlalchemy').select(TaskAssignment).where(TaskAssignment.task_id == task.id).where(TaskAssignment.role_hint == 'delivery'))
+    fa = res.scalars().first()
+    assert fa is not None
+    assert getattr(fa.status, 'value', fa.status) != 'done'
+
+    # Complete remaining delivery steps (deliver_items, accept_delivery)
+    di = next((t for t in tasks if t.step_key == 'deliver_items'), None)
+    ad = next((t for t in tasks if t.step_key == 'accept_delivery'), None)
+    assert di is not None and ad is not None
+
+    di.assigned_user_id = 2
+    test_session.add(di)
+    await test_session.commit()
+    resp = await client.post(f'/api/tasks/{di.id}/complete', headers={'Authorization': f'Bearer {td}'})
+    assert resp.status_code == 200
+
+    ad.assigned_user_id = 2
+    test_session.add(ad)
+    await test_session.commit()
+    resp = await client.post(f'/api/tasks/{ad.id}/complete', headers={'Authorization': f'Bearer {td}'})
+    assert resp.status_code == 200
+
+    # After final delivery step, delivery assignment should be marked done
+    res = await test_session.execute(__import__('sqlalchemy').select(TaskAssignment).where(TaskAssignment.task_id == task.id).where(TaskAssignment.role_hint == 'delivery'))
+    fa2 = res.scalars().first()
+    assert fa2 is not None
+    assert getattr(fa2.status, 'value', fa2.status) == 'done'
