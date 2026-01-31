@@ -695,6 +695,39 @@ async def reassign_assignment_endpoint(
     return _assignment_to_response(assignment)
 
 
+@router.post("/assignments/{assignment_id}/complete", response_model=AssignmentResponse)
+async def complete_assignment_by_id(
+    assignment_id: int,
+    payload: AssignmentComplete,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Complete an assignment by assignment id.
+
+    This endpoint is assignment-scoped and will complete the specific assignment
+    if the caller is the assigned user or a system admin. It avoids ambiguity
+    where a task-level complete call may result in force-completion.
+    """
+    user_id = current_user["user_id"]
+
+    try:
+        assignment = await AutomationService.complete_assignment_by_assignment_id(
+            db=db,
+            assignment_id=assignment_id,
+            user_id=user_id,
+            notes=payload.notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        automation_logger.error("Unhandled exception while completing assignment by id", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+    return _assignment_to_response(assignment)
+
+
 @router.post("/tasks/{task_id}/delete", response_model=TaskResponse)
 async def delete_task_endpoint(
     task_id: int,

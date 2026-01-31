@@ -238,25 +238,34 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }))
     
     try {
-      await api.post(`/api/automation/tasks/${taskId}/complete`, { notes })
-      
+      // Find current user's assignment for this task
+      const assignment = get().myAssignments.find(a => a.task_id === taskId)
+      if (!assignment) {
+        console.error('[TaskStore] No assignment found for task:', taskId)
+        set({ error: 'No assignment found for this task', completingTaskId: null })
+        return false
+      }
+
+      // Call assignment-level complete endpoint to avoid any ambiguity with task-level completion
+      await api.post(`/api/automation/assignments/${assignment.id}/complete`, { notes })
+
       // Refresh data after completion - tasks, assignments, AND orders
       await get().fetchMyAssignments()
       await get().fetchMyTasks()
-      
+
       // Also refetch orders to get updated status
       try {
         await useOrderStore.getState().fetchOrders()
       } catch (e) {
-        console.warn('[TaskStore] Failed to refetch orders after task completion:', e)
+        console.warn('[TaskStore] Failed to refetch orders after assignment completion:', e)
       }
-      
+
       set({ completingTaskId: null })
       return true
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
       console.error('[TaskStore] Failed to complete assignment:', error)
-      
+
       // Rollback
       set({ 
         myAssignments: prevAssignments,

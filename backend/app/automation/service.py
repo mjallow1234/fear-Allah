@@ -1046,7 +1046,38 @@ class AutomationService:
         # Do not call close_task_if_all_done() here — leave auto-closure to workflow-driven handlers.
 
         return assignment
-    
+
+    @staticmethod
+    async def complete_assignment_by_assignment_id(
+        db: AsyncSession,
+        assignment_id: int,
+        user_id: int,
+        notes: Optional[str] = None,
+    ):
+        """
+        Complete an assignment by its assignment id.
+
+        Ensures the caller is the assigned user or a system admin. Delegates to
+        the main assignment completion logic to avoid duplication and preserve
+        workflow advancement behavior.
+        """
+        from app.db.models import TaskAssignment, User
+
+        # Load assignment
+        res = await db.execute(select(TaskAssignment).where(TaskAssignment.id == assignment_id))
+        assignment = res.scalar_one_or_none()
+        if not assignment:
+            raise ValueError("Assignment not found")
+
+        # Permission check: assigned user or system admin
+        user_res = await db.execute(select(User).where(User.id == user_id))
+        user = user_res.scalar_one_or_none()
+        if assignment.user_id != user_id and not (user and user.is_system_admin):
+            raise PermissionError("Not permitted to complete this assignment")
+
+        # Delegate to existing task-scoped complete_assignment to keep behavior consistent
+        return await AutomationService.complete_assignment(db=db, task_id=assignment.task_id, user_id=user_id, notes=notes)
+
     @staticmethod
     async def close_task_if_all_done(
         db: AsyncSession,
