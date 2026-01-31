@@ -1136,7 +1136,6 @@ class AutomationService:
             if assignment.role_hint == 'delivery' and getattr(assignment.status, 'name', str(assignment.status)).upper() == 'DONE':
                 from app.db.models import TaskAssignment as TA, AutomationTask as AT
                 from app.db.enums import AssignmentStatus as AS, AutomationTaskStatus as ATS
-                from datetime import datetime
 
                 # Check for remaining assignments that are not done/skipped
                 rem_q = select(TA.id).where(
@@ -1147,7 +1146,7 @@ class AutomationService:
                 remaining = rem_res.scalar_one_or_none()
                 if not remaining:
                     # No remaining assignments - mark the automation task completed (direct update)
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     await db.execute(
                         update(AT)
                         .where(AT.id == assignment.task_id)
