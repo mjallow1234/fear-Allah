@@ -48,6 +48,14 @@ async def test_foreman_handover_does_not_close_automation(client: AsyncClient, t
     t_status = task.status.name.upper() if hasattr(task.status, 'name') else str(task.status).upper()
     assert t_status in ('IN_PROGRESS', 'OPEN')
 
+    # Ensure ORDER is NOT completed when foreman finishes
+    from app.db.models import Order
+    o_res = await test_session.execute(__import__('sqlalchemy').select(Order).where(Order.id == order_id))
+    ord_row = o_res.scalar_one_or_none()
+    assert ord_row is not None
+    ord_status = ord_row.status.name.upper() if hasattr(ord_row.status, 'name') else str(ord_row.status).upper()
+    assert ord_status != 'COMPLETED'
+
     # Check the foreman assignment for this automation task was NOT marked done
     res = await test_session.execute(__import__('sqlalchemy').select(TaskAssignment).where(TaskAssignment.task_id == task.id).where(TaskAssignment.role_hint == 'foreman'))
     fa = res.scalars().first()
@@ -188,6 +196,13 @@ async def test_full_workflow_completion_closes_automation_task(client: AsyncClie
     assert t_status == 'COMPLETED'
     assert getattr(at, 'completed_at', None) is not None
 
+    # Ensure ORDER is completed after automation completes
+    from app.db.models import Order
+    o_res = await test_session.execute(__import__('sqlalchemy').select(Order).where(Order.id == order_id))
+    ord_row = o_res.scalar_one_or_none()
+    assert ord_row is not None
+    ord_status = ord_row.status.name.upper() if hasattr(ord_row.status, 'name') else str(ord_row.status).upper()
+    assert ord_status == 'COMPLETED'
     # Delivery user should see the completed automation task in their task list
     login_d2 = await client.post('/api/auth/login', json={'identifier': 'd4@example.com', 'password': 'Password123!'})
     td2 = login_d2.json()['access_token']
@@ -257,6 +272,14 @@ async def test_delivery_assignment_completion_marks_automation_task_completed(cl
     assignments = res.scalars().all()
     # Ensure assignment is marked done
     assert any(getattr(a.status, 'value', a.status) == 'done' for a in assignments)
+
+    # After automation is completed the related ORDER should also be marked COMPLETED
+    from app.db.models import Order
+    r = await test_session.execute(__import__('sqlalchemy').select(Order).where(Order.id == order_id))
+    ord_ref = r.scalar_one_or_none()
+    assert ord_ref is not None
+    ord_status = ord_ref.status.name.upper() if hasattr(ord_ref.status, 'name') else str(ord_ref.status).upper()
+    assert ord_status == 'COMPLETED'
 
     # Reload automation task
     from app.db.models import AutomationTask

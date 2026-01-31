@@ -406,6 +406,36 @@ class AutomationService:
         offset: int = 0,
         current_user: Optional[User] = None,
     ) -> list[AutomationTask]:
+        pass
+
+    @staticmethod
+    async def _all_required_assignments_done(db: AsyncSession, automation_task_id: int) -> bool:
+        """Return True if there are no remaining non-DONE/non-SKIPPED assignments for the automation task."""
+        from app.db.models import TaskAssignment
+        from app.db.enums import AssignmentStatus
+
+        q = select(TaskAssignment.id).where(
+            TaskAssignment.task_id == automation_task_id,
+            TaskAssignment.status.notin_((AssignmentStatus.done, AssignmentStatus.skipped)),
+        ).limit(1)
+        res = await db.execute(q)
+        return res.scalar_one_or_none() is None
+
+    @staticmethod
+    async def list_tasks(
+        db: AsyncSession,
+        status: Optional[AutomationTaskStatus] = None,
+        task_type: Optional[AutomationTaskType] = None,
+        created_by_id: Optional[int] = None,
+        limit: int = 50,
+        offset: int = 0,
+        current_user: Optional[User] = None,
+    ) -> list[AutomationTask]:
+        """List tasks with optional filters.
+
+        For non-admin users, include tasks they created OR tasks where they have a TaskAssignment.
+        Use DISTINCT to avoid duplicates and preserve pagination.
+        """
         """
         List tasks with optional filters.
 
@@ -1137,15 +1167,10 @@ class AutomationService:
                 from app.db.models import TaskAssignment as TA, AutomationTask as AT
                 from app.db.enums import AssignmentStatus as AS, AutomationTaskStatus as ATS
 
-                # Check for remaining assignments that are not done/skipped
-                rem_q = select(TA.id).where(
-                    TA.task_id == assignment.task_id,
-                    TA.status.notin_((AS.done, AS.skipped))
-                ).limit(1)
-                rem_res = await db.execute(rem_q)
-                remaining = rem_res.scalar_one_or_none()
-                if not remaining:
-                    # No remaining assignments - mark the automation task completed (direct update)
+                # Use authoritative helper to check whether all required assignments are done
+                all_done = await AutomationService._all_required_assignments_done(db, assignment.task_id)
+                if all_done:
+                    # Mark the automation task completed (single authoritative location)
                     now = datetime.now(timezone.utc)
                     await db.execute(
                         update(AT)
@@ -1154,7 +1179,35 @@ class AutomationService:
                         .values(status=ATS.completed, completed_at=now)
                     )
                     await db.commit()
-                    logger.info(f"[Automation] Marked automation task {assignment.task_id} COMPLETED because all delivery assignments are done")
+                    logger.info(f"[Automation] Marked automation task {assignment.task_id} COMPLETED because all assignments are done")
+
+                    # If this automation task is linked to an order and there are no remaining required
+                    # workflow tasks for the order, mark the Order as COMPLETED (order completion follows automation completion)
+                    try:
+                        if getattr(AT, 'related_order_id', None) or True:
+                            # Reload automation task row to get related_order_id
+                            res_at = await db.execute(select(AT).where(AT.id == assignment.task_id))
+                            at_row = res_at.scalar_one_or_none()
+                            if at_row and getattr(at_row, 'related_order_id', None):
+                                from app.db.models import Order, Task as OrderTask
+                                from app.db.enums import OrderStatus, TaskStatus as OrderTaskStatus
+
+                                order_res = await db.execute(select(Order).where(Order.id == at_row.related_order_id))
+                                order = order_res.scalar_one_or_none()
+                                if order:
+                                    remaining_q = select(OrderTask.id).where(
+                                        OrderTask.order_id == order.id,
+                                        OrderTask.required == True,
+                                        OrderTask.status != OrderTaskStatus.done.value,
+                                    ).limit(1)
+                                    rem_res = await db.execute(remaining_q)
+                                    remaining_task = rem_res.scalar_one_or_none()
+                                    if not remaining_task:
+                                        await db.execute(update(Order).where(Order.id == order.id).values(status=OrderStatus.completed))
+                                        await db.commit()
+                                        logger.info(f"[Automation] Marked Order {order.id} COMPLETED as automation {assignment.task_id} completed and no workflow tasks remain")
+                    except Exception as e:
+                        logger.warning(f"[Automation] Failed to mark related order completed: {e}")
         except Exception as e:
             logger.warning(f"[Automation] Failed to mark automation task completed after delivery assignment done: {e}")
 
