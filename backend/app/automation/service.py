@@ -973,6 +973,17 @@ class AutomationService:
             logger.warning(f"[Automation] Failed to update assignment row: task={task_id}, assignment={assignment.id}")
             raise RuntimeError("Failed to complete assignment")
 
+        # Update in-memory assignment object to reflect completed status for downstream consumers
+        try:
+            from app.db.enums import AssignmentStatus as AS
+            assignment.status = AS.done
+            assignment.completed_at = now
+            assignment.notes = notes
+            db.add(assignment)
+        except Exception:
+            # Fallback: proceed without failing if enum or assignment update not possible
+            pass
+
         # Log the completion event
         evt = TaskEvent(
             task_id=task_id,
