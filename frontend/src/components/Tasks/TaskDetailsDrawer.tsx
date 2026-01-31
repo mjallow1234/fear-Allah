@@ -29,24 +29,7 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import api from '../../services/api'
 
-interface WorkflowStep {
-  id: number
-  step_key: string
-  title: string
-  action_label: string
-  assigned_to: string
-  status: string
-  is_active: boolean
-  is_done: boolean
-}
 
-interface WorkflowStepResponse {
-  active_step: WorkflowStep | null
-  all_steps: WorkflowStep[]
-  my_steps: WorkflowStep[]
-  my_role?: string
-  order_type?: string
-}
 
 interface TaskDetailsDrawerProps {
   task: AutomationTask | null
@@ -89,11 +72,6 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
   const [completingStepId, setCompletingStepId] = useState<number | null>(null)
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null)  // For showing notes input
   const [stepNotes, setStepNotes] = useState<string>('')  // Notes for current step
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
-  const [mySteps, setMySteps] = useState<WorkflowStep[]>([])
-  const [_myRole, setMyRole] = useState<string | null>(null)
-  const [_activeStep, setActiveStep] = useState<WorkflowStep | null>(null)
-  const [_loadingWorkflow, setLoadingWorkflow] = useState(false)
   // Admin form state
   const [reassignUserId, setReassignUserId] = useState<string>('')
   const [assignmentReassign, setAssignmentReassign] = useState<Record<number, { user?: string; role?: string }>>({})
@@ -107,7 +85,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
   }, [task?.id, fetchTaskDetails, fetchTaskEvents])
 
   // Helper: get assignments belonging to current user for this task
-  const myAssignmentsForTask = task.assignments.filter(a => a.user_id === user?.id) || []
+  const myAssignmentsForTask = task?.assignments?.filter(a => a.user_id === user?.id) ?? []
   
   if (!task) return null
   
@@ -354,58 +332,6 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               </div>
             )}
             
-            {/* Full Workflow Progress - Shows all steps */}
-            {workflowSteps.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                  <ArrowRight size={16} />
-                  Full Workflow Progress
-                </h4>
-                <div className="space-y-2">
-                  {workflowSteps.map((step, index) => (
-                    <div 
-                      key={step.id}
-                      className={clsx(
-                        "flex items-center gap-3 p-3 rounded-lg",
-                        step.is_active && "bg-[#5865f2]/20 ring-1 ring-[#5865f2]",
-                        step.is_done && "bg-green-600/10",
-                        !step.is_active && !step.is_done && "bg-[#2b2d31]"
-                      )}
-                    >
-                      <div className={clsx(
-                        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
-                        step.is_done && "bg-green-600 text-white",
-                        step.is_active && "bg-[#5865f2] text-white",
-                        !step.is_active && !step.is_done && "bg-[#4e5058] text-[#949ba4]"
-                      )}>
-                        {step.is_done ? <CheckCircle size={14} /> : index + 1}
-                      </div>
-                      <div className="flex-1">
-                        <span className={clsx(
-                          "text-sm font-medium",
-                          step.is_active && "text-[#5865f2]",
-                          step.is_done && "text-green-400",
-                          !step.is_active && !step.is_done && "text-[#949ba4]"
-                        )}>
-                          {step.title}
-                        </span>
-                        <span className="text-xs text-[#72767d] block">
-                          {step.assigned_to === 'foreman' && '👷 Foreman'}
-                          {step.assigned_to === 'delivery' && '🚚 Delivery'}
-                          {step.assigned_to === 'requester' && '📋 Requester'}
-                        </span>
-                      </div>
-                      {step.is_done && (
-                        <span className="text-xs text-green-400">✓ {step.action_label}</span>
-                      )}
-                      {step.is_active && (
-                        <span className="text-xs text-[#5865f2] font-medium">Active</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             
             {/* Metadata (if any) */}
             {task.metadata && Object.keys(task.metadata).length > 0 && (
@@ -475,7 +401,6 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                       if (!confirm(`Force complete task #${task.id}? This will mark all assignments DONE and close the task.`)) return
                       try {
                         await api.post(`/api/automation/tasks/${task.id}/complete`, { notes: 'admin force complete' })
-                        await fetchWorkflowSteps(task.id)
                         await fetchTaskDetails(task.id)
                         await fetchTaskEvents(task.id)
                         alert('Task force-completed')
