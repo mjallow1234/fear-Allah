@@ -205,3 +205,63 @@ async def test_full_workflow_completion_closes_automation_task(client: AsyncClie
                 found = True
                 break
     assert found, f"Delivery user did not see completed automation task for order {order_id}"
+
+
+@pytest.mark.anyio
+async def test_delivery_assignment_completion_marks_automation_task_completed(client: AsyncClient, test_session):
+    # Create users
+    await client.post('/api/auth/register', json={'email': 'f5@example.com', 'password': 'Password123!', 'username': 'foreman4'})
+    await client.post('/api/auth/register', json={'email': 'd5@example.com', 'password': 'Password123!', 'username': 'delivery4'})
+    login_f = await client.post('/api/auth/login', json={'identifier': 'f5@example.com', 'password': 'Password123!'})
+    login_d = await client.post('/api/auth/login', json={'identifier': 'd5@example.com', 'password': 'Password123!'})
+    tf = login_f.json()['access_token']
+    td = login_d.json()['access_token']
+
+    # Create AGENT_RESTOCK order as foreman
+    create = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': []}, headers={'Authorization': f'Bearer {tf}'})
+    if create.status_code != 201:
+        pytest.skip('Order creation not permitted in this environment')
+    order_id = create.json()['order_id']
+
+    # Find workflow tasks and complete foreman handover to chain delivery automation task
+    from app.db.models import Task, TaskAssignment
+    res = await test_session.execute(__import__('sqlalchemy').select(Task).where(Task.order_id == order_id).order_by(Task.id))
+    tasks = res.scalars().all()
+    fh = next((t for t in tasks if t.step_key == 'foreman_handover'), None)
+    assert fh is not None
+
+    fh.assigned_user_id = 1
+    test_session.add(fh)
+    await test_session.commit()
+
+    resp = await client.post(f'/api/tasks/{fh.id}/complete', headers={'Authorization': f'Bearer {tf}'})
+    assert resp.status_code == 200
+
+    # Find the created delivery AutomationTask
+    from app.automation.order_triggers import OrderAutomationTriggers
+    at = await OrderAutomationTriggers._get_order_automation_task(test_session, order_id)
+    assert at is not None and getattr(at, 'required_role', None) == 'delivery'
+
+    # Create a delivery assignment (single assignment) and commit
+    delivery_user_id = 2
+    da = TaskAssignment(task_id=at.id, user_id=delivery_user_id, role_hint='delivery', status='in_progress')
+    test_session.add(da)
+    await test_session.commit()
+
+    # Delivery user completes their assignment via automation endpoint
+    resp = await client.post(f'/api/automation/tasks/{at.id}/complete', headers={'Authorization': f'Bearer {td}'})
+    assert resp.status_code == 200
+
+    # Reload automation task and ensure it is COMPLETED
+    res = await test_session.execute(__import__('sqlalchemy').select(TaskAssignment).where(TaskAssignment.task_id == at.id))
+    assignments = res.scalars().all()
+    # Ensure assignment is marked done
+    assert any(getattr(a.status, 'value', a.status) == 'done' for a in assignments)
+
+    # Reload automation task
+    from app.db.models import AutomationTask
+    r = await test_session.execute(__import__('sqlalchemy').select(AutomationTask).where(AutomationTask.id == at.id))
+    at_ref = r.scalar_one_or_none()
+    assert at_ref is not None
+    t_status = at_ref.status.name.upper() if hasattr(at_ref.status, 'name') else str(at_ref.status).upper()
+    assert t_status == 'COMPLETED'

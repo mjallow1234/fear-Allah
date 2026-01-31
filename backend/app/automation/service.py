@@ -1129,6 +1129,36 @@ class AutomationService:
 
         logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}, assignment_id={assignment.id}")
 
+        # If this was a delivery assignment and it is now DONE, and there are no remaining
+        # non-done/non-skipped assignments on the AutomationTask, mark the AutomationTask
+        # row as COMPLETED (defensive, minimal - does not touch workflows or parent tasks).
+        try:
+            if assignment.role_hint == 'delivery' and getattr(assignment.status, 'name', str(assignment.status)).upper() == 'DONE':
+                from app.db.models import TaskAssignment as TA, AutomationTask as AT
+                from app.db.enums import AssignmentStatus as AS, AutomationTaskStatus as ATS
+                from datetime import datetime
+
+                # Check for remaining assignments that are not done/skipped
+                rem_q = select(TA.id).where(
+                    TA.task_id == assignment.task_id,
+                    TA.status.notin_((AS.done, AS.skipped))
+                ).limit(1)
+                rem_res = await db.execute(rem_q)
+                remaining = rem_res.scalar_one_or_none()
+                if not remaining:
+                    # No remaining assignments - mark the automation task completed (direct update)
+                    now = datetime.utcnow()
+                    await db.execute(
+                        update(AT)
+                        .where(AT.id == assignment.task_id)
+                        .where(AT.status != ATS.completed)
+                        .values(status=ATS.completed, completed_at=now)
+                    )
+                    await db.commit()
+                    logger.info(f"[Automation] Marked automation task {assignment.task_id} COMPLETED because all delivery assignments are done")
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to mark automation task completed after delivery assignment done: {e}")
+
         # Emit Make.com webhook for task.completed event
         try:
             # Get user info for payload
