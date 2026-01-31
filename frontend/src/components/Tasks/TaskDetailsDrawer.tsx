@@ -221,163 +221,167 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               )}
             </div>
             
-            {/* My Tasks Checklist - Shows user's assigned steps (hidden for admins) */}
-            {mySteps.length > 0 && !user?.is_system_admin && (
-              <div className="bg-[#1e1f22] rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                  <CheckCircle size={16} className="text-[#5865f2]" />
-                  My Tasks ({mySteps.filter(s => s.is_done).length}/{mySteps.length} completed)
-                </h4>
-                <div className="space-y-3">
-                  {mySteps.map((step) => {
-                    const canComplete = step.is_active && !step.is_done && !user?.is_system_admin
-                    const isCompleting = completingStepId === step.id
-                    const isExpanded = expandedStepId === step.id
-                    
-                    const handleComplete = async () => {
-                      if (!canComplete || isCompleting) return
-                      setCompletingStepId(step.id)
-                      try {
-                        const notes = stepNotes.trim() || `Completed: ${step.action_label}`
-                        const success = await completeAssignment(task.id, notes)
-                        if (success) {
-                          await fetchWorkflowSteps(task.id)
-                          fetchTaskDetails(task.id)
-                          fetchTaskEvents(task.id)
-                          setExpandedStepId(null)
-                          setStepNotes('')
-                        }
-                      } finally {
-                        setCompletingStepId(null)
-                      }
-                    }
-                    
-                    return (
-                      <div 
-                        key={step.id}
-                        className={clsx(
-                          "p-3 rounded-lg transition-all",
-                          step.is_done && "bg-green-600/10",
-                          step.is_active && !step.is_done && "bg-[#5865f2]/10 ring-1 ring-[#5865f2]",
-                          !step.is_active && !step.is_done && "bg-[#2b2d31] opacity-50"
-                        )}
-                      >
-                        <div className="flex items-start gap-3">
-                          {/* Checkbox */}
-                          <button
-                            onClick={() => {
-                              if (!canComplete || isCompleting) return
-                              if (isExpanded) {
-                                // If already expanded, complete it
-                                handleComplete()
-                              } else {
-                                // Expand to show notes input
-                                setExpandedStepId(step.id)
+            {/* My Tasks Checklist - single active step per user (hidden for admins) */}
+            {mySteps.length > 0 && !user?.is_system_admin && (() => {
+              const activeStep = mySteps.find(s => s.is_active && !s.is_done)
+              const allDone = mySteps.every(s => s.is_done)
+
+              if (!activeStep && !allDone) {
+                // No unlocked active step for user yet; don't show anything
+                return null
+              }
+
+              return (
+                <div className="bg-[#1e1f22] rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                    <CheckCircle size={16} className="text-[#5865f2]" />
+                    My Tasks
+                  </h4>
+
+                  {activeStep && (
+                    <div className={clsx(
+                      "p-3 rounded-lg transition-all",
+                      activeStep.is_done && "bg-green-600/10",
+                      activeStep.is_active && !activeStep.is_done && "bg-[#5865f2]/10 ring-1 ring-[#5865f2]",
+                    )}>
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox */}
+                        <button
+                          onClick={() => {
+                            const canComplete = activeStep.is_active && !activeStep.is_done
+                            const isCompleting = completingStepId === activeStep.id
+                            if (!canComplete || isCompleting) return
+                            if (expandedStepId === activeStep.id) {
+                              // complete when expanded
+                              (async () => {
+                                setCompletingStepId(activeStep.id)
+                                try {
+                                  const notes = stepNotes.trim() || `Completed: ${activeStep.action_label}`
+                                  const success = await completeAssignment(task.id, notes)
+                                  if (success) {
+                                    await fetchWorkflowSteps(task.id)
+                                    fetchTaskDetails(task.id)
+                                    fetchTaskEvents(task.id)
+                                    setExpandedStepId(null)
+                                    setStepNotes('')
+                                  }
+                                } finally {
+                                  setCompletingStepId(null)
+                                }
+                              })()
+                            } else {
+                              setExpandedStepId(activeStep.id)
+                              setStepNotes('')
+                            }
+                          }}
+                          disabled={!activeStep.is_active || activeStep.is_done || completingStepId === activeStep.id}
+                          className={clsx(
+                            "w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all",
+                            activeStep.is_done && "bg-green-600 border-green-600 text-white",
+                            activeStep.is_active && !activeStep.is_done && "border-[#5865f2] hover:bg-[#5865f2]/20 cursor-pointer",
+                            !activeStep.is_active && !activeStep.is_done && "border-[#4e5058] cursor-not-allowed",
+                            completingStepId === activeStep.id && "border-[#5865f2] animate-pulse"
+                          )}
+                        >
+                          {activeStep.is_done && <CheckCircle size={14} />}
+                          {completingStepId === activeStep.id && <Loader2 size={14} className="animate-spin text-[#5865f2]" />}
+                        </button>
+
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={clsx(
+                              "text-sm font-medium",
+                              activeStep.is_done && "text-green-400 line-through",
+                              activeStep.is_active && !activeStep.is_done && "text-white",
+                            )}>
+                              {activeStep.title}
+                            </span>
+                          </div>
+
+                          {!expandedStepId && (
+                            <span className="text-xs text-[#5865f2] font-medium block mt-1">
+                              Click checkbox to mark as "{activeStep.action_label}"
+                            </span>
+                          )}
+
+                          {activeStep.is_done && (
+                            <span className="text-xs text-green-400 block mt-1">
+                              ✓ {activeStep.action_label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expanded notes input */}
+                      {expandedStepId === activeStep.id && activeStep.is_active && !activeStep.is_done && (
+                        <div className="mt-3 pt-3 border-t border-[#3f4147] space-y-2">
+                          <textarea
+                            placeholder="Add a note (optional)..."
+                            value={stepNotes}
+                            onChange={(e) => setStepNotes(e.target.value)}
+                            className="w-full px-3 py-2 bg-[#1e1f22] border border-[#3f4147] rounded-lg text-white text-sm placeholder-[#72767d] focus:outline-none focus:ring-1 focus:ring-[#5865f2] resize-none"
+                            rows={2}
+                            autoFocus
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                setCompletingStepId(activeStep.id)
+                                try {
+                                  const notes = stepNotes.trim() || `Completed: ${activeStep.action_label}`
+                                  const success = await completeAssignment(task.id, notes)
+                                  if (success) {
+                                    await fetchWorkflowSteps(task.id)
+                                    fetchTaskDetails(task.id)
+                                    fetchTaskEvents(task.id)
+                                    setExpandedStepId(null)
+                                    setStepNotes('')
+                                  }
+                                } finally {
+                                  setCompletingStepId(null)
+                                }
+                              }}
+                              disabled={completingStepId === activeStep.id}
+                              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                            >
+                              {completingStepId === activeStep.id ? (
+                                <>
+                                  <Loader2 size={16} className="animate-spin" />
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle size={16} />
+                                  {activeStep.action_label}
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setExpandedStepId(null)
                                 setStepNotes('')
-                              }
-                            }}
-                            disabled={!canComplete || isCompleting}
-                            className={clsx(
-                              "w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all",
-                              step.is_done && "bg-green-600 border-green-600 text-white",
-                              canComplete && !isCompleting && "border-[#5865f2] hover:bg-[#5865f2]/20 cursor-pointer",
-                              !canComplete && !step.is_done && "border-[#4e5058] cursor-not-allowed",
-                              isCompleting && "border-[#5865f2] animate-pulse"
-                            )}
-                          >
-                            {step.is_done && <CheckCircle size={14} />}
-                            {isCompleting && <Loader2 size={14} className="animate-spin text-[#5865f2]" />}
-                          </button>
-                          
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className={clsx(
-                                "text-sm font-medium",
-                                step.is_done && "text-green-400 line-through",
-                                step.is_active && !step.is_done && "text-white",
-                                !step.is_active && !step.is_done && "text-[#72767d]"
-                              )}>
-                                {step.title}
-                              </span>
-                            </div>
-                          
-                            {/* Action button label */}
-                            {canComplete && !isExpanded && (
-                              <span className="text-xs text-[#5865f2] font-medium block mt-1">
-                                Click checkbox to mark as "{step.action_label}"
-                              </span>
-                            )}
-                          
-                            {step.is_done && (
-                              <span className="text-xs text-green-400 block mt-1">
-                                ✓ {step.action_label}
-                              </span>
-                            )}
-                          
-                            {!step.is_active && !step.is_done && (
-                              <span className="text-xs text-[#72767d] block mt-1">
-                                Waiting for previous step
-                              </span>
-                            )}
+                              }}
+                              className="px-4 py-2 bg-[#4e5058] hover:bg-[#6d6f78] text-white text-sm font-medium rounded-lg transition-colors"
+                            >
+                              Cancel
+                            </button>
                           </div>
                         </div>
-                        
-                        {/* Expanded notes input */}
-                        {isExpanded && canComplete && (
-                          <div className="mt-3 pt-3 border-t border-[#3f4147] space-y-2">
-                            <textarea
-                              placeholder="Add a note (optional)..."
-                              value={stepNotes}
-                              onChange={(e) => setStepNotes(e.target.value)}
-                              className="w-full px-3 py-2 bg-[#1e1f22] border border-[#3f4147] rounded-lg text-white text-sm placeholder-[#72767d] focus:outline-none focus:ring-1 focus:ring-[#5865f2] resize-none"
-                              rows={2}
-                              autoFocus
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={handleComplete}
-                                disabled={isCompleting}
-                                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                              >
-                                {isCompleting ? (
-                                  <>
-                                    <Loader2 size={16} className="animate-spin" />
-                                    Processing...
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle size={16} />
-                                    {step.action_label}
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setExpandedStepId(null)
-                                  setStepNotes('')
-                                }}
-                                className="px-4 py-2 bg-[#4e5058] hover:bg-[#6d6f78] text-white text-sm font-medium rounded-lg transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                      )}
+                    </div>
+                  )}
+
+                  {allDone && (
+                    <div className="mt-3 p-3 bg-green-600/20 rounded-lg text-center">
+                      <CheckCircle size={20} className="text-green-400 mx-auto mb-1" />
+                      <span className="text-sm text-green-400 font-medium">All your tasks completed!</span>
+                    </div>
+                  )}
                 </div>
-                
-                {/* Show message when all steps done */}
-                {mySteps.length > 0 && mySteps.every(s => s.is_done) && (
-                  <div className="mt-3 p-3 bg-green-600/20 rounded-lg text-center">
-                    <CheckCircle size={20} className="text-green-400 mx-auto mb-1" />
-                    <span className="text-sm text-green-400 font-medium">All your tasks completed!</span>
-                  </div>
-                )}
-              </div>
-            )}
-            
+              )
+            })()
+          }
+
             {/* Full Workflow Progress - Shows all steps */}
             {workflowSteps.length > 0 && (
               <div>
