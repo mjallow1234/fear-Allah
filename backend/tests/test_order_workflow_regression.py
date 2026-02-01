@@ -273,13 +273,13 @@ async def test_delivery_assignment_completion_marks_automation_task_completed(cl
     # Ensure assignment is marked done
     assert any(getattr(a.status, 'value', a.status) == 'done' for a in assignments)
 
-    # After automation is completed the related ORDER should also be marked COMPLETED
+    # After role-scoped automation completes, ORDER should NOT be marked COMPLETED (global automation is authoritative)
     from app.db.models import Order
     r = await test_session.execute(__import__('sqlalchemy').select(Order).where(Order.id == order_id))
     ord_ref = r.scalar_one_or_none()
     assert ord_ref is not None
     ord_status = ord_ref.status.name.upper() if hasattr(ord_ref.status, 'name') else str(ord_ref.status).upper()
-    assert ord_status == 'COMPLETED'
+    assert ord_status != 'COMPLETED'
 
     # Reload automation task
     from app.db.models import AutomationTask

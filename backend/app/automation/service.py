@@ -1202,10 +1202,14 @@ class AutomationService:
                                     ).limit(1)
                                     rem_res = await db.execute(remaining_q)
                                     remaining_task = rem_res.scalar_one_or_none()
-                                    if not remaining_task:
+                                    # Only mark the ORDER as COMPLETED if the automation task is the global
+                                    # (not role-scoped) automation task for the order
+                                    if not remaining_task and getattr(at_row, 'required_role', None) is None:
                                         await db.execute(update(Order).where(Order.id == order.id).values(status=OrderStatus.completed))
                                         await db.commit()
-                                        logger.info(f"[Automation] Marked Order {order.id} COMPLETED as automation {assignment.task_id} completed and no workflow tasks remain")
+                                        logger.info(f"[Automation] Marked Order {order.id} COMPLETED as global automation {assignment.task_id} completed and no workflow tasks remain")
+                                    else:
+                                        logger.info(f"[Automation] Order {order.id} not marked completed because automation task {assignment.task_id} is role-scoped or remaining workflow tasks exist")
                     except Exception as e:
                         logger.warning(f"[Automation] Failed to mark related order completed: {e}")
         except Exception as e:
