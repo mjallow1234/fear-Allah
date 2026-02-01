@@ -1367,11 +1367,27 @@ class AutomationService:
         if order_type not in allowed:
             return
 
-        # DB-level existence check: ensure at most one delivery task per order
-        exists_q = select(AT.id).where(AT.related_order_id == order.id, AT.required_role == 'delivery').limit(1)
-        ex = await db.execute(exists_q)
-        if ex.scalar_one_or_none():
-            return
+        # Ensure a DB-level partial unique index exists to prevent duplicates/race conditions
+        try:
+            from sqlalchemy import text
+            await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_active_automation_task_per_role ON automation_tasks (related_order_id, required_role) WHERE status IN ('open','claimed','pending');"))
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"[OrderAutomation] Failed to ensure unique index for automation_tasks: {e}")
+
+        # DB-level existence check: ensure at most one active delivery task per order
+        try:
+            exists_q = select(AT.id).where(
+                AT.related_order_id == order.id,
+                AT.required_role == 'delivery',
+                AT.status.in_([AutomationTaskStatus.open, AutomationTaskStatus.claimed, AutomationTaskStatus.pending])
+            ).limit(1)
+            ex = await db.execute(exists_q)
+            if ex.scalar_one_or_none():
+                logger.info(f"[OrderAutomation] Skipping creation: active delivery task already exists for order {order.id}")
+                return
+        except Exception as e:
+            logger.warning(f"[OrderAutomation] Existence check failed, proceeding with creation: {e}")
 
         # Create delivery task (do not auto-assign; created_by_id=0 to represent system)
         try:

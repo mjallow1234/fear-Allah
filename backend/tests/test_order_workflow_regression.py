@@ -267,6 +267,51 @@ async def test_delivery_assignment_completion_marks_automation_task_completed(cl
     resp = await client.post(f'/api/automation/tasks/{at.id}/complete', headers={'Authorization': f'Bearer {td}'})
     assert resp.status_code == 200
 
+
+@pytest.mark.anyio
+async def test_foreman_handover_does_not_duplicate_delivery_task(client: AsyncClient, test_session):
+    # Create users
+    await client.post('/api/auth/register', json={'email': 'dup1@example.com', 'password': 'Password123!', 'username': 'foreman_dup'})
+    await client.post('/api/auth/register', json={'email': 'dup2@example.com', 'password': 'Password123!', 'username': 'delivery_dup'})
+    login_f = await client.post('/api/auth/login', json={'identifier': 'dup1@example.com', 'password': 'Password123!'})
+    login_d = await client.post('/api/auth/login', json={'identifier': 'dup2@example.com', 'password': 'Password123!'})
+    tf = login_f.json()['access_token']
+    td = login_d.json()['access_token']
+
+    # Create AGENT_RESTOCK order as foreman
+    create = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': []}, headers={'Authorization': f'Bearer {tf}'})
+    if create.status_code != 201:
+        pytest.skip('Order creation not permitted in this environment')
+    order_id = create.json()['order_id']
+
+    # Find workflow tasks and complete foreman handover to chain delivery automation task
+    from app.db.models import Task, AutomationTask
+    res = await test_session.execute(__import__('sqlalchemy').select(Task).where(Task.order_id == order_id).order_by(Task.id))
+    tasks = res.scalars().all()
+    fh = next((t for t in tasks if t.step_key == 'foreman_handover'), None)
+    assert fh is not None
+
+    fh.assigned_user_id = 1
+    test_session.add(fh)
+    await test_session.commit()
+
+    resp = await client.post(f'/api/tasks/{fh.id}/complete', headers={'Authorization': f'Bearer {tf}'})
+    assert resp.status_code == 200
+
+    # Retrieve automation task and call chain function twice (simulate duplicate trigger)
+    from app.automation.order_triggers import OrderAutomationTriggers
+    at = await OrderAutomationTriggers._get_order_automation_task(test_session, order_id)
+    assert at is not None
+
+    # Call the chaining function twice to simulate race/duplicate trigger
+    await AutomationService._maybe_chain_foreman_to_delivery(test_session, at)
+    await AutomationService._maybe_chain_foreman_to_delivery(test_session, at)
+
+    # Ensure only one delivery automation task exists for the order
+    res2 = await test_session.execute(__import__('sqlalchemy').select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role == 'delivery'))
+    delivery_tasks = res2.scalars().all()
+    assert len(delivery_tasks) == 1, f"Expected 1 delivery task, found {len(delivery_tasks)}"
+
     # Reload automation task and ensure it is COMPLETED
     res = await test_session.execute(__import__('sqlalchemy').select(TaskAssignment).where(TaskAssignment.task_id == at.id))
     assignments = res.scalars().all()
