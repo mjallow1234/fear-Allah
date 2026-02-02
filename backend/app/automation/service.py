@@ -1214,6 +1214,28 @@ class AutomationService:
 
                 # If all_done is True, ALWAYS complete — no extra conditions
                 if all_done_root:
+                    # Guard: For agent_retail, only complete after deliver_items step is done
+                    order_res = await db.execute(select(OrderModel).where(OrderModel.id == related_order_id))
+                    order_obj = order_res.scalar_one_or_none()
+                    if order_obj:
+                        from app.db.enums import OrderType as OT
+                        from app.db.models import Task as WorkflowTask
+                        from app.db.enums import TaskStatus as WTS
+                        ot_val = order_obj.order_type.value if hasattr(order_obj.order_type, 'value') else order_obj.order_type
+                        if ot_val == OT.agent_retail.value:
+                            # Check if deliver_items step is still pending
+                            pending_final_q = select(WorkflowTask).where(
+                                WorkflowTask.order_id == order_obj.id,
+                                WorkflowTask.step_key == "deliver_items",
+                                WorkflowTask.status != WTS.done.value,
+                            ).limit(1)
+                            pending_final_res = await db.execute(pending_final_q)
+                            pending_final_delivery = pending_final_res.scalar_one_or_none()
+                            if pending_final_delivery:
+                                logger.info(f"[Automation] agent_retail order {order_obj.id}: deliver_items not yet done, skipping root completion")
+                                # Do NOT complete root yet — return assignment
+                                return assignment
+
                     now_root = datetime.now(timezone.utc)
                     # Use ORM mutation instead of Core UPDATE to avoid CompileError
                     root_task.status = ATS.completed
@@ -1222,9 +1244,7 @@ class AutomationService:
                         "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
                         root_task.id,
                     )
-                    # Defensively guard order fetch
-                    order_res = await db.execute(select(OrderModel).where(OrderModel.id == related_order_id))
-                    order_obj = order_res.scalar_one_or_none()
+                    # order_obj already fetched above; complete it
                     if order_obj:
                         order_obj.status = OS.completed
 
