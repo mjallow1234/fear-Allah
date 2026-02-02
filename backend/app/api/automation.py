@@ -722,8 +722,10 @@ async def complete_assignment_by_id(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        automation_logger.error("Unhandled exception while completing assignment by id", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        import traceback
+        automation_logger.error("Unhandled exception while completing assignment by id")
+        traceback.print_exc()
+        raise
 
     return _assignment_to_response(assignment)
 
@@ -891,9 +893,10 @@ async def complete_my_assignment(
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        # Catch unexpected exceptions to log stack trace for debugging
-        automation_logger.error("Unhandled exception while completing assignment", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        import traceback
+        automation_logger.error("Unhandled exception while completing assignment")
+        traceback.print_exc()
+        raise
     
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found or you are not assigned to this task")
