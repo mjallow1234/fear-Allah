@@ -174,6 +174,7 @@ class OrderAutomationTriggers:
                 },
                 required_role=None,
                 is_order_root=True,
+                status=AutomationTaskStatus.open,
             )
 
             # Ensure the order-root task is OPEN so it can accept non-operational assignments
@@ -306,7 +307,27 @@ class OrderAutomationTriggers:
                 logger.info(f"[OrderAutomation] Fallback assign to order creator {user_id} for role {role_hint}")
             
             # Create assignment only for requester and similar roles
-            if role_hint == "requester" or user_id is not None:
+            create_requester = True
+            if role_hint == 'requester':
+                create_requester = False
+                try:
+                    # Determine order type for this task
+                    if getattr(task, 'related_order_id', None):
+                        from app.db.models import Order
+                        from app.db.enums import OrderType
+                        ord_res = await db.execute(select(Order).where(Order.id == task.related_order_id))
+                        order_row = ord_res.scalar_one_or_none()
+                        if order_row:
+                            ot = order_row.order_type.value if isinstance(order_row.order_type, OrderType) else order_row.order_type
+                            # Only create requester assignment for these order types
+                            if ot in (OrderType.agent_restock.value, OrderType.store_keeper_restock.value):
+                                create_requester = True
+                except Exception as e:
+                    logger.warning(f"[OrderAutomation] Failed to determine whether to create requester assignment: {e}")
+
+            if (role_hint == "requester" and not create_requester):
+                logger.info(f"[OrderAutomation] Skipping requester assignment for role_hint=requester on task {task.id} (order type does not require requester)")
+            elif role_hint == "requester" or user_id is not None:
                 assignment = await AutomationService.assign_user_to_task(
                     db=db,
                     task_id=task.id,
@@ -513,7 +534,19 @@ class OrderAutomationTriggers:
         db: AsyncSession,
         order_id: int,
     ) -> Optional[AutomationTask]:
-        """Get the automation task linked to an order."""
+        """Get the order-root automation task linked to an order, falling back to latest."""
+        # Prefer the designated order-root task when present
+        result = await db.execute(
+            select(AutomationTask)
+            .where(AutomationTask.related_order_id == order_id)
+            .where(AutomationTask.is_order_root == True)
+            .limit(1)
+        )
+        root = result.scalar_one_or_none()
+        if root:
+            return root
+
+        # Fallback: return the most recently created automation task for the order
         result = await db.execute(
             select(AutomationTask)
             .where(AutomationTask.related_order_id == order_id)

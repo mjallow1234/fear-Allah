@@ -246,6 +246,7 @@ class AutomationService:
         metadata: Optional[dict[str, Any]] = None,
         required_role: Optional[str] = None,
         is_order_root: bool = False,
+        status: AutomationTaskStatus = AutomationTaskStatus.pending,
     ) -> AutomationTask:
         """
         Create a new automation task.
@@ -258,14 +259,15 @@ class AutomationService:
             description: Optional detailed description
             related_order_id: Optional linked order ID
             metadata: Optional JSON metadata
+            status: Optional initial status for the task (default: pending)
             
         Returns:
             The created AutomationTask
         """
         task = AutomationTask(
             task_type=task_type,
-            # Use PENDING for newly created tasks by default — claim flow will transition to CLAIMED when a user claims
-            status=AutomationTaskStatus.pending,
+            # Allow explicit initial status to be set by callers
+            status=status,
             title=title,
             description=description,
             created_by_id=created_by_id,
@@ -1213,6 +1215,46 @@ class AutomationService:
                                         logger.info(f"[Automation] Marked Order {order.id} COMPLETED as order-root automation {assignment.task_id} completed and no workflow tasks remain")
                                     else:
                                         logger.info(f"[Automation] Order {order.id} not marked completed because automation task {assignment.task_id} is not order-root or remaining workflow tasks exist")
+                    except Exception as e:
+                        logger.warning(f"[Automation] Failed to mark related order completed: {e}")
+
+                    # --- Special-case: For order types that do NOT require a requester (agent_retail, customer_wholesale),
+                    # when a delivery role-scoped automation task completes we should advance/complete the order-root and the Order.
+                    try:
+                        if assignment.role_hint == 'delivery' and at_row and getattr(at_row, 'related_order_id', None):
+                            from app.db.models import AutomationTask as ATModel, Order as OrderModel, TaskAssignment as TA
+                            from app.db.enums import OrderType as OT
+
+                            ord_res2 = await db.execute(select(OrderModel).where(OrderModel.id == at_row.related_order_id))
+                            ord_row2 = ord_res2.scalar_one_or_none()
+                            if ord_row2:
+                                ot_val = ord_row2.order_type.value if isinstance(ord_row2.order_type, OT) else ord_row2.order_type
+                                if ot_val in (OT.agent_retail.value, OT.customer_wholesale.value):
+                                    # Delivery-only order types: mark the order-root and order completed
+                                    # Find the order-root automation task
+                                    root_q = select(ATModel).where(ATModel.related_order_id == ord_row2.id, ATModel.is_order_root == True).limit(1)
+                                    root_res = await db.execute(root_q)
+                                    root_task = root_res.scalar_one_or_none()
+                                    if root_task and getattr(root_task, 'status', None) != AutomationTaskStatus.completed:
+                                        now2 = datetime.now(timezone.utc)
+                                        await db.execute(
+                                            update(ATModel)
+                                            .where(ATModel.id == root_task.id)
+                                            .values(status=AutomationTaskStatus.completed, completed_at=now2)
+                                        )
+                                        # Mark any assignments on the root done
+                                        await db.execute(
+                                            update(TA)
+                                            .where(TA.task_id == root_task.id)
+                                            .where(TA.status != AssignmentStatus.done)
+                                            .values(status=AssignmentStatus.done, completed_at=now2)
+                                        )
+                                        # Mark the order completed
+                                        await db.execute(update(OrderModel).where(OrderModel.id == ord_row2.id).values(status=OrderStatus.completed))
+                                        await db.commit()
+                                        logger.info(f"[Automation] Marked order-root {root_task.id} and Order {ord_row2.id} COMPLETED as delivery completed for delivery-only order type")
+                    except Exception as e:
+                        logger.warning(f"[Automation] Failed to auto-complete order-root/order after delivery on delivery-only order type: {e}")
                     except Exception as e:
                         logger.warning(f"[Automation] Failed to mark related order completed: {e}")
         except Exception as e:

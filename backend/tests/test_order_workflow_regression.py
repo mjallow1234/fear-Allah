@@ -301,6 +301,53 @@ async def test_delivery_assignment_completion_marks_automation_task_completed(cl
 
 
 @pytest.mark.anyio
+async def test_delivery_completion_advances_root_for_delivery_only_orders(client: AsyncClient, test_session):
+    # Create users
+    await client.post('/api/auth/register', json={'email': 'r_deliver@example.com', 'password': 'Password123!', 'username': 'creator_delivery'})
+    await client.post('/api/auth/register', json={'email': 'r_deliver2@example.com', 'password': 'Password123!', 'username': 'delivery_only'})
+    login_creator = await client.post('/api/auth/login', json={'identifier': 'r_deliver@example.com', 'password': 'Password123!'})
+    login_d = await client.post('/api/auth/login', json={'identifier': 'r_deliver2@example.com', 'password': 'Password123!'})
+    tc = login_creator.json()['access_token']
+    td = login_d.json()['access_token']
+
+    # Create AGENT_RETAIL order as creator
+    create = await client.post('/api/orders/', json={'order_type': 'AGENT_RETAIL', 'items': []}, headers={'Authorization': f'Bearer {tc}'})
+    if create.status_code != 201:
+        pytest.skip('Order creation not permitted in this environment')
+    order_id = create.json()['order_id']
+
+    # Find the role-scoped delivery AutomationTask
+    from app.db.models import AutomationTask, TaskAssignment, Order
+    res = await test_session.execute(__import__('sqlalchemy').select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role == 'delivery'))
+    delivery_tasks = res.scalars().all()
+    assert len(delivery_tasks) == 1, f"Expected 1 delivery task, found {len(delivery_tasks)}"
+    del_at = delivery_tasks[0]
+
+    # Create delivery assignment and commit
+    delivery_user_id = 2
+    da = TaskAssignment(task_id=del_at.id, user_id=delivery_user_id, role_hint='delivery', status='in_progress')
+    test_session.add(da)
+    await test_session.commit()
+
+    # Delivery completes via automation endpoint
+    resp = await client.post(f'/api/automation/tasks/{del_at.id}/complete', headers={'Authorization': f'Bearer {td}'})
+    assert resp.status_code == 200
+
+    # Ensure order-root task is completed and order status is COMPLETED
+    res_root = await test_session.execute(__import__('sqlalchemy').select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.is_order_root == True))
+    root = res_root.scalars().first()
+    assert root is not None
+    assert getattr(root.status, 'value', root.status) == 'completed' or (hasattr(root.status,'name') and root.status.name.upper() == 'COMPLETED')
+
+    # Order should be completed
+    r = await test_session.execute(__import__('sqlalchemy').select(Order).where(Order.id == order_id))
+    ord_ref = r.scalar_one_or_none()
+    assert ord_ref is not None
+    ord_status = ord_ref.status.name.upper() if hasattr(ord_ref.status, 'name') else str(ord_ref.status).upper()
+    assert ord_status == 'COMPLETED'
+
+
+@pytest.mark.anyio
 async def test_foreman_handover_does_not_duplicate_delivery_task(client: AsyncClient, test_session):
     # Create users
     await client.post('/api/auth/register', json={'email': 'dup1@example.com', 'password': 'Password123!', 'username': 'foreman_dup'})
