@@ -822,6 +822,12 @@ class AutomationService:
         Returns:
             The updated TaskAssignment or None if not found
         """
+        logger.info(
+            "[DEBUG] complete_assignment ENTERED | assignment_id=%s | user_id=%s | task_id=%s",
+            assignment_id,
+            user_id,
+            task_id,
+        )
         # Determine admin status early so it's available in all branches
         is_admin = False
         actor = None
@@ -860,10 +866,18 @@ class AutomationService:
         logger.info(f"[Automation] DEBUG selected assignment: {getattr(assignment, 'id', None)} user_id={getattr(assignment, 'user_id', None)} status={getattr(assignment, 'status', None)} role_hint={getattr(assignment, 'role_hint', None)}")
 
         if not assignment:
+            logger.info(
+                "[DEBUG] complete_assignment RETURNING EARLY | assignment_id=%s | reason=assignment_not_found",
+                assignment_id,
+            )
             logger.warning(f"[Automation] Assignment not found: task={task_id}, user={user_id}, assignment_id={assignment_id}")
             raise ValueError("Assignment not found")
         
         if assignment.status == AssignmentStatus.done:
+            logger.info(
+                "[DEBUG] complete_assignment RETURNING EARLY | assignment_id=%s | reason=already_done",
+                assignment.id,
+            )
             logger.warning(f"[Automation] Assignment already completed: task={task_id}, user={user_id}")
             return assignment
 
@@ -1118,6 +1132,12 @@ class AutomationService:
         logger.info(f"[Automation] DEBUG update performed for assignment={assignment.id}, marked_done={marked_done}")
 
         if marked_done:
+            logger.info(
+                "[DEBUG] assignment marked DONE | assignment_id=%s | task_id=%s | task_required_role=%s",
+                assignment.id,
+                assignment.task_id,
+                getattr(automation_task, 'required_role', None) if automation_task else None,
+            )
             # Update in-memory assignment object to reflect completed status for downstream consumers
             try:
                 from app.db.enums import AssignmentStatus as AS
@@ -1164,6 +1184,12 @@ class AutomationService:
         logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}, assignment_id={assignment.id}")
 
         # NEW: If this assignment belongs to the order-root task, re-evaluate completion regardless of role
+        logger.info(
+            "[DEBUG] about to evaluate order root | order_id=%s | current_task_id=%s | current_task_is_root=%s",
+            getattr(automation_task, 'related_order_id', None) if automation_task else None,
+            getattr(automation_task, 'id', None) if automation_task else None,
+            getattr(automation_task, 'is_order_root', False) if automation_task else False,
+        )
         try:
             if automation_task and getattr(automation_task, 'is_order_root', False):
                 all_done_root = await AutomationService._all_required_assignments_done(db, automation_task.id)
@@ -1171,6 +1197,10 @@ class AutomationService:
                     from app.db.models import AutomationTask as ATModel, Order as OrderModel
                     from app.db.enums import AutomationTaskStatus as ATS, OrderStatus as OS
                     now_root = datetime.now(timezone.utc)
+                    logger.info(
+                        "[DEBUG] completing order root | root_id=%s",
+                        automation_task.id,
+                    )
                     await db.execute(
                         update(ATModel)
                         .where(ATModel.id == automation_task.id)
@@ -1178,6 +1208,10 @@ class AutomationService:
                         .values(status=ATS.completed, completed_at=now_root)
                     )
                     if automation_task.related_order_id:
+                        logger.info(
+                            "[DEBUG] completing order | order_id=%s",
+                            automation_task.related_order_id,
+                        )
                         await db.execute(update(OrderModel).where(OrderModel.id == automation_task.related_order_id).values(status=OS.completed))
                     await db.commit()
                     logger.info(f"[Automation] Marked order-root {automation_task.id} COMPLETED and Order {automation_task.related_order_id} COMPLETED as all assignments are done")
@@ -1256,8 +1290,17 @@ class AutomationService:
                                     root_q = select(ATModel).where(ATModel.related_order_id == ord_row2.id, ATModel.is_order_root == True).limit(1)
                                     root_res = await db.execute(root_q)
                                     root_task = root_res.scalar_one_or_none()
+                                    logger.info(
+                                        "[DEBUG] order root fetched | root_id=%s | root_status=%s",
+                                        getattr(root_task, 'id', None) if root_task else None,
+                                        getattr(root_task, 'status', None) if root_task else None,
+                                    )
                                     if root_task and getattr(root_task, 'status', None) != AutomationTaskStatus.completed:
                                         now2 = datetime.now(timezone.utc)
+                                        logger.info(
+                                            "[DEBUG] completing order root | root_id=%s",
+                                            root_task.id,
+                                        )
                                         await db.execute(
                                             update(ATModel)
                                             .where(ATModel.id == root_task.id)
@@ -1271,6 +1314,10 @@ class AutomationService:
                                             .values(status=AssignmentStatus.done, completed_at=now2)
                                         )
                                         # Mark the order completed
+                                        logger.info(
+                                            "[DEBUG] completing order | order_id=%s",
+                                            ord_row2.id,
+                                        )
                                         await db.execute(update(OrderModel).where(OrderModel.id == ord_row2.id).values(status=OrderStatus.completed))
                                         await db.commit()
                                         logger.info(f"[Automation] Marked order-root {root_task.id} and Order {ord_row2.id} COMPLETED as delivery completed for delivery-only order type")
@@ -1308,6 +1355,11 @@ class AutomationService:
 
         # Do not call close_task_if_all_done() here — leave auto-closure to workflow-driven handlers.
 
+        logger.info(
+            "[DEBUG] complete_assignment RETURNING | assignment_id=%s | status=%s",
+            assignment.id,
+            getattr(assignment.status, 'value', assignment.status),
+        )
         return assignment
 
     @staticmethod
