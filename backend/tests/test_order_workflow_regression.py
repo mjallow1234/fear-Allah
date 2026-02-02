@@ -68,6 +68,38 @@ async def test_foreman_handover_does_not_close_automation(client: AsyncClient, t
 
 
 @pytest.mark.anyio
+async def test_order_root_and_role_task_creation(client: AsyncClient, test_session):
+    # Create admin/foreman user
+    await client.post('/api/auth/register', json={'email': 'r1@example.com', 'password': 'Password123!', 'username': 'foreman_root'})
+    login_f = await client.post('/api/auth/login', json={'identifier': 'r1@example.com', 'password': 'Password123!'})
+    tf = login_f.json()['access_token']
+
+    create = await client.post('/api/orders/', json={'order_type': 'AGENT_RESTOCK', 'items': []}, headers={'Authorization': f'Bearer {tf}'} )
+    if create.status_code != 201:
+        pytest.skip('Order creation not permitted in this environment')
+    order_id = create.json()['order_id']
+
+    # Ensure exactly one order-root automation task exists and it is not role-scoped
+    from app.db.models import AutomationTask
+    res = await test_session.execute(__import__('sqlalchemy').select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.is_order_root == True))
+    roots = res.scalars().all()
+    assert len(roots) == 1, f"Expected exactly one order-root task, found {len(roots)}"
+    root = roots[0]
+    assert getattr(root, 'required_role', None) is None
+    # Normalize status
+    s = root.status.name.upper() if hasattr(root.status, 'name') else str(root.status).upper()
+    assert s in ('OPEN', 'IN_PROGRESS', 'PENDING')
+
+    # Ensure role-scoped tasks exist and are NOT order-root
+    res2 = await test_session.execute(__import__('sqlalchemy').select(AutomationTask).where(AutomationTask.related_order_id == order_id, AutomationTask.required_role.in_(['foreman','delivery'])))
+    role_tasks = res2.scalars().all()
+    assert len(role_tasks) >= 1
+    for rt in role_tasks:
+        assert getattr(rt, 'is_order_root', False) is False
+        assert getattr(rt, 'required_role', None) in ('foreman','delivery')
+
+
+@pytest.mark.anyio
 async def test_delivery_steps_do_not_auto_complete_assignment(client: AsyncClient, test_session):
     # Setup users
     await client.post('/api/auth/register', json={'email': 'f3@example.com', 'password': 'Password123!', 'username': 'foreman2'})

@@ -1206,12 +1206,13 @@ class AutomationService:
                                     remaining_task = rem_res.scalar_one_or_none()
                                     # Only mark the ORDER as COMPLETED if the automation task is the global
                                     # (not role-scoped) automation task for the order
-                                    if not remaining_task and getattr(at_row, 'required_role', None) is None:
+                                    # Only mark the ORDER as COMPLETED if this automation task is the designated ORDER ROOT
+                                    if not remaining_task and getattr(at_row, 'is_order_root', False):
                                         await db.execute(update(Order).where(Order.id == order.id).values(status=OrderStatus.completed))
                                         await db.commit()
-                                        logger.info(f"[Automation] Marked Order {order.id} COMPLETED as global automation {assignment.task_id} completed and no workflow tasks remain")
+                                        logger.info(f"[Automation] Marked Order {order.id} COMPLETED as order-root automation {assignment.task_id} completed and no workflow tasks remain")
                                     else:
-                                        logger.info(f"[Automation] Order {order.id} not marked completed because automation task {assignment.task_id} is role-scoped or remaining workflow tasks exist")
+                                        logger.info(f"[Automation] Order {order.id} not marked completed because automation task {assignment.task_id} is not order-root or remaining workflow tasks exist")
                     except Exception as e:
                         logger.warning(f"[Automation] Failed to mark related order completed: {e}")
         except Exception as e:
@@ -1400,6 +1401,7 @@ class AutomationService:
                 created_by_id=0,
                 related_order_id=order.id,
                 required_role='delivery',
+                is_order_root=False,
             )
             logger.info(f"[Automation] Chained delivery task created for order {order.id}")
 
@@ -1416,6 +1418,7 @@ class AutomationService:
                 logger.warning(f"[Automation] Failed to mark foreman task completed after handover: {e}")
         except Exception:
             logger.exception(f"[Automation] Failed to create chained delivery task for order {order.id}")
+            raise
             raise
 
     # ---------------------- Event Logging ----------------------

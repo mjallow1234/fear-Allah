@@ -159,7 +159,8 @@ class OrderAutomationTriggers:
             except Exception as e:
                 logger.warning(f"[OrderAutomation] Failed to ensure uq_order_root_per_order index: {e}")
 
-            task = await AutomationService.create_task(
+            # Create the global order-root automation task (explicitly NOT role-scoped)
+            root_task = await AutomationService.create_task(
                 db=db,
                 task_type=template["task_type"],
                 title=title,
@@ -171,33 +172,69 @@ class OrderAutomationTriggers:
                     "triggered_by": "order_created",
                     "order_items": order.items,
                 },
-                required_role=initial_required_role,
+                required_role=None,
                 is_order_root=True,
             )
-            
-            # Ensure operational tasks start in OPEN state (claim-based workflow).
-            # IMPORTANT: Task claiming is based on global roles and must NOT depend on chat channels.
-            # Do NOT auto-assign channel roles, infer channel_id, or mutate channel membership here.
-            if task.required_role:
-                # Do not overwrite a task that is already IN_PROGRESS (e.g., requester assignment was created earlier).
-                if task.status != AutomationTaskStatus.in_progress:
-                    task.status = AutomationTaskStatus.open
-                    task.claimed_by_user_id = None
-                    db.add(task)
-                    await db.commit()
-                    await db.refresh(task)
 
-            logger.info(f"[OrderAutomation] Created automation task {task.id} for order {order.id}")
+            # Ensure the order-root task is OPEN so it can accept non-operational assignments
+            if root_task.status != AutomationTaskStatus.open:
+                root_task.status = AutomationTaskStatus.open
+                root_task.claimed_by_user_id = None
+                db.add(root_task)
+                await db.commit()
+                await db.refresh(root_task)
 
-            # Create assignments based on template.
-            # For claim-based tasks we still create non-operational template assignments
-            # (e.g., 'requester') while skipping operational role assignments.
+            logger.info(f"[OrderAutomation] Created order-root automation task {root_task.id} for order {order.id}")
+
+            # Create requester/non-operational assignments on the root task
             await OrderAutomationTriggers._create_template_assignments(
                 db=db,
-                task=task,
+                task=root_task,
                 template=template,
                 created_by_id=created_by_id,
             )
+
+            # Create separate role-scoped tasks for operational roles (foreman, delivery)
+            for assignment_cfg in template.get("assignments", []):
+                rh = assignment_cfg.get("role_hint")
+                if rh in ("foreman", "delivery"):
+                    # Skip creating duplicate active role tasks for the same order & role
+                    existing_q = select(AutomationTask).where(
+                        AutomationTask.related_order_id == order.id,
+                        AutomationTask.required_role == rh,
+                        AutomationTask.status.in_([
+                            AutomationTaskStatus.open,
+                            AutomationTaskStatus.claimed,
+                            AutomationTaskStatus.pending,
+                            AutomationTaskStatus.in_progress,
+                        ])
+                    ).limit(1)
+                    existing_res = await db.execute(existing_q)
+                    existing_task = existing_res.scalar_one_or_none()
+                    if existing_task:
+                        logger.info(f"[OrderAutomation] Skipping creation of duplicate role task for {rh} on order {order.id} (existing task {existing_task.id})")
+                        continue
+
+                    role_task = await AutomationService.create_task(
+                        db=db,
+                        task_type=template["task_type"],
+                        title=title,
+                        created_by_id=created_by_id,
+                        description=f"{rh.title()} task for {description}",
+                        related_order_id=order.id,
+                        metadata={"order_type": order_type, "triggered_by": "order_created_role_task", "role": rh},
+                        required_role=rh,
+                        is_order_root=False,
+                    )
+
+                    # Ensure role-scoped tasks start OPEN for claiming
+                    if role_task.required_role and role_task.status != AutomationTaskStatus.open:
+                        role_task.status = AutomationTaskStatus.open
+                        db.add(role_task)
+                        await db.commit()
+                        await db.refresh(role_task)
+
+                    logger.info(f"[OrderAutomation] Created role-scoped automation task {role_task.id} (role={rh}) for order {order.id}")
 
             # Phase 6.4: Send order created notification
             try:
