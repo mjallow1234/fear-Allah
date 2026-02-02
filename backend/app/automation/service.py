@@ -1184,187 +1184,51 @@ class AutomationService:
         logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}, assignment_id={assignment.id}")
 
         # CRITICAL: Evaluate order-root completion BEFORE any return.
-        # This block runs regardless of role — fetch the order-root and check if all its assignments are done.
-        logger.info(
-            "[DEBUG] about to evaluate order root | order_id=%s | current_task_id=%s | current_task_is_root=%s",
-            getattr(automation_task, 'related_order_id', None) if automation_task else None,
-            getattr(automation_task, 'id', None) if automation_task else None,
-            getattr(automation_task, 'is_order_root', False) if automation_task else False,
-        )
-        try:
-            # Get the related_order_id from the current automation_task (whether it's root or role-scoped)
-            related_order_id = getattr(automation_task, 'related_order_id', None) if automation_task else None
-            if related_order_id:
-                from app.db.models import AutomationTask as ATModel, Order as OrderModel
-                from app.db.enums import AutomationTaskStatus as ATS, OrderStatus as OS
+        # This block runs unconditionally — fetch the order-root and complete if all assignments are done.
+        # NO role checks, NO order-type checks, NO early returns between all_done and mutation.
+        related_order_id = getattr(automation_task, 'related_order_id', None) if automation_task else None
+        if related_order_id:
+            from app.db.models import AutomationTask as ATModel, Order as OrderModel
+            from app.db.enums import AutomationTaskStatus as ATS, OrderStatus as OS
 
-                # Fetch the order-root task for this order
-                root_q = select(ATModel).where(ATModel.related_order_id == related_order_id, ATModel.is_order_root == True).limit(1)
-                root_res = await db.execute(root_q)
-                root_task = root_res.scalar_one_or_none()
-                logger.info(
-                    "[DEBUG] order root fetched | root_id=%s | root_status=%s",
-                    getattr(root_task, 'id', None) if root_task else None,
-                    getattr(root_task, 'status', None) if root_task else None,
-                )
+            # Fetch the order-root task for this order
+            root_q = select(ATModel).where(ATModel.related_order_id == related_order_id, ATModel.is_order_root == True).limit(1)
+            root_res = await db.execute(root_q)
+            root_task = root_res.scalar_one_or_none()
+            logger.error(
+                "[ROOT-TRACE] root BEFORE evaluation | root_id=%s | status=%s",
+                getattr(root_task, 'id', None) if root_task else None,
+                getattr(root_task, 'status', None) if root_task else None,
+            )
+
+            if root_task:
+                # Check if all required assignments on the root task are done
+                all_done_root = await AutomationService._all_required_assignments_done(db, root_task.id)
                 logger.error(
-                    "[ROOT-TRACE] root BEFORE evaluation | root_id=%s | status=%s",
-                    getattr(root_task, 'id', None) if root_task else None,
-                    getattr(root_task, 'status', None) if root_task else None,
+                    "[ROOT-TRACE] all_required_assignments_done=%s | root_id=%s",
+                    all_done_root,
+                    root_task.id,
                 )
 
-                if root_task and getattr(root_task, 'status', None) != ATS.completed:
-                    # Check if all required assignments on the root task are done
-                    all_done_root = await AutomationService._all_required_assignments_done(db, root_task.id)
-                    logger.info(
-                        "[DEBUG] order root all_done check | root_id=%s | all_done=%s",
-                        root_task.id,
-                        all_done_root,
+                # If all_done is True, ALWAYS complete — no extra conditions
+                if all_done_root:
+                    now_root = datetime.now(timezone.utc)
+                    await db.execute(
+                        update(ATModel)
+                        .where(ATModel.id == root_task.id)
+                        .values(status=ATS.completed, completed_at=now_root)
                     )
                     logger.error(
-                        "[ROOT-TRACE] all_required_assignments_done=%s | root_id=%s",
-                        all_done_root,
+                        "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
                         root_task.id,
                     )
-                    if all_done_root:
-                        now_root = datetime.now(timezone.utc)
-                        logger.info(
-                            "[DEBUG] completing order root | root_id=%s",
-                            root_task.id,
-                        )
-                        await db.execute(
-                            update(ATModel)
-                            .where(ATModel.id == root_task.id)
-                            .where(ATModel.status != ATS.completed)
-                            .values(status=ATS.completed, completed_at=now_root)
-                        )
-                        logger.error(
-                            "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
-                            root_task.id,
-                        )
-                        logger.info(
-                            "[DEBUG] completing order | order_id=%s",
-                            related_order_id,
-                        )
-                        await db.execute(update(OrderModel).where(OrderModel.id == related_order_id).values(status=OS.completed))
-                        await db.commit()
-                        logger.error(
-                            "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
-                            root_task.id,
-                        )
-                        logger.info(f"[Automation] Marked order-root {root_task.id} COMPLETED and Order {related_order_id} COMPLETED as all root assignments are done")
-        except Exception as e:
-            logger.warning(f"[Automation] Failed to auto-complete order-root/order after assignments: {e}")
-
-        # If this was a delivery assignment and it is now DONE, and there are no remaining
-        # non-done/non-skipped assignments on the AutomationTask, mark the AutomationTask
-        # row as COMPLETED (defensive, minimal - does not touch workflows or parent tasks).
-        try:
-            if assignment.role_hint == 'delivery' and getattr(assignment.status, 'name', str(assignment.status)).upper() == 'DONE':
-                from app.db.models import TaskAssignment as TA, AutomationTask as AT
-                from app.db.enums import AssignmentStatus as AS, AutomationTaskStatus as ATS
-
-                # Use authoritative helper to check whether all required assignments are done
-                all_done = await AutomationService._all_required_assignments_done(db, assignment.task_id)
-                if all_done:
-                    # Mark the automation task completed (single authoritative location)
-                    now = datetime.now(timezone.utc)
-                    await db.execute(
-                        update(AT)
-                        .where(AT.id == assignment.task_id)
-                        .where(AT.status != ATS.completed)
-                        .values(status=ATS.completed, completed_at=now)
-                    )
+                    await db.execute(update(OrderModel).where(OrderModel.id == related_order_id).values(status=OS.completed))
                     await db.commit()
-                    logger.info(f"[Automation] Marked automation task {assignment.task_id} COMPLETED because all assignments are done")
-
-                    # If this automation task is linked to an order and there are no remaining required
-                    # workflow tasks for the order, mark the Order as COMPLETED (order completion follows automation completion)
-                    try:
-                        if getattr(AT, 'related_order_id', None) or True:
-                            # Reload automation task row to get related_order_id
-                            res_at = await db.execute(select(AT).where(AT.id == assignment.task_id))
-                            at_row = res_at.scalar_one_or_none()
-                            if at_row and getattr(at_row, 'related_order_id', None):
-                                from app.db.models import Order, Task as OrderTask
-                                from app.db.enums import OrderStatus, TaskStatus as OrderTaskStatus
-
-                                order_res = await db.execute(select(Order).where(Order.id == at_row.related_order_id))
-                                order = order_res.scalar_one_or_none()
-                                if order:
-                                    remaining_q = select(OrderTask.id).where(
-                                        OrderTask.order_id == order.id,
-                                        OrderTask.required == True,
-                                        OrderTask.status != OrderTaskStatus.done.value,
-                                    ).limit(1)
-                                    rem_res = await db.execute(remaining_q)
-                                    remaining_task = rem_res.scalar_one_or_none()
-                                    # Only mark the ORDER as COMPLETED if the automation task is the global
-                                    # (not role-scoped) automation task for the order
-                                    # Only mark the ORDER as COMPLETED if this automation task is the designated ORDER ROOT
-                                    if not remaining_task and getattr(at_row, 'is_order_root', False):
-                                        await db.execute(update(Order).where(Order.id == order.id).values(status=OrderStatus.completed))
-                                        await db.commit()
-                                        logger.info(f"[Automation] Marked Order {order.id} COMPLETED as order-root automation {assignment.task_id} completed and no workflow tasks remain")
-                                    else:
-                                        logger.info(f"[Automation] Order {order.id} not marked completed because automation task {assignment.task_id} is not order-root or remaining workflow tasks exist")
-                    except Exception as e:
-                        logger.warning(f"[Automation] Failed to mark related order completed: {e}")
-
-                    # --- Special-case: For order types that do NOT require a requester (agent_retail, customer_wholesale),
-                    # when a delivery role-scoped automation task completes we should advance/complete the order-root and the Order.
-                    try:
-                        if assignment.role_hint == 'delivery' and at_row and getattr(at_row, 'related_order_id', None):
-                            from app.db.models import AutomationTask as ATModel, Order as OrderModel, TaskAssignment as TA
-                            from app.db.enums import OrderType as OT
-
-                            ord_res2 = await db.execute(select(OrderModel).where(OrderModel.id == at_row.related_order_id))
-                            ord_row2 = ord_res2.scalar_one_or_none()
-                            if ord_row2:
-                                ot_val = ord_row2.order_type.value if isinstance(ord_row2.order_type, OT) else ord_row2.order_type
-                                if ot_val in (OT.agent_retail.value, OT.customer_wholesale.value):
-                                    # Delivery-only order types: mark the order-root and order completed
-                                    # Find the order-root automation task
-                                    root_q = select(ATModel).where(ATModel.related_order_id == ord_row2.id, ATModel.is_order_root == True).limit(1)
-                                    root_res = await db.execute(root_q)
-                                    root_task = root_res.scalar_one_or_none()
-                                    logger.info(
-                                        "[DEBUG] order root fetched | root_id=%s | root_status=%s",
-                                        getattr(root_task, 'id', None) if root_task else None,
-                                        getattr(root_task, 'status', None) if root_task else None,
-                                    )
-                                    if root_task and getattr(root_task, 'status', None) != AutomationTaskStatus.completed:
-                                        now2 = datetime.now(timezone.utc)
-                                        logger.info(
-                                            "[DEBUG] completing order root | root_id=%s",
-                                            root_task.id,
-                                        )
-                                        await db.execute(
-                                            update(ATModel)
-                                            .where(ATModel.id == root_task.id)
-                                            .values(status=AutomationTaskStatus.completed, completed_at=now2)
-                                        )
-                                        # Mark any assignments on the root done
-                                        await db.execute(
-                                            update(TA)
-                                            .where(TA.task_id == root_task.id)
-                                            .where(TA.status != AssignmentStatus.done)
-                                            .values(status=AssignmentStatus.done, completed_at=now2)
-                                        )
-                                        # Mark the order completed
-                                        logger.info(
-                                            "[DEBUG] completing order | order_id=%s",
-                                            ord_row2.id,
-                                        )
-                                        await db.execute(update(OrderModel).where(OrderModel.id == ord_row2.id).values(status=OrderStatus.completed))
-                                        await db.commit()
-                                        logger.info(f"[Automation] Marked order-root {root_task.id} and Order {ord_row2.id} COMPLETED as delivery completed for delivery-only order type")
-                    except Exception as e:
-                        logger.warning(f"[Automation] Failed to auto-complete order-root/order after delivery on delivery-only order type: {e}")
-                    except Exception as e:
-                        logger.warning(f"[Automation] Failed to mark related order completed: {e}")
-        except Exception as e:
-            logger.warning(f"[Automation] Failed to mark automation task completed after delivery assignment done: {e}")
+                    logger.error(
+                        "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
+                        root_task.id,
+                    )
+                    logger.info(f"[Automation] Marked order-root {root_task.id} COMPLETED and Order {related_order_id} COMPLETED as all root assignments are done")
 
         # Emit Make.com webhook for task.completed event
         try:
@@ -1383,21 +1247,6 @@ class AutomationService:
         except Exception as e:
             logger.warning(f"[Automation] Failed to emit task.completed webhook: {e}")
 
-        # --- NOTE: Assignment completion no longer auto-closes automation tasks ---
-        # Per policy, automation task status changes only when the final workflow
-        # Task row is completed (via the workflow engine) or via explicit admin actions.
-        # We intentionally do NOT auto-mark the automation task as COMPLETED here.
-
-        # Previously we attempted an auto-close based on pending assignments; that logic
-        # has been removed to avoid premature automation task completion.
-
-        # Do not call close_task_if_all_done() here — leave auto-closure to workflow-driven handlers.
-
-        logger.info(
-            "[DEBUG] complete_assignment RETURNING | assignment_id=%s | status=%s",
-            assignment.id,
-            getattr(assignment.status, 'value', assignment.status),
-        )
         logger.error(
             "[ROOT-TRACE] EXIT complete_assignment | assignment_id=%s",
             assignment.id,
