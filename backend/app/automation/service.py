@@ -828,6 +828,9 @@ class AutomationService:
             user_id,
             task_id,
         )
+        # Define now early so it's available in all branches
+        now = datetime.now(timezone.utc)
+
         # Determine admin status early so it's available in all branches
         is_admin = False
         actor = None
@@ -971,7 +974,6 @@ class AutomationService:
             # - Foreman's assignment marked DONE when delivery acknowledges receipt (delivery_received)
             # - Delivery's assignment marked DONE when agent acknowledges receipt (confirm_received)
             # -------------------------------------------------------------------------
-            now = datetime.utcnow()
             
             # Determine what acknowledgment step this is and if we should mark another role's assignment DONE
             acknowledges_role = None  # Which role's assignment gets marked DONE by this step
@@ -1222,7 +1224,11 @@ class AutomationService:
                         "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
                         root_task.id,
                     )
-                    await db.execute(update(OrderModel).where(OrderModel.id == related_order_id).values(status=OS.completed))
+                    # Defensively guard order fetch
+                    order_res = await db.execute(select(OrderModel).where(OrderModel.id == related_order_id))
+                    order_obj = order_res.scalar_one_or_none()
+                    if order_obj:
+                        await db.execute(update(OrderModel).where(OrderModel.id == related_order_id).values(status=OS.completed))
                     await db.commit()
                     logger.error(
                         "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
