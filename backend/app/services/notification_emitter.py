@@ -221,6 +221,28 @@ async def notify_and_emit_task_auto_closed(
     )
 
 
+async def notify_and_emit_task_overdue(
+    db: AsyncSession,
+    task_id: int,
+    notify_user_id: int,
+    task_title: str,
+    due_date: Optional[str] = None,
+) -> Notification:
+    """Create and emit task overdue notification"""
+    content = f"Task '{task_title}' is overdue"
+    if due_date:
+        content += f" (was due {due_date})"
+    return await create_and_emit_notification(
+        db,
+        user_id=notify_user_id,
+        notification_type=NotificationType.task_overdue,
+        title="Task Overdue",
+        content=content,
+        task_id=task_id,
+    )
+    )
+
+
 async def notify_and_emit_order_created(
     db: AsyncSession,
     order_id: int,

@@ -39,6 +39,7 @@ class NotificationType(str, enum.Enum):
     task_claimed = "task_claimed"
     task_completed = "task_completed"
     task_auto_closed = "task_auto_closed"
+    task_overdue = "task_overdue"  # Phase 6.4 - Overdue task alerts
     order_created = "order_created"
     order_completed = "order_completed"
     low_stock = "low_stock"

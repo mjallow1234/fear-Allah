@@ -23,6 +23,14 @@ interface Notification {
 // Custom event for real-time notifications (keep for backward compatibility)
 const NOTIFICATION_EVENT = 'new-notification'
 
+// Types that should show toast notifications (interrupting)
+const TOAST_NOTIFICATION_TYPES = new Set([
+  'task_assigned',
+  'task_overdue',
+  'low_stock',
+  'system',
+])
+
 // Function to dispatch new notification event (called from WebSocket handlers)
 export function pushNotification(notification: Notification) {
   window.dispatchEvent(new CustomEvent(NOTIFICATION_EVENT, { detail: notification }))
@@ -59,6 +67,20 @@ export default function NotificationBell() {
     const unsubscribe = onSocketEvent<Notification>('notification:new', (notification) => {
       setNotifications(prev => [notification, ...prev.slice(0, 9)]) // Keep max 10
       setUnreadCount(prev => prev + 1)
+      
+      // Show toast for interrupting notification types only
+      if (TOAST_NOTIFICATION_TYPES.has(notification.type)) {
+        // Import dynamically to avoid circular dependency
+        import('../utils/notifications').then(({ showBrowserNotification }) => {
+          showBrowserNotification(notification.title, {
+            body: notification.content || undefined,
+            tag: `notif-${notification.id}`,
+          })
+        }).catch(() => {
+          // Fallback: log to console if browser notifications unavailable
+          console.log('[Notification Toast]', notification.title, notification.content)
+        })
+      }
     })
     
     return () => unsubscribe()
@@ -160,6 +182,8 @@ export default function NotificationBell() {
         return <Check size={14} className="text-green-400" />
       case 'task_auto_closed':
         return <ClipboardList size={14} className="text-orange-400" />
+      case 'task_overdue':
+        return <AlertTriangle size={14} className="text-red-400" />
       case 'order_created':
         return <ShoppingCart size={14} className="text-blue-400" />
       case 'order_completed':
