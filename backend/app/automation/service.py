@@ -1163,6 +1163,27 @@ class AutomationService:
 
         logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}, assignment_id={assignment.id}")
 
+        # NEW: If this assignment belongs to the order-root task, re-evaluate completion regardless of role
+        try:
+            if automation_task and getattr(automation_task, 'is_order_root', False):
+                all_done_root = await AutomationService._all_required_assignments_done(db, automation_task.id)
+                if all_done_root:
+                    from app.db.models import AutomationTask as ATModel, Order as OrderModel
+                    from app.db.enums import AutomationTaskStatus as ATS, OrderStatus as OS
+                    now_root = datetime.now(timezone.utc)
+                    await db.execute(
+                        update(ATModel)
+                        .where(ATModel.id == automation_task.id)
+                        .where(ATModel.status != ATS.completed)
+                        .values(status=ATS.completed, completed_at=now_root)
+                    )
+                    if automation_task.related_order_id:
+                        await db.execute(update(OrderModel).where(OrderModel.id == automation_task.related_order_id).values(status=OS.completed))
+                    await db.commit()
+                    logger.info(f"[Automation] Marked order-root {automation_task.id} COMPLETED and Order {automation_task.related_order_id} COMPLETED as all assignments are done")
+        except Exception as e:
+            logger.warning(f"[Automation] Failed to auto-complete order-root/order after assignments: {e}")
+
         # If this was a delivery assignment and it is now DONE, and there are no remaining
         # non-done/non-skipped assignments on the AutomationTask, mark the AutomationTask
         # row as COMPLETED (defensive, minimal - does not touch workflows or parent tasks).
