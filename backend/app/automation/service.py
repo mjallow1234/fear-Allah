@@ -1215,11 +1215,9 @@ class AutomationService:
                 # If all_done is True, ALWAYS complete — no extra conditions
                 if all_done_root:
                     now_root = datetime.now(timezone.utc)
-                    await db.execute(
-                        update(ATModel)
-                        .where(ATModel.id == root_task.id)
-                        .values(status=ATS.completed, completed_at=now_root)
-                    )
+                    # Use ORM mutation instead of Core UPDATE to avoid CompileError
+                    root_task.status = ATS.completed
+                    root_task.completed_at = now_root
                     logger.error(
                         "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
                         root_task.id,
@@ -1228,7 +1226,7 @@ class AutomationService:
                     order_res = await db.execute(select(OrderModel).where(OrderModel.id == related_order_id))
                     order_obj = order_res.scalar_one_or_none()
                     if order_obj:
-                        await db.execute(update(OrderModel).where(OrderModel.id == related_order_id).values(status=OS.completed))
+                        order_obj.status = OS.completed
                     await db.commit()
                     logger.error(
                         "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
