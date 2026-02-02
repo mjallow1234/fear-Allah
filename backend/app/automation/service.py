@@ -1227,6 +1227,32 @@ class AutomationService:
                     order_obj = order_res.scalar_one_or_none()
                     if order_obj:
                         order_obj.status = OS.completed
+
+                    # Cascade completion to role-scoped automation tasks
+                    # Find all non-root tasks for this order that are still open/claimed/in_progress
+                    from app.db.models import TaskAssignment as TAModel
+                    role_tasks_q = select(ATModel).where(
+                        ATModel.related_order_id == related_order_id,
+                        ATModel.is_order_root == False,
+                        ATModel.status.in_([ATS.open, ATS.claimed, ATS.in_progress])
+                    )
+                    role_tasks_res = await db.execute(role_tasks_q)
+                    role_tasks = role_tasks_res.scalars().all()
+                    for rtask in role_tasks:
+                        rtask.status = ATS.completed
+                        rtask.completed_at = now_root
+                        # Mark all assignments on this task as DONE
+                        assign_q = select(TAModel).where(
+                            TAModel.task_id == rtask.id,
+                            TAModel.status.notin_([AssignmentStatus.done, AssignmentStatus.skipped])
+                        )
+                        assign_res = await db.execute(assign_q)
+                        assigns = assign_res.scalars().all()
+                        for a in assigns:
+                            a.status = AssignmentStatus.done
+                            a.completed_at = now_root
+                        logger.info(f"[Automation] Cascade-completed role-scoped task {rtask.id} and {len(assigns)} assignments")
+
                     await db.commit()
                     logger.error(
                         "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
