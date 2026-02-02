@@ -5,7 +5,7 @@
  * Main inbox view for automation tasks.
  * Shows user's assignments and created tasks.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
@@ -14,7 +14,8 @@ import {
   Plus,
   Loader2,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Search
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
@@ -55,6 +56,19 @@ export default function TaskInboxPage() {
   // Admins default to 'all' to see every task; frontend must respect backend as source-of-truth
   const [activeTab, setActiveTab] = useState<TabType>(user?.is_system_admin ? 'all' : 'my-tasks')
   
+  // Search and filter state
+  const [searchValue, setSearchValue] = useState('')
+  const [orderTypeFilter, setOrderTypeFilter] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchValue)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [searchValue])
+  
   // Subscribe to task events on mount
   useEffect(() => {
     const unsubscribe = subscribeToTasks()
@@ -76,10 +90,13 @@ export default function TaskInboxPage() {
     }
   }, [searchParams, setSearchParams, fetchTaskDetails])
   
-  // Fetch data on mount and tab change
+  // Fetch data on mount and tab change (with filters)
   useEffect(() => {
     if (activeTab === 'my-tasks') {
-      fetchMyAssignments()
+      const filters: { search?: string; order_type?: string } = {}
+      if (debouncedSearch) filters.search = debouncedSearch
+      if (orderTypeFilter) filters.order_type = orderTypeFilter
+      fetchMyAssignments(Object.keys(filters).length > 0 ? filters : undefined)
     } else if (activeTab === 'available') {
       // Use operational role name from currentUser (UI header) and normalize to backend enum (lowercase, underscores)
       const role = operationalRoleName ? operationalRoleName.toLowerCase().replace(/\s+/g, '_') : null
@@ -87,7 +104,7 @@ export default function TaskInboxPage() {
     } else {
       fetchMyTasks()
     }
-  }, [activeTab, fetchMyAssignments, fetchMyTasks, fetchAvailableTasks, operationalRoleName])
+  }, [activeTab, fetchMyAssignments, fetchMyTasks, fetchAvailableTasks, operationalRoleName, debouncedSearch, orderTypeFilter])
   
   // Get tasks based on active tab
   const getFilteredTasks = (): AutomationTask[] => {
@@ -255,6 +272,48 @@ export default function TaskInboxPage() {
           </button>
         </div>
       </div>
+      
+      {/* Search and Filter Bar - only show on My Tasks tab */}
+      {activeTab === 'my-tasks' && (
+        <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-3">
+          <div className="max-w-4xl mx-auto flex gap-4 items-center">
+            {/* Search Input */}
+            <div className="relative flex-1 max-w-xs">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#949ba4]" />
+              <input
+                type="text"
+                placeholder="Search by Task ID or Order ID"
+                value={searchValue}
+                onChange={(e) => setSearchValue(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-[#1e1f22] border border-[#1f2023] rounded-lg text-white placeholder-[#72767d] text-sm focus:outline-none focus:border-[#5865f2]"
+              />
+            </div>
+            
+            {/* Order Type Dropdown */}
+            <select
+              value={orderTypeFilter}
+              onChange={(e) => setOrderTypeFilter(e.target.value)}
+              className="px-3 py-2 bg-[#1e1f22] border border-[#1f2023] rounded-lg text-white text-sm focus:outline-none focus:border-[#5865f2] cursor-pointer"
+            >
+              <option value="">All Order Types</option>
+              <option value="agent_retail">Agent Retail</option>
+              <option value="agent_restock">Agent Restock</option>
+              <option value="customer_wholesale">Customer Wholesale</option>
+              <option value="store_keeper_restock">Storekeeper Restock</option>
+            </select>
+            
+            {/* Clear Filters */}
+            {(searchValue || orderTypeFilter) && (
+              <button
+                onClick={() => { setSearchValue(''); setOrderTypeFilter(''); }}
+                className="text-sm text-[#949ba4] hover:text-white transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       
       {/* Error Banner */}
       {error && (

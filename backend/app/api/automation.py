@@ -908,20 +908,53 @@ async def complete_my_assignment(
 async def get_my_assignments(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
+    search: Optional[str] = None,
+    order_type: Optional[str] = None,
 ):
     """Get all assignments for the current user.
 
     System admins receive ALL assignments (visibility override).
+    
+    Optional filters:
+    - search: numeric value to match task ID or related order ID
+    - order_type: filter by order type (e.g., agent_retail, agent_restock)
     """
+    from app.db.models import AutomationTask as ATModel, Order as OrderModel
+    from app.db.enums import OrderType as OT
+
     user_id = current_user["user_id"]
     user = await _get_user(db, user_id)
 
     if user.is_system_admin:
         # Admins see all assignments
-        result = await db.execute(select(TaskAssignment))
-        assignments = list(result.scalars().all())
+        query = select(TaskAssignment)
     else:
-        assignments = await AutomationService.get_user_assignments(db, user_id)
+        query = select(TaskAssignment).where(TaskAssignment.user_id == user_id)
+
+    # Apply search filter (task ID or order ID)
+    if search:
+        try:
+            search_id = int(search)
+            # Need to join to AutomationTask to filter by task ID or related_order_id
+            query = query.join(ATModel, TaskAssignment.task_id == ATModel.id).where(
+                (ATModel.id == search_id) | (ATModel.related_order_id == search_id)
+            )
+        except ValueError:
+            # Non-numeric search - ignore for now
+            pass
+
+    # Apply order_type filter
+    if order_type:
+        # Need to join through AutomationTask to Order
+        # If we haven't joined ATModel yet, do it now
+        if search is None or not search.isdigit():
+            query = query.join(ATModel, TaskAssignment.task_id == ATModel.id)
+        query = query.join(OrderModel, ATModel.related_order_id == OrderModel.id).where(
+            OrderModel.order_type == order_type
+        )
+
+    result = await db.execute(query)
+    assignments = list(result.scalars().all())
 
     return [_assignment_to_response(a) for a in assignments]
 

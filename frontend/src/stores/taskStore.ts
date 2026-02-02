@@ -68,7 +68,7 @@ interface TaskState {
   error: string | null
   
   // Actions
-  fetchMyAssignments: () => Promise<void>
+  fetchMyAssignments: (filters?: { search?: string; order_type?: string }) => Promise<void>
   fetchMyTasks: () => Promise<void>
   fetchAvailableTasks: (role: string | null) => Promise<void>
   claimTask: (taskId: number) => Promise<boolean>
@@ -99,10 +99,13 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   completingTaskId: null,
   error: null,
   
-  fetchMyAssignments: async () => {
+  fetchMyAssignments: async (filters?: { search?: string; order_type?: string }) => {
     set({ loading: true, error: null })
     try {
-      const response = await api.get('/api/automation/my-assignments')
+      const params: Record<string, string> = {}
+      if (filters?.search) params.search = filters.search
+      if (filters?.order_type) params.order_type = filters.order_type
+      const response = await api.get('/api/automation/my-assignments', { params })
       const assignments = Array.isArray(response.data) ? response.data : []
       set({ myAssignments: assignments, loading: false })
     } catch (error: unknown) {
