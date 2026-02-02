@@ -1198,7 +1198,7 @@ async def submit_form(
         data=json.dumps(payload.data),
         service_target=form.service_target,
         status="pending",
-        submitted_by_id=str(current_user["user_id"]),
+        submitted_by_id=int(current_user["user_id"]),
     )
     db.add(submission)
     await db.flush()
