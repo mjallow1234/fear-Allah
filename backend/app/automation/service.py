@@ -245,6 +245,7 @@ class AutomationService:
         related_order_id: Optional[int] = None,
         metadata: Optional[dict[str, Any]] = None,
         required_role: Optional[str] = None,
+        is_order_root: bool = False,
     ) -> AutomationTask:
         """
         Create a new automation task.
@@ -271,6 +272,7 @@ class AutomationService:
             related_order_id=related_order_id,
             task_metadata=json.dumps(metadata) if metadata else None,
             required_role=required_role,
+            is_order_root=is_order_root,
         )
         db.add(task)
         await db.flush()  # Get the ID

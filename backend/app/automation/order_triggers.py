@@ -150,6 +150,15 @@ class OrderAutomationTriggers:
                     initial_required_role = rh
                     break
 
+            # Ensure a single global/root automation task exists for the order
+            # Create a partial unique index on is_order_root at runtime to prevent duplicates
+            try:
+                from sqlalchemy import text
+                await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_order_root_per_order ON automation_tasks (related_order_id) WHERE is_order_root = true;"))
+                await db.commit()
+            except Exception as e:
+                logger.warning(f"[OrderAutomation] Failed to ensure uq_order_root_per_order index: {e}")
+
             task = await AutomationService.create_task(
                 db=db,
                 task_type=template["task_type"],
@@ -163,6 +172,7 @@ class OrderAutomationTriggers:
                     "order_items": order.items,
                 },
                 required_role=initial_required_role,
+                is_order_root=True,
             )
             
             # Ensure operational tasks start in OPEN state (claim-based workflow).

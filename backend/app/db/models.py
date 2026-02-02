@@ -714,6 +714,10 @@ class AutomationTask(Base):
     claimed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     claimed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Mark this automation task as the global/root automation for the related order.
+    # Exactly one AutomationTask per order should have is_order_root=True.
+    is_order_root = Column(Boolean, default=False, nullable=False)
+
     # Relationships
     created_by = relationship("User", foreign_keys=[created_by_id])
     claimed_by = relationship("User", foreign_keys=[claimed_by_user_id])
