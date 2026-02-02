@@ -189,6 +189,10 @@ async def create_order(
         customer_name_val = customer_name
         customer_phone_val = customer_phone
 
+    # Normalize customer_phone to string (DB expects VARCHAR)
+    if customer_phone_val is not None:
+        customer_phone_val = str(customer_phone_val)
+
     # Create the order; store meta as a JSON string for consistent reading later
     try:
         meta_json = json.dumps(meta_dict) if meta_dict else None
