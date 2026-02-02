@@ -240,6 +240,173 @@ async def notify_and_emit_task_overdue(
         content=content,
         task_id=task_id,
     )
+
+
+# ============================================================
+# Order-Participant-Aware Notification Emitters
+# Broadcast to ALL participants in an order, not just single recipients
+# ============================================================
+
+async def notify_and_emit_task_assigned_to_participants(
+    db: AsyncSession,
+    task_id: int,
+    order_id: int,
+    assignee_id: int,
+    task_title: str,
+    assigner_name: Optional[str] = None,
+) -> List[Notification]:
+    """
+    Broadcast task assigned notification to ALL order participants.
+    Everyone involved in the order sees when any assignment happens.
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    content = f"Task assigned to user {assignee_id}: {task_title}"
+    if assigner_name:
+        content = f"{assigner_name} assigned a task: {task_title}"
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.task_assigned,
+        title="Task Assigned",
+        content=content,
+        task_id=task_id,
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_task_claimed_to_participants(
+    db: AsyncSession,
+    task_id: int,
+    order_id: int,
+    claimer_id: int,
+    task_title: str,
+) -> List[Notification]:
+    """
+    Broadcast task claimed notification to ALL order participants.
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    content = f"Task '{task_title}' was claimed by user {claimer_id}"
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.task_claimed,
+        title="Task Claimed",
+        content=content,
+        task_id=task_id,
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_task_completed_to_participants(
+    db: AsyncSession,
+    task_id: int,
+    order_id: int,
+    task_title: str,
+    completed_by: Optional[str] = None,
+) -> List[Notification]:
+    """
+    Broadcast task completed notification to ALL order participants.
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    content = f"Task completed: {task_title}"
+    if completed_by:
+        content = f"{completed_by} completed the task: {task_title}"
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.task_completed,
+        title="Task Completed",
+        content=content,
+        task_id=task_id,
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_task_auto_closed_to_participants(
+    db: AsyncSession,
+    task_id: int,
+    order_id: int,
+    task_title: str,
+    reason: str = "auto-closed due to inactivity",
+) -> List[Notification]:
+    """
+    Broadcast task auto-closed notification to ALL order participants.
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.task_auto_closed,
+        title="Task Auto-Closed",
+        content=f"Task '{task_title}' was {reason}",
+        task_id=task_id,
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_task_overdue_to_participants(
+    db: AsyncSession,
+    task_id: int,
+    order_id: int,
+    task_title: str,
+    due_date: Optional[str] = None,
+) -> List[Notification]:
+    """
+    Broadcast task overdue notification to ALL order participants.
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    content = f"Task '{task_title}' is overdue"
+    if due_date:
+        content += f" (was due {due_date})"
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.task_overdue,
+        title="Task Overdue",
+        content=content,
+        task_id=task_id,
+        order_id=order_id,
+    )
+
+
+async def notify_and_emit_order_completed_to_participants(
+    db: AsyncSession,
+    order_id: int,
+    order_reference: str,
+) -> List[Notification]:
+    """
+    Broadcast order completed notification to ALL order participants.
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.order_completed,
+        title="Order Completed",
+        content=f"Order #{order_reference} has been completed",
+        order_id=order_id,
     )
 
 

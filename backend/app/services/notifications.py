@@ -3,14 +3,44 @@ Phase 6.4 - Notification Engine Service Layer
 Handles notification creation, delivery via Socket.IO, and management
 """
 import json
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from datetime import datetime
 from sqlalchemy import select, update, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Notification, User
+from app.db.models import Notification, User, AutomationTask, TaskAssignment
 from app.db.enums import NotificationType
+
+
+# ============================================================
+# Order Participant Resolution
+# ============================================================
+
+async def get_order_participant_user_ids(db: AsyncSession, order_id: int) -> Set[int]:
+    """
+    Returns all unique user IDs who are participants in an order
+    based on task assignments.
+    
+    Logic:
+    - Join automation_tasks → task_assignments where automation_tasks.related_order_id == order_id
+    - Collect all task_assignments.user_id (excluding NULL)
+    
+    This is pure, reusable, and safe. No hardcoded roles or admin checks.
+    """
+    query = (
+        select(TaskAssignment.user_id)
+        .join(AutomationTask, TaskAssignment.task_id == AutomationTask.id)
+        .where(
+            and_(
+                AutomationTask.related_order_id == order_id,
+                TaskAssignment.user_id.isnot(None),
+            )
+        )
+        .distinct()
+    )
+    result = await db.execute(query)
+    return set(row[0] for row in result.fetchall())
 
 
 class NotificationService:
@@ -207,9 +237,38 @@ async def notify_task_claimed(
     task_title: str,
     claimer_id: int,
     required_role: Optional[str] = None,
+    order_id: Optional[int] = None,
 ) -> list[Notification]:
-    """Notify other role members and admins that a task was claimed."""
+    """
+    Notify that a task was claimed.
+    
+    If order_id is provided, broadcasts to ALL order participants.
+    Otherwise, falls back to role-based notification (other role members + admins).
+    """
     from app.db.models import User
+    from app.services.notification_emitter import emit_notification_to_user
+    
+    title = "Task Claimed"
+    content = f"Task '{task_title}' was claimed by user {claimer_id}"
+    
+    # If order_id is provided, broadcast to all order participants
+    if order_id:
+        participant_ids = await get_order_participant_user_ids(db, order_id)
+        notifications = await notify_users(
+            db, 
+            list(participant_ids), 
+            NotificationType.task_claimed, 
+            title=title, 
+            content=content, 
+            task_id=task_id,
+            order_id=order_id,
+        )
+        # Also emit realtime for each
+        for notif in notifications:
+            await emit_notification_to_user(notif.user_id, notif)
+        return notifications
+    
+    # Fallback: role-based notification for standalone tasks
     recipients = set()
 
     if required_role:
@@ -223,9 +282,6 @@ async def notify_task_claimed(
     # Remove the claimer itself
     recipients.discard(claimer_id)
 
-    title = "Task Claimed"
-    content = f"Task '{task_title}' was claimed by user {claimer_id}"
-
     return await notify_users(db, list(recipients), NotificationType.task_claimed, title=title, content=content, task_id=task_id)
 
 
@@ -235,8 +291,37 @@ async def notify_task_reassigned(
     task_title: str,
     from_user_id: Optional[int],
     to_user_id: int,
+    order_id: Optional[int] = None,
 ) -> list[Notification]:
-    """Notify previous claimer (if present), the new assignee, and admins on reassignment."""
+    """
+    Notify that a task was reassigned.
+    
+    If order_id is provided, broadcasts to ALL order participants.
+    Otherwise, notifies previous claimer, new assignee, and admins.
+    """
+    from app.services.notification_emitter import emit_notification_to_user
+    
+    title = "Task Reassigned"
+    content = f"Task '{task_title}' was reassigned from {from_user_id} to {to_user_id}"
+    
+    # If order_id is provided, broadcast to all order participants
+    if order_id:
+        participant_ids = await get_order_participant_user_ids(db, order_id)
+        notifications = await notify_users(
+            db, 
+            list(participant_ids), 
+            NotificationType.task_claimed, 
+            title=title, 
+            content=content, 
+            task_id=task_id,
+            order_id=order_id,
+        )
+        # Also emit realtime for each
+        for notif in notifications:
+            await emit_notification_to_user(notif.user_id, notif)
+        return notifications
+    
+    # Fallback: role-based notification for standalone tasks
     recipients = []
     if from_user_id:
         recipients.append(from_user_id)
@@ -246,9 +331,6 @@ async def notify_task_reassigned(
 
     # Deduplicate
     recipients = list(dict.fromkeys(recipients))
-
-    title = "Task Reassigned"
-    content = f"Task '{task_title}' was reassigned from {from_user_id} to {to_user_id}"
 
     return await notify_users(db, recipients, NotificationType.task_claimed, title=title, content=content, task_id=task_id)
 

@@ -1,6 +1,10 @@
 """
 Phase 6.4 - Automation Notification Hooks
 Integrates notifications with the automation engine.
+
+IMPORTANT: For assignment-related events on orders, notifications are
+broadcast to ALL order participants (derived from task_assignments),
+not just the actor or admin.
 """
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +22,13 @@ from app.services.notification_emitter import (
     notify_and_emit_inventory_restocked,
     notify_and_emit_sale_recorded,
     create_and_emit_to_multiple,
+    # Participant-aware emitters for order-based notifications
+    notify_and_emit_task_assigned_to_participants,
+    notify_and_emit_task_claimed_to_participants,
+    notify_and_emit_task_completed_to_participants,
+    notify_and_emit_task_auto_closed_to_participants,
+    notify_and_emit_task_overdue_to_participants,
+    notify_and_emit_order_completed_to_participants,
 )
 from app.db.enums import NotificationType
 from app.core.config import logger
@@ -55,7 +66,9 @@ async def on_task_assigned(
 ):
     """
     Called when a user is assigned to a task.
-    Sends notification to the assignee.
+    
+    If the task is linked to an order, broadcasts notification to ALL order participants.
+    Otherwise, sends notification only to the assignee.
     """
     try:
         assigner_name = None
@@ -63,14 +76,27 @@ async def on_task_assigned(
             assigner_info = await get_user_info(db, assigner_id)
             assigner_name = assigner_info["username"] if assigner_info else None
         
-        await notify_and_emit_task_assigned(
-            db=db,
-            task_id=task.id,
-            assignee_id=assignee_id,
-            task_title=task.title,
-            assigner_name=assigner_name,
-        )
-        logger.info(f"[Notification] Task assigned notification sent: task={task.id}, user={assignee_id}")
+        # If task is linked to an order, broadcast to ALL participants
+        if task.related_order_id:
+            await notify_and_emit_task_assigned_to_participants(
+                db=db,
+                task_id=task.id,
+                order_id=task.related_order_id,
+                assignee_id=assignee_id,
+                task_title=task.title,
+                assigner_name=assigner_name,
+            )
+            logger.info(f"[Notification] Task assigned broadcast to all participants: task={task.id}, order={task.related_order_id}")
+        else:
+            # Standalone task - notify only the assignee
+            await notify_and_emit_task_assigned(
+                db=db,
+                task_id=task.id,
+                assignee_id=assignee_id,
+                task_title=task.title,
+                assigner_name=assigner_name,
+            )
+            logger.info(f"[Notification] Task assigned notification sent: task={task.id}, user={assignee_id}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send task assigned notification: {e}")
 
@@ -82,7 +108,9 @@ async def on_task_completed(
 ):
     """
     Called when a task is completed.
-    Notifies the task creator and all assignees.
+    
+    If the task is linked to an order, broadcasts notification to ALL order participants.
+    Otherwise, notifies only the task creator.
     """
     try:
         # Get completer info
@@ -91,17 +119,27 @@ async def on_task_completed(
             user_info = await get_user_info(db, completed_by_id)
             completed_by = user_info["username"] if user_info else None
         
-        # Notify task creator
-        if task.created_by_id and task.created_by_id != completed_by_id:
-            await notify_and_emit_task_completed(
+        # If task is linked to an order, broadcast to ALL participants
+        if task.related_order_id:
+            await notify_and_emit_task_completed_to_participants(
                 db=db,
                 task_id=task.id,
-                notify_user_id=task.created_by_id,
+                order_id=task.related_order_id,
                 task_title=task.title,
                 completed_by=completed_by,
             )
-        
-        logger.info(f"[Notification] Task completed notification sent: task={task.id}")
+            logger.info(f"[Notification] Task completed broadcast to all participants: task={task.id}, order={task.related_order_id}")
+        else:
+            # Standalone task - notify only the task creator (if not the completer)
+            if task.created_by_id and task.created_by_id != completed_by_id:
+                await notify_and_emit_task_completed(
+                    db=db,
+                    task_id=task.id,
+                    notify_user_id=task.created_by_id,
+                    task_title=task.title,
+                    completed_by=completed_by,
+                )
+            logger.info(f"[Notification] Task completed notification sent: task={task.id}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send task completed notification: {e}")
 
@@ -113,20 +151,32 @@ async def on_task_auto_closed(
 ):
     """
     Called when a task is auto-closed by the system.
-    Notifies the task creator.
+    
+    If the task is linked to an order, broadcasts notification to ALL order participants.
+    Otherwise, notifies only the task creator.
     """
     try:
-        # Notify task creator
-        if task.created_by_id:
-            await notify_and_emit_task_auto_closed(
+        # If task is linked to an order, broadcast to ALL participants
+        if task.related_order_id:
+            await notify_and_emit_task_auto_closed_to_participants(
                 db=db,
                 task_id=task.id,
-                notify_user_id=task.created_by_id,
+                order_id=task.related_order_id,
                 task_title=task.title,
                 reason=reason,
             )
-        
-        logger.info(f"[Notification] Task auto-closed notification sent: task={task.id}")
+            logger.info(f"[Notification] Task auto-closed broadcast to all participants: task={task.id}, order={task.related_order_id}")
+        else:
+            # Standalone task - notify only the task creator
+            if task.created_by_id:
+                await notify_and_emit_task_auto_closed(
+                    db=db,
+                    task_id=task.id,
+                    notify_user_id=task.created_by_id,
+                    task_title=task.title,
+                    reason=reason,
+                )
+            logger.info(f"[Notification] Task auto-closed notification sent: task={task.id}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send task auto-closed notification: {e}")
 
@@ -171,19 +221,16 @@ async def on_order_completed(
 ):
     """
     Called when an order is completed.
-    Notifies the order creator.
+    Broadcasts notification to ALL order participants (derived from task_assignments).
     """
     try:
-        # Notify order creator
-        if order.created_by_id:
-            await notify_and_emit_order_completed(
-                db=db,
-                order_id=order.id,
-                notify_user_id=order.created_by_id,
-                order_reference=order.reference or str(order.id),
-            )
+        await notify_and_emit_order_completed_to_participants(
+            db=db,
+            order_id=order.id,
+            order_reference=order.reference or str(order.id),
+        )
         
-        logger.info(f"[Notification] Order completed notifications sent: order={order.id}")
+        logger.info(f"[Notification] Order completed broadcast to all participants: order={order.id}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send order completed notification: {e}")
 

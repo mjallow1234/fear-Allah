@@ -146,7 +146,14 @@ class AutomationService:
             # Notify previous claimer, new assignee, other admins
             try:
                 from app.services.notifications import notify_task_reassigned
-                await notify_task_reassigned(db=db, task_id=task.id, task_title=task.title, from_user_id=prev, to_user_id=user_id)
+                await notify_task_reassigned(
+                    db=db,
+                    task_id=task.id,
+                    task_title=task.title,
+                    from_user_id=prev,
+                    to_user_id=user_id,
+                    order_id=task.related_order_id,  # Pass order_id for participant-based notifications
+                )
             except Exception as e:
                 logger.warning(f"[Automation] Failed to notify on task.reassigned: {e}")
 
@@ -219,7 +226,14 @@ class AutomationService:
         # Notify other role members and admins about the claim
         try:
             from app.services.notifications import notify_task_claimed
-            await notify_task_claimed(db=db, task_id=task.id, task_title=task.title, claimer_id=user_id, required_role=task.required_role)
+            await notify_task_claimed(
+                db=db,
+                task_id=task.id,
+                task_title=task.title,
+                claimer_id=user_id,
+                required_role=task.required_role,
+                order_id=task.related_order_id,  # Pass order_id for participant-based notifications
+            )
         except Exception as e:
             logger.warning(f"[Automation] Failed to notify on task.claimed: {e}")
 
