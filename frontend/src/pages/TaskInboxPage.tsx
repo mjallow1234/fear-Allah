@@ -5,7 +5,7 @@
  * Main inbox view for automation tasks.
  * Shows user's assignments and created tasks.
  */
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
