@@ -1207,6 +1207,11 @@ class AutomationService:
                     getattr(root_task, 'id', None) if root_task else None,
                     getattr(root_task, 'status', None) if root_task else None,
                 )
+                logger.error(
+                    "[ROOT-TRACE] root BEFORE evaluation | root_id=%s | status=%s",
+                    getattr(root_task, 'id', None) if root_task else None,
+                    getattr(root_task, 'status', None) if root_task else None,
+                )
 
                 if root_task and getattr(root_task, 'status', None) != ATS.completed:
                     # Check if all required assignments on the root task are done
@@ -1215,6 +1220,11 @@ class AutomationService:
                         "[DEBUG] order root all_done check | root_id=%s | all_done=%s",
                         root_task.id,
                         all_done_root,
+                    )
+                    logger.error(
+                        "[ROOT-TRACE] all_required_assignments_done=%s | root_id=%s",
+                        all_done_root,
+                        root_task.id,
                     )
                     if all_done_root:
                         now_root = datetime.now(timezone.utc)
@@ -1228,12 +1238,20 @@ class AutomationService:
                             .where(ATModel.status != ATS.completed)
                             .values(status=ATS.completed, completed_at=now_root)
                         )
+                        logger.error(
+                            "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
+                            root_task.id,
+                        )
                         logger.info(
                             "[DEBUG] completing order | order_id=%s",
                             related_order_id,
                         )
                         await db.execute(update(OrderModel).where(OrderModel.id == related_order_id).values(status=OS.completed))
                         await db.commit()
+                        logger.error(
+                            "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
+                            root_task.id,
+                        )
                         logger.info(f"[Automation] Marked order-root {root_task.id} COMPLETED and Order {related_order_id} COMPLETED as all root assignments are done")
         except Exception as e:
             logger.warning(f"[Automation] Failed to auto-complete order-root/order after assignments: {e}")
@@ -1379,6 +1397,10 @@ class AutomationService:
             "[DEBUG] complete_assignment RETURNING | assignment_id=%s | status=%s",
             assignment.id,
             getattr(assignment.status, 'value', assignment.status),
+        )
+        logger.error(
+            "[ROOT-TRACE] EXIT complete_assignment | assignment_id=%s",
+            assignment.id,
         )
         return assignment
 
