@@ -28,6 +28,7 @@ import {
 } from '../../stores/taskStore'
 import { useAuthStore } from '../../stores/authStore'
 import api from '../../services/api'
+import OrderFormDetails from '../orders/OrderFormDetails'
 
 interface WorkflowStep {
   id: number
@@ -435,32 +436,21 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
               </div>
             )}
             
-            {/* Metadata (if any) */}
-            {task.metadata && Object.keys(task.metadata).length > 0 && (
+            {/* Order Form Details (rendered from form_payload) */}
+            {(task.order_details || task.metadata) && (
               <div>
                 <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <FileText size={16} />
-                  Additional Info
-                </h4>
-                <div className="bg-[#2b2d31] rounded-lg p-3">
-                  <pre className="text-xs text-[#949ba4] whitespace-pre-wrap overflow-x-auto">
-                    {JSON.stringify(task.metadata, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            )}
-
-            {/* Order details (readonly, admin may view) */}
-            {task.order_details && Object.keys(task.order_details).length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                  <Package size={16} />
                   Order Details
                 </h4>
-                <div className="bg-[#2b2d31] rounded-lg p-3">
-                  <pre className="text-xs text-[#949ba4] whitespace-pre-wrap overflow-x-auto">
-                    {JSON.stringify(task.order_details, null, 2)}
-                  </pre>
+                <div className="bg-[#2b2d31] rounded-lg p-4">
+                  <OrderFormDetails 
+                    formPayload={
+                      ((task.order_details?.meta as Record<string, unknown> | undefined)?.form_payload as Record<string, unknown>) || 
+                      (task.order_details?.meta as Record<string, unknown>) || 
+                      (task.metadata as Record<string, unknown>)
+                    } 
+                  />
                 </div>
               </div>
             )}
