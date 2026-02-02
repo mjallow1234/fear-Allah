@@ -916,7 +916,7 @@ async def get_my_assignments(
     System admins receive ALL assignments (visibility override).
     
     Optional filters:
-    - search: numeric value to match task ID or related order ID
+    - search: numeric value to match order ID (primary) or task ID (secondary)
     - order_type: filter by order type (e.g., agent_retail, agent_restock)
     """
     from app.db.models import AutomationTask as ATModel, Order as OrderModel
@@ -925,33 +925,32 @@ async def get_my_assignments(
     user_id = current_user["user_id"]
     user = await _get_user(db, user_id)
 
-    if user.is_system_admin:
-        # Admins see all assignments
-        query = select(TaskAssignment)
-    else:
-        query = select(TaskAssignment).where(TaskAssignment.user_id == user_id)
+    # Base query with joins needed for filtering
+    # Always join to AutomationTask and Order for consistent filtering
+    query = (
+        select(TaskAssignment)
+        .join(ATModel, TaskAssignment.task_id == ATModel.id)
+        .outerjoin(OrderModel, ATModel.related_order_id == OrderModel.id)
+    )
 
-    # Apply search filter (task ID or order ID)
+    if not user.is_system_admin:
+        query = query.where(TaskAssignment.user_id == user_id)
+
+    # Apply search filter - prioritize order ID match
     if search:
         try:
             search_id = int(search)
-            # Need to join to AutomationTask to filter by task ID or related_order_id
-            query = query.join(ATModel, TaskAssignment.task_id == ATModel.id).where(
-                (ATModel.id == search_id) | (ATModel.related_order_id == search_id)
+            # Primary: match order ID; Secondary: match task ID
+            query = query.where(
+                (OrderModel.id == search_id) | (ATModel.id == search_id)
             )
         except ValueError:
             # Non-numeric search - ignore for now
             pass
 
-    # Apply order_type filter
+    # Apply order_type filter - strictly on orders.order_type
     if order_type:
-        # Need to join through AutomationTask to Order
-        # If we haven't joined ATModel yet, do it now
-        if search is None or not search.isdigit():
-            query = query.join(ATModel, TaskAssignment.task_id == ATModel.id)
-        query = query.join(OrderModel, ATModel.related_order_id == OrderModel.id).where(
-            OrderModel.order_type == order_type
-        )
+        query = query.where(OrderModel.order_type == order_type)
 
     result = await db.execute(query)
     assignments = list(result.scalars().all())

@@ -282,7 +282,7 @@ export default function TaskInboxPage() {
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#949ba4]" />
               <input
                 type="text"
-                placeholder="Search by Task ID or Order ID"
+                placeholder="Search by Order ID"
                 value={searchValue}
                 onChange={(e) => setSearchValue(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-[#1e1f22] border border-[#1f2023] rounded-lg text-white placeholder-[#72767d] text-sm focus:outline-none focus:border-[#5865f2]"
