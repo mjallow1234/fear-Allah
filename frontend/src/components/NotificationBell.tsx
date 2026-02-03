@@ -138,30 +138,35 @@ export default function NotificationBell() {
   }
 
   const handleNotificationClick = (notif: Notification) => {
-    // Handle order-related notifications - navigate to order snapshot
-    // This applies to: order_created, task_assigned, task_completed, task_overdue, order_completed
+    // Mark as read first
+    if (!notif.is_read) {
+      handleMarkRead(notif.id, { stopPropagation: () => {} } as React.MouseEvent)
+    }
+    setShowDropdown(false)
+    
+    // PRIORITY 1: Order-related notifications → always go to snapshot (read-only, permission-safe)
+    // This applies to: order_created, order_completed, task_assigned, task_completed, task_overdue
+    // ❌ NEVER route to /orders/:id - Foreman/Delivery don't have Orders tab access
     if (notif.order_id) {
       navigate(`/orders/snapshot/${notif.order_id}`)
+      return
     }
-    // Handle task-related notifications without order - navigate to task inbox
-    else if (notif.task_id) {
-      // Navigate to task inbox with the task ID to highlight/open it
+    
+    // PRIORITY 2: Standalone task notifications (no order) → task inbox
+    if (notif.task_id) {
       navigate(`/tasks?task=${notif.task_id}`)
+      return
     }
-    // Handle channel/message notifications
-    else if (notif.channel_id) {
-      // Navigate to channel with optional message anchor
+    
+    // PRIORITY 3: Channel/message notifications
+    if (notif.channel_id) {
       if (notif.message_id) {
         navigate(`/channels/${notif.channel_id}?message=${notif.message_id}`)
       } else {
         navigate(`/channels/${notif.channel_id}`)
       }
+      return
     }
-    
-    if (!notif.is_read) {
-      handleMarkRead(notif.id, { stopPropagation: () => {} } as React.MouseEvent)
-    }
-    setShowDropdown(false)
   }
 
   const getNotificationIcon = (type: string) => {
