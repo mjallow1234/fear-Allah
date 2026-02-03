@@ -391,7 +391,7 @@ async def notify_and_emit_task_overdue_to_participants(
 async def notify_and_emit_task_step_completed_to_participants(
     db: AsyncSession,
     order_id: int,
-    task_id: int,
+    task_id: int,  # workflow task ID - NOT used for notifications.task_id (FK mismatch)
     step_key: str,
     step_label: str,
     role: Optional[str] = None,
@@ -401,6 +401,10 @@ async def notify_and_emit_task_step_completed_to_participants(
     
     This is called when a workflow Task (step) transitions to done,
     e.g., "Foreman completed: Assemble items"
+    
+    NOTE: task_id param is the workflow tasks.id, but notifications.task_id
+    references automation_tasks.id. We set task_id=None to avoid FK violation
+    and store step info in metadata instead.
     """
     from app.services.notifications import get_order_participant_user_ids
     
@@ -416,8 +420,14 @@ async def notify_and_emit_task_step_completed_to_participants(
         notification_type=NotificationType.task_step_completed,
         title="Workflow Step Completed",
         content=content,
-        task_id=task_id,
+        task_id=None,  # DO NOT set - workflow task ID != automation_task ID
         order_id=order_id,
+        metadata={
+            "step_key": step_key,
+            "step_label": step_label,
+            "role": role,
+            "workflow_task_id": task_id,  # Store for reference only
+        },
     )
 
 
