@@ -17,6 +17,7 @@ from app.constants.notification_types import (
     TOAST_NOTIFICATION_TYPES,
     SILENT_NOTIFICATION_TYPES,
 )
+from app.constants.order_roles import ORDER_TYPE_ROLES
 
 __all__ = [
     "ORDER_CREATED",
@@ -33,4 +34,5 @@ __all__ = [
     "SYSTEM_ALERT",
     "TOAST_NOTIFICATION_TYPES",
     "SILENT_NOTIFICATION_TYPES",
+    "ORDER_TYPE_ROLES",
 ]

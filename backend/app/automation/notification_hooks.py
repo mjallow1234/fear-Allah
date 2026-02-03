@@ -192,25 +192,40 @@ async def on_order_created(
 ):
     """
     Called when an order is created.
-    Optionally notifies admins/managers.
+    
+    NOTE:
+    order_created happens BEFORE tasks exist.
+    Never use assignment-based recipients here.
+    Recipients are derived from order type roles + optionally admins.
     """
     try:
+        from app.services.notifications import get_order_role_user_ids
+        
+        # Get recipients based on order type roles
+        role_user_ids = await get_order_role_user_ids(db, order)
+        
+        # Optionally include admins/managers
         if notify_admins:
             admin_ids = await get_admins_and_managers(db)
-            # Don't notify the person who created the order
-            if order.created_by_id in admin_ids:
-                admin_ids.remove(order.created_by_id)
-            
-            for admin_id in admin_ids:
-                await notify_and_emit_order_created(
-                    db=db,
-                    order_id=order.id,
-                    notify_user_id=admin_id,
-                    order_reference=order.reference or str(order.id),
-                    customer_name=order.customer_name,
-                )
+            # Merge with role-based users, avoiding duplicates
+            all_recipients = list(set(role_user_ids + admin_ids))
+        else:
+            all_recipients = role_user_ids
         
-        logger.info(f"[Notification] Order created notifications sent: order={order.id}")
+        # Don't notify the person who created the order
+        if order.created_by_id in all_recipients:
+            all_recipients.remove(order.created_by_id)
+        
+        for user_id in all_recipients:
+            await notify_and_emit_order_created(
+                db=db,
+                order_id=order.id,
+                notify_user_id=user_id,
+                order_reference=order.reference or str(order.id),
+                customer_name=order.customer_name,
+            )
+        
+        logger.info(f"[Notification] Order created notifications sent to {len(all_recipients)} users: order={order.id}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send order created notification: {e}")
 

@@ -27,6 +27,9 @@ async def get_order_participant_user_ids(db: AsyncSession, order_id: int) -> Set
     - Collect all task_assignments.user_id (excluding NULL)
     
     This is pure, reusable, and safe. No hardcoded roles or admin checks.
+    
+    NOTE: This is for task-based notifications AFTER assignments exist.
+    For order_created, use get_order_role_user_ids instead.
     """
     query = (
         select(TaskAssignment.user_id)
@@ -41,6 +44,35 @@ async def get_order_participant_user_ids(db: AsyncSession, order_id: int) -> Set
     )
     result = await db.execute(query)
     return set(row[0] for row in result.fetchall())
+
+
+async def get_order_role_user_ids(db: AsyncSession, order) -> List[int]:
+    """
+    Resolve users by roles required for this order type.
+    Used BEFORE tasks/assignments exist (e.g., order_created notification).
+    
+    NOTE:
+    order_created happens BEFORE tasks exist.
+    Never use assignment-based recipients here.
+    """
+    from app.constants.order_roles import ORDER_TYPE_ROLES
+    
+    # Get the order type value (handle both enum and string)
+    order_type_val = order.order_type.value if hasattr(order.order_type, 'value') else order.order_type
+    
+    roles = ORDER_TYPE_ROLES.get(order_type_val, [])
+    if not roles:
+        return []
+    
+    result = await db.execute(
+        select(User.id).where(
+            and_(
+                User.role.in_(roles),
+                User.is_active == True,
+            )
+        )
+    )
+    return [row[0] for row in result.fetchall()]
 
 
 class NotificationService:
