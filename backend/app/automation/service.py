@@ -27,6 +27,10 @@ from app.automation.payloads import (
     build_automation_failed_payload,
 )
 from app.integrations.make_webhook import emit_make_webhook
+from app.services.notification_emitter import (
+    notify_and_emit_task_completed_to_participants,
+    notify_and_emit_order_completed_to_participants,
+)
 
 
 class ClaimError(Exception):
@@ -1174,6 +1178,23 @@ class AutomationService:
         )
         db.add(evt)
         await db.flush()
+
+        # === NOTIFY: Assignment completed → notify participants ===
+        if marked_done and automation_task and automation_task.related_order_id:
+            try:
+                # Get actor username for notification content
+                actor_username = actor.username if actor else "Someone"
+                task_title = getattr(automation_task, 'title', None) or f"Task #{task_id}"
+                await notify_and_emit_task_completed_to_participants(
+                    db=db,
+                    task_id=automation_task.id,
+                    order_id=automation_task.related_order_id,
+                    task_title=task_title,
+                    completed_by=actor_username,
+                )
+                logger.info(f"[Automation] Emitted task_completed notification to participants for task={task_id}")
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to emit task_completed notification: {e}")
         
         # --- Complete the corresponding workflow task to advance the order ---
         if workflow_task_to_complete:
@@ -1293,6 +1314,34 @@ class AutomationService:
                         root_task.id,
                     )
                     logger.info(f"[Automation] Marked order-root {root_task.id} COMPLETED and Order {related_order_id} COMPLETED as all root assignments are done")
+
+                    # === NOTIFY: Task (root) completed → notify participants ===
+                    try:
+                        root_title = getattr(root_task, 'title', None) or f"Order Task #{root_task.id}"
+                        actor_username = actor.username if actor else "System"
+                        await notify_and_emit_task_completed_to_participants(
+                            db=db,
+                            task_id=root_task.id,
+                            order_id=related_order_id,
+                            task_title=root_title,
+                            completed_by=actor_username,
+                        )
+                        logger.info(f"[Automation] Emitted root task_completed notification for task={root_task.id}")
+                    except Exception as e:
+                        logger.warning(f"[Automation] Failed to emit root task_completed notification: {e}")
+
+                    # === NOTIFY: Order completed → notify ALL participants ===
+                    if order_obj:
+                        try:
+                            order_reference = str(order_obj.id)
+                            await notify_and_emit_order_completed_to_participants(
+                                db=db,
+                                order_id=order_obj.id,
+                                order_reference=order_reference,
+                            )
+                            logger.info(f"[Automation] Emitted order_completed notification for order={order_obj.id}")
+                        except Exception as e:
+                            logger.warning(f"[Automation] Failed to emit order_completed notification: {e}")
 
         # Emit Make.com webhook for task.completed event
         try:
