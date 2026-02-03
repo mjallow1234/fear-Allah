@@ -13,6 +13,7 @@ import NotificationsPage from './pages/NotificationsPage'
 import TaskInboxPage from './pages/TaskInboxPage'
 import OrdersPage from './pages/OrdersPage'
 import OrderDetailsPage from './pages/OrderDetailsPage'
+import OrderSnapshotPage from './pages/OrderSnapshotPage'
 import SalesPage from './pages/SalesPage'
 import AdminAuditPage from './pages/AdminAuditPage'
 import SystemConsolePage from './pages/SystemConsolePage'
@@ -73,6 +74,7 @@ function App() {
         <Route path="orders/*" element={<OperationalGuard tab="Orders" />}>
           <Route index element={<OrdersPage />} />
           <Route path=":id" element={<OrderDetailsPage />} />
+          <Route path="snapshot/:orderId" element={<OrderSnapshotPage />} />
         </Route>
 
         <Route path="sales/*" element={<OperationalGuard tab="Sales" />}>

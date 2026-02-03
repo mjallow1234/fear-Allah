@@ -2,13 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.core.security import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.db.database import get_db
 from pydantic import BaseModel
 from app.services.task_engine import create_order
 from app.automation.order_triggers import OrderAutomationTriggers
 from app.core.logging import orders_logger
-from typing import Optional
+from typing import Optional, List, Any
 from datetime import datetime
+import json
 
 router = APIRouter()
 
@@ -174,3 +176,171 @@ async def get_order_automation_status(
             order_id=order_id,
         )
         raise
+
+
+# ============================================================
+# Order Snapshot (Read-Only View)
+# ============================================================
+
+@router.get("/{order_id}/snapshot")
+async def get_order_snapshot(
+    order_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a read-only snapshot of an order for role-based visibility.
+    
+    Access allowed if ANY is true:
+    - User is admin
+    - User has operational role matching any task in this order
+    - User has assignment (past or present) in this order
+    
+    NO MUTATIONS - read-only view only.
+    """
+    from app.db.models import (
+        Order, User, AutomationTask, TaskAssignment, UserOperationalRole
+    )
+    from app.db.enums import AutomationTaskStatus, AssignmentStatus
+    
+    user_id = current_user["user_id"]
+    
+    # Load user with operational roles
+    user_result = await db.execute(
+        select(User)
+        .options(selectinload(User.operational_roles))
+        .where(User.id == user_id)
+    )
+    db_user = user_result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Load order
+    order_result = await db.execute(
+        select(Order).where(Order.id == order_id)
+    )
+    order = order_result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Load automation tasks for this order with their assignments
+    tasks_result = await db.execute(
+        select(AutomationTask)
+        .options(selectinload(AutomationTask.assignments))
+        .where(AutomationTask.related_order_id == order_id)
+        .order_by(AutomationTask.id)
+    )
+    automation_tasks = list(tasks_result.scalars().all())
+    
+    # ============================================================
+    # Permission Check
+    # ============================================================
+    is_admin = db_user.is_system_admin or (db_user.role and db_user.role.value in ['system_admin', 'team_admin'])
+    
+    # Get user's operational role names
+    user_op_roles = set(r.role for r in db_user.operational_roles) if db_user.operational_roles else set()
+    
+    # Get all required_roles from tasks
+    task_roles = set(t.required_role for t in automation_tasks if t.required_role)
+    
+    # Check if user has assignment in this order
+    has_assignment = any(
+        any(a.user_id == user_id for a in t.assignments)
+        for t in automation_tasks
+    )
+    
+    # Check if user's operational role matches any task role
+    has_matching_role = bool(user_op_roles & task_roles)
+    
+    # Permission granted if admin, has matching role, or has assignment
+    if not (is_admin or has_matching_role or has_assignment):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: You don't have permission to view this order"
+        )
+    
+    # ============================================================
+    # Build Snapshot Response
+    # ============================================================
+    
+    # Parse meta if it's a JSON string
+    meta_dict = {}
+    if order.meta:
+        try:
+            meta_dict = json.loads(order.meta) if isinstance(order.meta, str) else order.meta
+        except Exception:
+            meta_dict = {}
+    
+    # Build order data
+    order_data = {
+        "id": order.id,
+        "order_type": order.order_type.value if hasattr(order.order_type, 'value') else order.order_type,
+        "status": order.status.value if hasattr(order.status, 'value') else order.status,
+        "priority": order.priority or "normal",
+        "delivery_location": meta_dict.get("delivery_location"),
+        "customer_name": order.customer_name,
+        "customer_phone": order.customer_phone,
+        "reference": order.reference,
+        "payment_method": order.payment_method,
+        "internal_comment": order.internal_comment,
+        "meta": meta_dict,
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "created_by_id": order.created_by_id,
+    }
+    
+    # Build tasks data with assignments
+    tasks_data = []
+    completed_roles = []
+    pending_roles = []
+    locked_roles = []
+    
+    for task in automation_tasks:
+        # Skip root task (it's just a container)
+        if task.is_order_root:
+            continue
+            
+        task_status = task.status.value if hasattr(task.status, 'value') else task.status
+        role = task.required_role or "unknown"
+        
+        # Build assignments list
+        assignments_data = [
+            {
+                "user_id": a.user_id,
+                "status": a.status.value if hasattr(a.status, 'value') else a.status,
+                "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
+                "completed_at": a.completed_at.isoformat() if a.completed_at else None,
+            }
+            for a in task.assignments
+        ]
+        
+        tasks_data.append({
+            "id": task.id,
+            "title": task.title,
+            "required_role": role,
+            "status": task_status,
+            "assignments": assignments_data,
+        })
+        
+        # Categorize role progress
+        if task_status == AutomationTaskStatus.completed.value:
+            if role not in completed_roles:
+                completed_roles.append(role)
+        elif task_status in [AutomationTaskStatus.open.value, AutomationTaskStatus.in_progress.value]:
+            if role not in pending_roles:
+                pending_roles.append(role)
+        else:
+            if role not in locked_roles:
+                locked_roles.append(role)
+    
+    # Build progress summary
+    progress = {
+        "completed_roles": completed_roles,
+        "pending_roles": pending_roles,
+        "locked_roles": locked_roles,
+    }
+    
+    return {
+        "order": order_data,
+        "tasks": tasks_data,
+        "progress": progress,
+    }

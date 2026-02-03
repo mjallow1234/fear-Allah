@@ -138,8 +138,13 @@ export default function NotificationBell() {
   }
 
   const handleNotificationClick = (notif: Notification) => {
-    // Handle task-related notifications - navigate to task inbox
-    if (notif.task_id) {
+    // Handle order-related notifications - navigate to order snapshot
+    // This applies to: order_created, task_assigned, task_completed, task_overdue, order_completed
+    if (notif.order_id) {
+      navigate(`/orders/snapshot/${notif.order_id}`)
+    }
+    // Handle task-related notifications without order - navigate to task inbox
+    else if (notif.task_id) {
       // Navigate to task inbox with the task ID to highlight/open it
       navigate(`/tasks?task=${notif.task_id}`)
     }
@@ -151,10 +156,6 @@ export default function NotificationBell() {
       } else {
         navigate(`/channels/${notif.channel_id}`)
       }
-    }
-    // Handle order notifications - navigate to orders
-    else if (notif.order_id) {
-      navigate(`/orders?order=${notif.order_id}`)
     }
     
     if (!notif.is_read) {
