@@ -46,7 +46,7 @@ async def get_order_participant_user_ids(db: AsyncSession, order_id: int) -> Set
     return set(row[0] for row in result.fetchall())
 
 
-async def get_order_role_user_ids(db: AsyncSession, order) -> List[int]:
+async def get_order_role_user_ids(db: AsyncSession, order) -> tuple[List[int], List[str]]:
     """
     Resolve users by roles required for this order type.
     Uses user_operational_roles table (many-to-many) NOT User.role.
@@ -56,11 +56,30 @@ async def get_order_role_user_ids(db: AsyncSession, order) -> List[int]:
     order_created happens BEFORE tasks exist.
     Never use assignment-based recipients here.
     """
+    # Get the order type value (handle both enum and string)
+    order_type_val = order.order_type.value if hasattr(order.order_type, 'value') else order.order_type
+    return await get_order_role_user_ids_by_type(db, order_type_val)
+
+
+async def get_order_role_user_ids_by_type(db: AsyncSession, order_type: str) -> tuple[List[int], List[str]]:
+    """
+    Resolve users by roles required for a given order type.
+    Uses user_operational_roles table (many-to-many) NOT User.role.
+    
+    This is the core resolver used at ORDER CREATION TIME.
+    
+    Args:
+        db: Database session
+        order_type: The order type string (e.g., 'agent_restock')
+        
+    Returns:
+        Tuple of (user_ids, roles) for debugging purposes
+    """
     from app.constants.order_roles import ORDER_TYPE_ROLES
     from app.db.models import UserOperationalRole
     
-    # Get the order type value (handle both enum and string)
-    order_type_val = order.order_type.value if hasattr(order.order_type, 'value') else order.order_type
+    # Normalize order_type to lowercase
+    order_type_val = order_type.lower() if order_type else order_type
     
     roles = ORDER_TYPE_ROLES.get(order_type_val, [])
     if not roles:

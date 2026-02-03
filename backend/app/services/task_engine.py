@@ -245,6 +245,24 @@ async def create_order(
 
     await session.commit()
 
+    # ============================================================
+    # Emit order_created notification to role-based recipients
+    # This MUST happen immediately after order creation, NOT in task hooks.
+    # Uses user_operational_roles to resolve recipients.
+    # ============================================================
+    try:
+        from app.services.notification_emitter import notify_and_emit_order_created_to_roles
+        await notify_and_emit_order_created_to_roles(
+            db=session,
+            order_id=order.id,
+            order_type=order.order_type.value if hasattr(order.order_type, 'value') else order.order_type,
+            order_reference=order.reference,
+            customer_name=order.customer_name,
+            created_by_id=created_by_id,
+        )
+    except Exception as e:
+        logger.error(f"[ORDER_CREATED] Failed to emit order_created notification: {e}")
+
     # Emit order.submitted with order_type for frontend
     await emit_event('order.submitted', {"order_id": order.id, "status": order.status, "order_type": order.order_type})
     

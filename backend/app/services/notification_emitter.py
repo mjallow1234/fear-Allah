@@ -410,6 +410,62 @@ async def notify_and_emit_order_completed_to_participants(
     )
 
 
+async def notify_and_emit_order_created_to_roles(
+    db: AsyncSession,
+    order_id: int,
+    order_type: str,
+    order_reference: Optional[str] = None,
+    customer_name: Optional[str] = None,
+    created_by_id: Optional[int] = None,
+) -> List[Notification]:
+    """
+    Emit order_created notifications to users based on order type roles.
+    
+    Uses user_operational_roles to resolve recipients.
+    This is called at ORDER CREATION TIME, before any tasks exist.
+    
+    NOTE: This is the authoritative order_created emitter.
+    Do NOT use task assignments or participant resolution here.
+    """
+    from app.services.notifications import get_order_role_user_ids_by_type
+    from app.core.config import logger
+    
+    # Resolve users by order type roles (via user_operational_roles)
+    user_ids, roles = await get_order_role_user_ids_by_type(db, order_type)
+    
+    # DEBUG LOG - verify role resolution on prod
+    logger.error(
+        "[ORDER_CREATED] order_id=%s order_type=%s roles=%s recipients=%s",
+        order_id, order_type, roles, user_ids
+    )
+    
+    # Filter out invalid user IDs and the order creator
+    user_ids = [uid for uid in user_ids if uid and uid > 0]
+    if created_by_id and created_by_id in user_ids:
+        user_ids.remove(created_by_id)
+    
+    if not user_ids:
+        logger.warning(
+            "[ORDER_CREATED] No recipients found for order_id=%s order_type=%s roles=%s",
+            order_id, order_type, roles
+        )
+        return []
+    
+    ref = order_reference or str(order_id)
+    content = f"New order #{ref}"
+    if customer_name:
+        content += f" from {customer_name}"
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=user_ids,
+        notification_type=NotificationType.order_created,
+        title="New Order",
+        content=content,
+        order_id=order_id,
+    )
+
+
 async def notify_and_emit_order_created(
     db: AsyncSession,
     order_id: int,
