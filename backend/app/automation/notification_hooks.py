@@ -195,15 +195,21 @@ async def on_order_created(
     
     NOTE:
     order_created happens BEFORE tasks exist.
-    Never use assignment-based recipients here.
-    Recipients are derived ONLY from order type roles (delivery, foreman, storekeeper).
+    Never use task_assignments or participant resolution here.
+    Recipients are derived ONLY from user_operational_roles joined with ORDER_TYPE_ROLES.
     Admins are included only if explicitly requested via include_admins=True.
     """
     try:
         from app.services.notifications import get_order_role_user_ids
         
-        # Get recipients based on order type roles ONLY
-        role_user_ids = await get_order_role_user_ids(db, order)
+        # Get recipients based on order type roles ONLY (via user_operational_roles)
+        role_user_ids, roles = await get_order_role_user_ids(db, order)
+        
+        # DEBUG LOG - helps diagnose role resolution on prod
+        logger.error(
+            "[ORDER_CREATED] roles=%s resolved_users=%s order_id=%s",
+            roles, role_user_ids, order.id
+        )
         
         # Include admins only if explicitly configured
         if include_admins:
@@ -216,6 +222,13 @@ async def on_order_created(
         all_recipients = [uid for uid in all_recipients if uid and uid > 0]
         if order.created_by_id and order.created_by_id in all_recipients:
             all_recipients.remove(order.created_by_id)
+        
+        # Log warning if no recipients found (do NOT silently return)
+        if not all_recipients:
+            logger.warning(
+                "[ORDER_CREATED] No recipients found for order_id=%s order_type=%s roles=%s",
+                order.id, order.order_type, roles
+            )
         
         for user_id in all_recipients:
             await notify_and_emit_order_created(

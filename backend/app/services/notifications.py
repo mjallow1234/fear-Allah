@@ -49,6 +49,7 @@ async def get_order_participant_user_ids(db: AsyncSession, order_id: int) -> Set
 async def get_order_role_user_ids(db: AsyncSession, order) -> List[int]:
     """
     Resolve users by roles required for this order type.
+    Uses user_operational_roles table (many-to-many) NOT User.role.
     Used BEFORE tasks/assignments exist (e.g., order_created notification).
     
     NOTE:
@@ -56,23 +57,29 @@ async def get_order_role_user_ids(db: AsyncSession, order) -> List[int]:
     Never use assignment-based recipients here.
     """
     from app.constants.order_roles import ORDER_TYPE_ROLES
+    from app.db.models import UserOperationalRole
     
     # Get the order type value (handle both enum and string)
     order_type_val = order.order_type.value if hasattr(order.order_type, 'value') else order.order_type
     
     roles = ORDER_TYPE_ROLES.get(order_type_val, [])
     if not roles:
-        return []
+        return [], roles  # Return empty list and roles for debugging
     
+    # Join users ← user_operational_roles, match roles
     result = await db.execute(
-        select(User.id).where(
+        select(User.id)
+        .join(UserOperationalRole, User.id == UserOperationalRole.user_id)
+        .where(
             and_(
-                User.role.in_(roles),
+                UserOperationalRole.role.in_(roles),
                 User.is_active == True,
             )
         )
+        .distinct()
     )
-    return [row[0] for row in result.fetchall()]
+    user_ids = [row[0] for row in result.fetchall()]
+    return user_ids, roles  # Return both for debugging
 
 
 class NotificationService:
