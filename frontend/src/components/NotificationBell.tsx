@@ -146,9 +146,9 @@ export default function NotificationBell() {
     
     // PRIORITY 1: Order-related notifications → always go to snapshot (read-only, permission-safe)
     // This applies to: order_created, order_completed, task_assigned, task_completed, task_overdue
-    // ❌ NEVER route to /orders/:id - Foreman/Delivery don't have Orders tab access
+    // NOTE: /order-snapshot is intentionally OUTSIDE /orders so non-admin roles can access it
     if (notif.order_id) {
-      navigate(`/orders/snapshot/${notif.order_id}`)
+      navigate(`/order-snapshot/${notif.order_id}`)
       return
     }
     

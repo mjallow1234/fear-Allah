@@ -74,8 +74,12 @@ function App() {
         <Route path="orders/*" element={<OperationalGuard tab="Orders" />}>
           <Route index element={<OrdersPage />} />
           <Route path=":id" element={<OrderDetailsPage />} />
-          <Route path="snapshot/:orderId" element={<OrderSnapshotPage />} />
         </Route>
+
+        {/* NOTE: OrderSnapshot is intentionally OUTSIDE /orders
+            so non-admin operational roles (Foreman, Delivery, Storekeeper)
+            can access it via notifications without needing Orders tab permission */}
+        <Route path="order-snapshot/:orderId" element={<OrderSnapshotPage />} />
 
         <Route path="sales/*" element={<OperationalGuard tab="Sales" />}>
           <Route index element={<SalesPage />} />
