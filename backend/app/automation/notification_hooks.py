@@ -188,7 +188,7 @@ async def on_task_auto_closed(
 async def on_order_created(
     db: AsyncSession,
     order: Order,
-    notify_admins: bool = True,
+    include_admins: bool = False,
 ):
     """
     Called when an order is created.
@@ -196,24 +196,25 @@ async def on_order_created(
     NOTE:
     order_created happens BEFORE tasks exist.
     Never use assignment-based recipients here.
-    Recipients are derived from order type roles + optionally admins.
+    Recipients are derived ONLY from order type roles (delivery, foreman, storekeeper).
+    Admins are included only if explicitly requested via include_admins=True.
     """
     try:
         from app.services.notifications import get_order_role_user_ids
         
-        # Get recipients based on order type roles
+        # Get recipients based on order type roles ONLY
         role_user_ids = await get_order_role_user_ids(db, order)
         
-        # Optionally include admins/managers
-        if notify_admins:
+        # Include admins only if explicitly configured
+        if include_admins:
             admin_ids = await get_admins_and_managers(db)
-            # Merge with role-based users, avoiding duplicates
             all_recipients = list(set(role_user_ids + admin_ids))
         else:
-            all_recipients = role_user_ids
+            all_recipients = list(role_user_ids)
         
-        # Don't notify the person who created the order
-        if order.created_by_id in all_recipients:
+        # Filter out invalid user IDs (0, None) and the order creator
+        all_recipients = [uid for uid in all_recipients if uid and uid > 0]
+        if order.created_by_id and order.created_by_id in all_recipients:
             all_recipients.remove(order.created_by_id)
         
         for user_id in all_recipients:
