@@ -462,6 +462,29 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
 
     # Emit events after commit with order_type for frontend
     await emit_event('task.completed', {"task_id": task.id, "step_key": task.step_key, "order_id": order.id})
+
+    # === NOTIFY: Workflow step completed → notify ALL order participants ===
+    try:
+        from app.services.notification_emitter import notify_and_emit_task_step_completed_to_participants
+        
+        # Look up step metadata from WORKFLOWS
+        wf_steps = WORKFLOWS.get(order.order_type, [])
+        step_meta = next((s for s in wf_steps if s.get('step_key') == task.step_key), None)
+        step_label = step_meta.get('title', task.step_key) if step_meta else task.step_key
+        step_role = step_meta.get('assigned_to') if step_meta else None
+        
+        await notify_and_emit_task_step_completed_to_participants(
+            db=session,
+            order_id=order.id,
+            task_id=task.id,
+            step_key=task.step_key,
+            step_label=step_label,
+            role=step_role,
+        )
+        logger.info(f"[TaskEngine] Emitted task_step_completed notification for step={task.step_key} order={order.id}")
+    except Exception as e:
+        logger.warning(f"[TaskEngine] Failed to emit task_step_completed notification: {e}")
+
     if next_task:
         await emit_event('task.activated', {"task_id": next_task.id, "assigned_user_id": next_task.assigned_user_id})
     if changed:

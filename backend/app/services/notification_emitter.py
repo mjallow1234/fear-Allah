@@ -388,6 +388,39 @@ async def notify_and_emit_task_overdue_to_participants(
     )
 
 
+async def notify_and_emit_task_step_completed_to_participants(
+    db: AsyncSession,
+    order_id: int,
+    task_id: int,
+    step_key: str,
+    step_label: str,
+    role: Optional[str] = None,
+) -> List[Notification]:
+    """
+    Notify all order participants that a workflow step has been completed.
+    
+    This is called when a workflow Task (step) transitions to done,
+    e.g., "Foreman completed: Assemble items"
+    """
+    from app.services.notifications import get_order_participant_user_ids
+    
+    participant_ids = await get_order_participant_user_ids(db, order_id)
+    
+    # Build human-readable content: "Foreman completed: Assemble items"
+    role_display = role.capitalize() if role else "Someone"
+    content = f"{role_display} completed: {step_label}"
+    
+    return await create_and_emit_to_multiple(
+        db,
+        user_ids=list(participant_ids),
+        notification_type=NotificationType.task_step_completed,
+        title="Workflow Step Completed",
+        content=content,
+        task_id=task_id,
+        order_id=order_id,
+    )
+
+
 async def notify_and_emit_order_completed_to_participants(
     db: AsyncSession,
     order_id: int,

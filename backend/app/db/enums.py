@@ -38,6 +38,7 @@ class NotificationType(str, enum.Enum):
     task_assigned = "task_assigned"
     task_claimed = "task_claimed"
     task_completed = "task_completed"
+    task_step_completed = "task_step_completed"  # Workflow step notifications
     task_auto_closed = "task_auto_closed"
     task_overdue = "task_overdue"  # Phase 6.4 - Overdue task alerts
     order_created = "order_created"
