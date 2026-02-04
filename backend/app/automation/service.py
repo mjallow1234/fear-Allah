@@ -104,18 +104,16 @@ class AutomationService:
             raise ClaimPermissionError("User does not have required operational role to claim this task")
 
         # Handle current task status cases
+        # Role-based claiming: reject if task is already claimed (regardless of who claimed it)
+        # Only allow admin override to take over existing claims
         if task.status == AutomationTaskStatus.claimed:
-            # If already claimed by same user, idempotent success
-            if task.claimed_by_user_id == user_id:
-                return task
-
             # If admin and override=True, allow override (handled below)
             if user.is_system_admin and override:
                 # allow to continue to override path
                 pass
             else:
                 await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
-                raise ClaimConflictError("Task already claimed by another user")
+                raise ClaimConflictError("Task already claimed")
 
         # For any state that is not OPEN or PENDING (e.g., done) that is not an admin override, reject with 400
         if task.status not in (AutomationTaskStatus.open, AutomationTaskStatus.pending):
@@ -124,12 +122,11 @@ class AutomationService:
 
         # Normal claim path — perform an atomic UPDATE so concurrent claim attempts race on the DB
 
-
-        # If another user already claimed - conflict unless admin override
-        if task.claimed_by_user_id and task.claimed_by_user_id != user_id:
+        # Role-based claiming: if task is already claimed (by anyone), conflict unless admin override
+        if task.claimed_by_user_id:
             if not (user.is_system_admin and override):
                 await log_audit(db, user, action="claim", resource="automation_task", resource_id=task.id, success=False, reason="already_claimed")
-                raise ClaimConflictError("Task already claimed by another user")
+                raise ClaimConflictError("Task already claimed")
 
             # Admin override - record reassignment event
             prev = task.claimed_by_user_id
