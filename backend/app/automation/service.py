@@ -96,12 +96,38 @@ class AutomationService:
         # Authorization rules (only):
         # - Task must be OPEN or PENDING to be claimable (unless admin override)
         # - If task.required_role is set, user must have the global role or be a system admin
-        from fastapi import HTTPException
 
-        # Role-based authorization (403)
-        # Use operational roles table for workflow permissions instead of the legacy users.role.
-        if task.required_role and (not user.has_operational_role(task.required_role)) and not user.is_system_admin:
-            raise ClaimPermissionError("User does not have required operational role to claim this task")
+        # FRESH DB role resolution — do NOT use cached user.operational_roles or user.has_operational_role()
+        # This ensures admin role changes take effect immediately without logout/token refresh
+        from app.db.models import UserOperationalRole
+        role_result = await db.execute(
+            select(UserOperationalRole.role).where(UserOperationalRole.user_id == user.id)
+        )
+        user_roles = {row[0] for row in role_result}
+
+        # Diagnostic logging for debugging role issues
+        logger.info(
+            "[CLAIM_ROLE_CHECK] user_id=%s roles=%s required_role=%s task_id=%s",
+            user.id,
+            sorted(user_roles),
+            task.required_role,
+            task.id,
+        )
+
+        # Role-based authorization (403) — resolved fresh from DB per request
+        if task.required_role:
+            if task.required_role not in user_roles and not user.is_system_admin:
+                from app.audit.logger import log_audit
+                await log_audit(
+                    db,
+                    user,
+                    action="claim",
+                    resource="automation_task",
+                    resource_id=task.id,
+                    success=False,
+                    reason="missing_required_role",
+                )
+                raise ClaimPermissionError("User does not have required operational role to claim this task")
 
         # Handle current task status cases
         # Role-based claiming: reject if task is already claimed (regardless of who claimed it)
@@ -849,10 +875,28 @@ class AutomationService:
         # Determine admin status early so it's available in all branches
         is_admin = False
         actor = None
+        user_roles = set()
         if user_id is not None:
             actor_result = await db.execute(select(User).where(User.id == user_id))
             actor = actor_result.scalar_one_or_none()
             is_admin = bool(actor and getattr(actor, 'is_system_admin', False))
+            
+            # FRESH DB role resolution — do NOT use cached user.operational_roles or user.has_operational_role()
+            # This ensures admin role changes take effect immediately without logout/token refresh
+            from app.db.models import UserOperationalRole
+            role_result = await db.execute(
+                select(UserOperationalRole.role).where(UserOperationalRole.user_id == user_id)
+            )
+            user_roles = {row[0] for row in role_result}
+            
+            # Diagnostic logging for debugging role issues
+            logger.info(
+                "[COMPLETE_ROLE_CHECK] user_id=%s roles=%s task_id=%s is_admin=%s",
+                user_id,
+                sorted(user_roles),
+                task_id,
+                is_admin,
+            )
 
         # Find the assignment (prefer explicit assignment_id when provided)
         if assignment_id is not None:
