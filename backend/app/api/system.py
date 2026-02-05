@@ -116,6 +116,7 @@ class UserListItem(BaseModel):
     email: str
     display_name: Optional[str]
     role: str
+    operational_roles: List[str] = []  # From user_operational_roles table
     is_active: bool
     is_system_admin: bool
     is_banned: Optional[bool] = False
@@ -298,6 +299,18 @@ async def list_system_users(
     result = await db.execute(query)
     users = result.scalars().all()
     
+    # Fetch operational roles for all users in batch
+    user_ids = [u.id for u in users]
+    op_roles_result = await db.execute(
+        select(UserOperationalRole.user_id, UserOperationalRole.role)
+        .where(UserOperationalRole.user_id.in_(user_ids))
+    )
+    op_roles_map: dict[int, list[str]] = {}
+    for row in op_roles_result:
+        if row.user_id not in op_roles_map:
+            op_roles_map[row.user_id] = []
+        op_roles_map[row.user_id].append(row.role)
+    
     return UserListResponse(
         users=[
             UserListItem(
@@ -306,6 +319,7 @@ async def list_system_users(
                 email=u.email,
                 display_name=u.display_name,
                 role=u.role.value if hasattr(u.role, 'value') else str(u.role or 'member'),
+                operational_roles=op_roles_map.get(u.id, []),
                 is_active=u.is_active,
                 is_system_admin=u.is_system_admin,
                 is_banned=u.is_banned,

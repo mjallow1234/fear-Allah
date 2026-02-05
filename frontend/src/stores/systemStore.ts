@@ -18,6 +18,7 @@ export interface SystemUser {
   email: string
   display_name: string | null
   role: string
+  operational_roles: string[]  // Operational roles from user_operational_roles table
   is_active: boolean
   is_system_admin: boolean
   is_banned: boolean

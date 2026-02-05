@@ -587,15 +587,30 @@ function UserRow({ user }: { user: SystemUser }) {
         </div>
       </td>
       <td className="px-4 py-3">
-        <span className={clsx(
-          'px-2 py-0.5 rounded text-xs font-medium',
-          user.role === 'system_admin' && 'bg-purple-500/20 text-purple-400',
-          user.role === 'team_admin' && 'bg-blue-500/20 text-blue-400',
-          user.role === 'member' && 'bg-gray-500/20 text-gray-400',
-          user.role === 'guest' && 'bg-yellow-500/20 text-yellow-400',
-        )}>
-          {user.role}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={clsx(
+            'px-2 py-0.5 rounded text-xs font-medium inline-block w-fit',
+            user.role === 'system_admin' && 'bg-purple-500/20 text-purple-400',
+            user.role === 'team_admin' && 'bg-blue-500/20 text-blue-400',
+            user.role === 'member' && 'bg-gray-500/20 text-gray-400',
+            user.role === 'guest' && 'bg-yellow-500/20 text-yellow-400',
+          )}>
+            {user.role}
+          </span>
+          {/* Display operational roles from user_operational_roles table */}
+          {user.operational_roles && user.operational_roles.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {user.operational_roles.map((opRole) => (
+                <span
+                  key={opRole}
+                  className="px-2 py-0.5 rounded text-xs font-medium bg-cyan-500/20 text-cyan-400"
+                >
+                  {opRole}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
