@@ -24,6 +24,9 @@ from app.services.audit import (
     AuditTargetTypes,
 )
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -487,14 +490,9 @@ async def update_user(
             delete(UserOperationalRole).where(UserOperationalRole.user_id == user.id)
         )
         
-        # Insert new operational roles
+        # Insert new operational roles using ORM
         for role in update.operational_roles:
-            await db.execute(
-                insert(UserOperationalRole).values(
-                    user_id=user.id,
-                    role=role
-                )
-            )
+            db.add(UserOperationalRole(user_id=user.id, role=role))
     
     await db.commit()
     
@@ -503,6 +501,15 @@ async def update_user(
         select(UserOperationalRole.role).where(UserOperationalRole.user_id == user.id)
     )
     final_operational_roles = [r[0] for r in final_roles_result]
+    
+    # Diagnostic log to confirm roles were persisted
+    logger.error(
+        "[ADMIN_ROLE_UPDATE]",
+        extra={
+            "user_id": user.id,
+            "roles_written": final_operational_roles
+        }
+    )
     
     await log_audit(db, admin.id, "admin.update_user", "user", user_id, changes)
     
