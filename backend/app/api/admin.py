@@ -3,12 +3,12 @@ from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select, func, or_, and_, desc
+from sqlalchemy import select, func, or_, and_, desc, delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
-from app.db.models import User, Channel, Message, Team, TeamMember, AuditLog, UserRole, ChannelType
+from app.db.models import User, Channel, Message, Team, TeamMember, AuditLog, UserRole, ChannelType, UserOperationalRole
 from app.core.security import (
     get_current_user, 
     require_admin, 
@@ -34,6 +34,7 @@ class UserUpdateAdmin(BaseModel):
     display_name: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    operational_roles: Optional[List[str]] = None
 
 
 class UserBanRequest(BaseModel):
@@ -454,12 +455,16 @@ async def update_user(
         changes["display_name"] = {"old": user.display_name, "new": update.display_name}
         user.display_name = update.display_name
     
+    # NOTE: users.role is the legacy enum column and is NOT used for task permissions.
+    # Operational roles are stored in user_operational_roles table.
     if update.role is not None:
         try:
             new_role_enum = UserRole(update.role)
             changes["role"] = {"old": (user.role.value if hasattr(user.role, 'value') else user.role), "new": new_role_enum.value}
-            user.role = new_role_enum.value
+            # Only update is_system_admin flag (for admin access control)
             user.is_system_admin = (new_role_enum == UserRole.system_admin)
+            # Keep the legacy enum in sync for backward compatibility
+            user.role = new_role_enum.value
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid role")
     
@@ -467,11 +472,49 @@ async def update_user(
         changes["is_active"] = {"old": user.is_active, "new": update.is_active}
         user.is_active = update.is_active
     
+    # Handle operational roles - this is the SOURCE OF TRUTH for task permissions
+    if update.operational_roles is not None:
+        # Get current operational roles before change
+        current_roles_result = await db.execute(
+            select(UserOperationalRole.role).where(UserOperationalRole.user_id == user.id)
+        )
+        old_roles = [r[0] for r in current_roles_result]
+        
+        changes["operational_roles"] = {"old": old_roles, "new": update.operational_roles}
+        
+        # Remove all existing operational roles
+        await db.execute(
+            delete(UserOperationalRole).where(UserOperationalRole.user_id == user.id)
+        )
+        
+        # Insert new operational roles
+        for role in update.operational_roles:
+            await db.execute(
+                insert(UserOperationalRole).values(
+                    user_id=user.id,
+                    role=role
+                )
+            )
+    
     await db.commit()
+    
+    # Fetch final operational roles from DB (source of truth)
+    final_roles_result = await db.execute(
+        select(UserOperationalRole.role).where(UserOperationalRole.user_id == user.id)
+    )
+    final_operational_roles = [r[0] for r in final_roles_result]
     
     await log_audit(db, admin.id, "admin.update_user", "user", user_id, changes)
     
-    return {"message": "User updated successfully", "changes": changes}
+    return {
+        "message": "User updated successfully",
+        "changes": changes,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "operational_roles": final_operational_roles,
+        }
+    }
 
 
 @router.post("/users/{user_id}/ban")

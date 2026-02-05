@@ -117,6 +117,16 @@ class AutomationService:
         # Role-based authorization (403) — resolved fresh from DB per request
         if task.required_role:
             if task.required_role not in user_roles and not user.is_system_admin:
+                # HARD SAFETY CHECK: Log explicit role mismatch to prevent silent failures
+                logger.error(
+                    "[CLAIM_DENIED_ROLE_MISMATCH]",
+                    extra={
+                        "user_id": user.id,
+                        "task_id": task.id,
+                        "required_role": task.required_role,
+                        "user_roles": list(user_roles),
+                    },
+                )
                 from app.audit.logger import log_audit
                 await log_audit(
                     db,
@@ -127,7 +137,7 @@ class AutomationService:
                     success=False,
                     reason="missing_required_role",
                 )
-                raise ClaimPermissionError("User does not have required operational role to claim this task")
+                raise ClaimPermissionError("You are not allowed to claim this task")
 
         # Handle current task status cases
         # Role-based claiming: reject if task is already claimed (regardless of who claimed it)
