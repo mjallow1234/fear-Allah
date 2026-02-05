@@ -4,9 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+import logging
 
 from app.db.database import get_db
-from app.db.models import User
+from app.db.models import User, UserOperationalRole
 from app.core.security import verify_password, get_password_hash, create_access_token
 # Use the lightweight JWT dependency from security and resolve to DB User via app.api.deps.get_current_user
 from app.api.deps import get_current_user
@@ -256,11 +257,10 @@ async def register(
     )
 
 
-def serialize_user(user: User) -> dict:
+def serialize_user(user: User, operational_roles: list[str] = None) -> dict:
     """Return API-safe serialized user dict including operational role fields.
 
-    This intentionally reads attributes attached by `app.api.deps.get_current_user` so
-    we avoid extra DB calls here and keep the endpoint signature simple.
+    operational_roles MUST be passed in from fresh DB query - do NOT cache.
     """
     return {
         "id": user.id,
@@ -272,6 +272,7 @@ def serialize_user(user: User) -> dict:
         "role": user.role,
         "operational_role_id": getattr(user, 'operational_role_id', None),
         "operational_role_name": getattr(user, 'operational_role_name', None),
+        "operational_roles": operational_roles or [],  # Fresh from user_operational_roles table
     }
 
 
@@ -280,10 +281,27 @@ async def me(
     current_user_data: dict = Depends(jwt_get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    logger = logging.getLogger(__name__)
+    
     # Use lower-level JWT dependency above and resolve to DB User here so we can
     # catch unexpected errors that might occur while resolving DB user or serializing.
     try:
         current_user = await get_current_user(current_user_data, db)
+        
+        # FRESH DB query for operational_roles - do NOT use cached/JWT data
+        roles_result = await db.execute(
+            select(UserOperationalRole.role)
+            .where(UserOperationalRole.user_id == current_user.id)
+        )
+        operational_roles = [r[0] for r in roles_result]
+        
+        # Debug log to verify roles are being fetched correctly
+        logger.info(
+            "[AUTH_ME] user_id=%s operational_roles=%s",
+            current_user.id,
+            operational_roles
+        )
+        
         # If the user is a system administrator, ensure they behave as an operational admin
         # at runtime (without modifying the DB). This grants them operational 'admin' role
         # for UI and permission resolution across services.
@@ -293,7 +311,8 @@ async def me(
             admin_role = role_result.scalar_one_or_none()
             current_user.operational_role_name = 'admin'
             current_user.operational_role_id = admin_role.id if admin_role else None
-        return serialize_user(current_user)
+        
+        return serialize_user(current_user, operational_roles)
     except HTTPException:
         # Re-raise standard HTTP exceptions (e.g., 404/401 from get_current_user)
         raise

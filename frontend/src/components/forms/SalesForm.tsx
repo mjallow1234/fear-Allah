@@ -66,13 +66,14 @@ export default function SalesForm({ isOpen, onClose, onSuccess }: SalesFormProps
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   
-  // Get effective role
-  const effectiveRole = user?.is_system_admin 
-    ? 'admin' 
-    : (user?.role || 'member')
+  // Get effective roles from operational_roles (source of truth)
+  const operationalRoles = user?.operational_roles ?? []
+  const isAdmin = user?.is_system_admin
   
-  // Check if user can record sales
-  const canRecordSales = !['delivery', 'customer'].includes(effectiveRole)
+  // Check if user can record sales - use operational_roles array
+  // Delivery and customer roles cannot record sales
+  const restrictedRoles = ['delivery', 'customer']
+  const canRecordSales = isAdmin || !operationalRoles.some(r => restrictedRoles.includes(r.toLowerCase()))
   
   // Fetch inventory on open
   useEffect(() => {

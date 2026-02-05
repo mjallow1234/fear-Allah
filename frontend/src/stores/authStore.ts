@@ -15,6 +15,7 @@ interface User {
   role?: string  // Business role: agent, storekeeper, delivery, foreman, customer, member, guest
   operational_role_id?: number
   operational_role_name?: string
+  operational_roles: string[]  // Fresh from user_operational_roles table - source of truth for task permissions
 }
 
 interface AuthState {
