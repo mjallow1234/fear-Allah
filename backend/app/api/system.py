@@ -28,7 +28,7 @@ import secrets
 import json
 
 from app.db.database import get_db
-from app.db.models import User, AuditLog, Role, PermissionModel, RolePermission
+from app.db.models import User, AuditLog, Role, PermissionModel, RolePermission, UserOperationalRole
 from app.db.enums import UserRole
 from app.core.security import (
     get_current_user,
@@ -1674,32 +1674,41 @@ async def assign_operational_role(
     """
     Assign or remove an operational role for a user (non-system role) without affecting system roles.
 
+    IMPORTANT: This endpoint MUST write to user_operational_roles table (not user_roles),
+    because claim_task reads from user_operational_roles to check role permissions.
+
     Rules:
     - operational_role_id may be null to remove any existing operational role
     - Provided role must exist and be one of OPERATIONAL_ROLE_NAMES
     - Logs before/after state
     """
-    from app.db.models import UserRole as UserRoleModel
-
+    import logging
+    logger = logging.getLogger(__name__)
+    
     user = await get_user_or_404(db, user_id)
     before_state = serialize_user_state(user)
 
+    # Get current operational roles from user_operational_roles table
+    current_roles_result = await db.execute(
+        select(UserOperationalRole.role).where(UserOperationalRole.user_id == user_id)
+    )
+    old_roles = [r[0] for r in current_roles_result]
+
     # If removing operational role
     if request.operational_role_id is None:
-        # Find existing operational assignment(s)
-        result = await db.execute(
-            select(UserRoleModel)
-            .join(Role)
-            .options(selectinload(UserRoleModel.role))
-            .where(UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
-        )
-        existing = result.scalars().all()
-        if not existing:
+        if not old_roles:
             return {"message": "No operational role to remove", "changed": False}
-        for e in existing:
-            await db.delete(e)
+        
+        # Remove from user_operational_roles table
+        await db.execute(
+            delete(UserOperationalRole).where(UserOperationalRole.user_id == user_id)
+        )
         await db.commit()
-        await db.refresh(user)
+
+        logger.error(
+            "[OPERATIONAL_ROLE_UPDATE]",
+            extra={"user_id": user_id, "action": "remove", "old_roles": old_roles, "new_roles": []}
+        )
 
         after_state = serialize_user_state(user)
         await log_audit(
@@ -1708,11 +1717,11 @@ async def assign_operational_role(
             target_type=AuditTargetTypes.USER,
             target_id=user_id,
             description=f"Removed operational role(s) for {user.username}",
-            meta={"before": before_state, "after": after_state, "actor": admin.username},
+            meta={"before": before_state, "after": after_state, "actor": admin.username, "old_roles": old_roles},
             user_id=admin.id,
             username=admin.username,
         )
-        return {"message": "Operational role removed", "changed": True}
+        return {"message": "Operational role removed", "changed": True, "operational_roles": []}
 
     # Assigning/updating operational role
     op_role = await db.execute(select(Role).where(Role.id == request.operational_role_id))
@@ -1722,25 +1731,29 @@ async def assign_operational_role(
     if op_role_obj.name not in OPERATIONAL_ROLE_NAMES:
         raise HTTPException(status_code=400, detail="Provided role is not a valid operational role")
 
-    # Find existing operational assignment
-    result2 = await db.execute(
-        select(UserRoleModel)
-        .join(Role)
-        .options(selectinload(UserRoleModel.role))
-        .where(UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES))
-    )
-    existing_assignment = result2.scalar_one_or_none()
-
-    if existing_assignment and existing_assignment.role_id == request.operational_role_id:
+    # Check if already has this role
+    if op_role_obj.name in old_roles:
         return {"message": f"User already has operational role '{op_role_obj.name}'", "changed": False}
 
-    if existing_assignment:
-        await db.delete(existing_assignment)
+    # Remove existing operational roles from user_operational_roles
+    await db.execute(
+        delete(UserOperationalRole).where(UserOperationalRole.user_id == user_id)
+    )
 
-    new_assignment = UserRoleModel(user_id=user_id, role_id=request.operational_role_id)
-    db.add(new_assignment)
+    # Insert new operational role into user_operational_roles
+    db.add(UserOperationalRole(user_id=user_id, role=op_role_obj.name))
     await db.commit()
-    await db.refresh(user)
+
+    # Verify the write
+    final_roles_result = await db.execute(
+        select(UserOperationalRole.role).where(UserOperationalRole.user_id == user_id)
+    )
+    final_roles = [r[0] for r in final_roles_result]
+
+    logger.error(
+        "[OPERATIONAL_ROLE_UPDATE]",
+        extra={"user_id": user_id, "action": "assign", "old_roles": old_roles, "new_roles": final_roles}
+    )
 
     after_state = serialize_user_state(user)
     await log_audit(
@@ -1754,7 +1767,7 @@ async def assign_operational_role(
         username=admin.username,
     )
 
-    return {"message": f"Operational role '{op_role_obj.name}' assigned", "changed": True, "role": op_role_obj.name}
+    return {"message": f"Operational role '{op_role_obj.name}' assigned", "changed": True, "role": op_role_obj.name, "operational_roles": final_roles}
     """
     Assign a *system* role to a user (DB-driven role system).
 

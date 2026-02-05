@@ -444,6 +444,15 @@ async def update_user(
     current_user: dict = Depends(get_current_user)
 ):
     """Update user details (admin only)"""
+    # Log raw payload for debugging
+    logger.error(
+        "[ADMIN_UPDATE_PAYLOAD]",
+        extra={
+            "user_id": user_id,
+            "raw_payload": update.dict()
+        }
+    )
+    
     admin = await require_permission(Permission.MANAGE_USERS, db, current_user)
     
     result = await db.execute(select(User).where(User.id == user_id))
