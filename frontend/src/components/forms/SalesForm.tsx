@@ -70,6 +70,13 @@ export default function SalesForm({ isOpen, onClose, onSuccess }: SalesFormProps
   const operationalRoles = user?.operational_roles ?? []
   const isAdmin = user?.is_system_admin
   
+  // Display label for UI
+  const roleLabel = isAdmin
+    ? 'Admin'
+    : operationalRoles.length > 0
+      ? operationalRoles.join(', ')
+      : 'Unknown'
+  
   // Check if user can record sales - use operational_roles array
   // Delivery and customer roles cannot record sales
   const restrictedRoles = ['delivery', 'customer']
@@ -242,7 +249,7 @@ export default function SalesForm({ isOpen, onClose, onSuccess }: SalesFormProps
             <h2 className="text-lg font-semibold">Access Denied</h2>
           </div>
           <p className="text-[#b5bac1] mb-4">
-            Your role ({effectiveRole}) does not have permission to record sales.
+            Your role ({roleLabel}) does not have permission to record sales.
           </p>
           <button
             onClick={onClose}
@@ -275,7 +282,7 @@ export default function SalesForm({ isOpen, onClose, onSuccess }: SalesFormProps
         {/* Role Badge */}
         <div className="px-4 pt-3">
           <span className="text-xs bg-green-600 text-white px-2 py-1 rounded">
-            Recording as: {effectiveRole}
+            Recording as: {roleLabel}
           </span>
         </div>
         
