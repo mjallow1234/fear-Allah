@@ -626,6 +626,7 @@ class AutomationService:
             select(AutomationTask)
             .options(selectinload(AutomationTask.assignments))
             .where(AutomationTask.required_role == role)
+            .where(AutomationTask.status == AutomationTaskStatus.open)
             .where(AutomationTask.claimed_by_user_id == None)
             .where(~exists(assignment_exists))
             .order_by(AutomationTask.created_at.desc())
