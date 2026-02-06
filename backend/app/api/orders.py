@@ -189,31 +189,14 @@ async def get_order_snapshot(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get a read-only snapshot of an order for role-based visibility.
+    Get a read-only snapshot of an order.
     
-    Access allowed if ANY is true:
-    - User is admin
-    - User has operational role matching any task in this order
-    - User has assignment (past or present) in this order
-    
-    NO MUTATIONS - read-only view only.
+    Any authenticated user can view order snapshots.
+    This is intentionally permissive - snapshots are read-only
+    and should never block legitimate users.
     """
-    from app.db.models import (
-        Order, User, AutomationTask, TaskAssignment, UserOperationalRole
-    )
-    from app.db.enums import AutomationTaskStatus, AssignmentStatus
-    
-    user_id = current_user["user_id"]
-    
-    # Load user with operational roles
-    user_result = await db.execute(
-        select(User)
-        .options(selectinload(User.operational_roles))
-        .where(User.id == user_id)
-    )
-    db_user = user_result.scalar_one_or_none()
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
+    from app.db.models import Order, AutomationTask
+    from app.db.enums import AutomationTaskStatus
     
     # Load order
     order_result = await db.execute(
@@ -231,33 +214,6 @@ async def get_order_snapshot(
         .order_by(AutomationTask.id)
     )
     automation_tasks = list(tasks_result.scalars().all())
-    
-    # ============================================================
-    # Permission Check
-    # ============================================================
-    is_admin = db_user.is_system_admin or (db_user.role and db_user.role.value in ['system_admin', 'team_admin'])
-    
-    # Get user's operational role names
-    user_op_roles = set(r.role for r in db_user.operational_roles) if db_user.operational_roles else set()
-    
-    # Get all required_roles from tasks
-    task_roles = set(t.required_role for t in automation_tasks if t.required_role)
-    
-    # Check if user has assignment in this order
-    has_assignment = any(
-        any(a.user_id == user_id for a in t.assignments)
-        for t in automation_tasks
-    )
-    
-    # Check if user's operational role matches any task role
-    has_matching_role = bool(user_op_roles & task_roles)
-    
-    # Permission granted if admin, has matching role, or has assignment
-    if not (is_admin or has_matching_role or has_assignment):
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: You don't have permission to view this order"
-        )
     
     # ============================================================
     # Build Snapshot Response
