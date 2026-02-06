@@ -114,6 +114,21 @@ class AutomationService:
             task.id,
         )
 
+        # Full diagnostic log before role check
+        logger.error(
+            "[CLAIM_DEBUG] task_id=%s user_id=%s username=%s "
+            "task.required_role=%s task_metadata=%s "
+            "user_roles=%s task_status=%s claimed_by=%s",
+            task.id,
+            user.id,
+            user.username,
+            task.required_role,
+            task.task_metadata,
+            user_roles,
+            task.status,
+            task.claimed_by_user_id,
+        )
+
         # Role-based authorization (403) — resolved fresh from DB per request
         if task.required_role:
             if task.required_role not in user_roles and not user.is_system_admin:
