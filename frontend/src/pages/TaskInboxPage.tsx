@@ -161,7 +161,7 @@ export default function TaskInboxPage() {
   });
 
   return (
-    <div className="h-screen flex flex-col bg-[#313338] overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-[#313338]">
       {/* Header */}
       <div className="flex-shrink-0 bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -331,9 +331,9 @@ export default function TaskInboxPage() {
         </div>
       )}
       
-      {/* Task List - Scrollable */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto py-6 px-6">
+      {/* Task List */}
+      <div className="flex-1">
+        <div className="max-w-4xl mx-auto py-6 px-6 pb-12">
           {loading ? (
             <div className="py-12 text-center">
               <Loader2 className="animate-spin mx-auto mb-4 text-[#5865f2]" size={32} />
