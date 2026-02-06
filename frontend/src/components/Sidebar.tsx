@@ -35,7 +35,12 @@ interface DMChannel {
   other_username: string
 }
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean
+  onClose?: () => void
+}
+
+export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
@@ -46,6 +51,12 @@ export default function Sidebar() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [showTeamMenu, setShowTeamMenu] = useState(false)
+  
+  // Helper to navigate and close sidebar on mobile
+  const navigateAndClose = (path: string) => {
+    navigate(path)
+    onClose?.()
+  }
   
   // New Socket.IO presence from store
   const onlineUserIds = usePresenceStore((state) => state.onlineUserIds)
@@ -125,7 +136,7 @@ export default function Sidebar() {
       const dmChannel = response.data
       // Refresh DM list and navigate to the channel
       await fetchDMChannels()
-      navigate(`/channels/${dmChannel.id}`)
+      navigateAndClose(`/channels/${dmChannel.id}`)
     } catch (error) {
       console.error('Failed to start DM:', error)
     }
@@ -166,7 +177,7 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-60 h-full flex-shrink-0 bg-[#2b2d31] flex flex-col overflow-hidden">
+    <div className={`sidebar w-60 h-full flex-shrink-0 bg-[#2b2d31] flex flex-col overflow-hidden md:relative md:transform-none ${isOpen ? 'open' : ''}`}>
       {/* Team selector */}
       <div className="relative">
         <button
@@ -403,7 +414,7 @@ export default function Sidebar() {
         onClose={() => setShowNewDMModal(false)}
         onDMCreated={(channelId) => {
           fetchDMChannels()
-          navigate(`/channels/${channelId}`)
+          navigateAndClose(`/channels/${channelId}`)
         }}
       />
 
@@ -417,7 +428,7 @@ export default function Sidebar() {
             return [...prev, channel]
           })
           // Navigate to newly created channel
-          navigate(`/channels/${channel.id}`)
+          navigateAndClose(`/channels/${channel.id}`)
         }}
       />
     </div>

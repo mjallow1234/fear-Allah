@@ -5,7 +5,7 @@ import { useTaskStore } from '../stores/taskStore'
 import { useOrderStore } from '../stores/orderStore'
 import useOperationalPermissions from '../permissions/useOperationalPermissions'
 
-import { Hash, Users, Search, Settings, ClipboardList, ShoppingCart, DollarSign, FileText, Cog } from 'lucide-react'
+import { Hash, Users, Search, Settings, ClipboardList, ShoppingCart, DollarSign, FileText, Cog, Menu } from 'lucide-react'
 import SearchModal from './SearchModal'
 import NotificationBell from './NotificationBell'
 import ChannelSettings from './ChannelSettings'
@@ -14,9 +14,10 @@ interface TopBarProps {
   channelName?: string
   channelId?: number
   onlineCount?: number
+  onMenuClick?: () => void
 }
 
-export default function TopBar({ channelName = 'general', channelId, onlineCount }: TopBarProps) {
+export default function TopBar({ channelName = 'general', channelId, onlineCount, onMenuClick }: TopBarProps) {
   const user = useAuthStore((state) => state.user)
   const currentUser = useAuthStore((state) => state.currentUser)
   const navigate = useNavigate()
@@ -61,8 +62,18 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
 
   return (
     <>
-      <div className="h-12 bg-[#313338] border-b border-[#1f2023] flex items-center px-4 justify-between">
+      <div className="topbar h-12 bg-[#313338] border-b border-[#1f2023] flex items-center px-4 justify-between">
         <div className="flex items-center gap-2">
+          {/* Mobile menu button */}
+          {onMenuClick && (
+            <button
+              onClick={onMenuClick}
+              className="md:hidden p-2 text-[#949ba4] hover:text-white transition-colors icon-button"
+              aria-label="Open menu"
+            >
+              <Menu size={20} />
+            </button>
+          )}
           <Hash size={20} className="text-[#949ba4]" />
           <span className="text-white font-semibold">{channelName}</span>
           {channelId && (

@@ -11,12 +11,20 @@
   --main-text: #dcddde;
   --input-bg: #383a40;
   --accent: #5865f2;
+  --topbar-height: 64px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --topbar-height: 52px;
+  }
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  max-width: 100%;
 }
 
 html,
@@ -31,6 +39,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background-color: var(--main-bg);
   color: var(--main-text);
+  overflow-x: hidden;
 }
 
 /* Scrollbar styling */
@@ -73,18 +82,64 @@ body {
   animation: slide-in-right 0.3s ease-out;
 }
 
-/* Mobile responsive sidebar */
+/* ============================================
+   MOBILE RESPONSIVE STYLES (Mattermost-style)
+   ============================================ */
+
+/* Mobile Sidebar Drawer */
 @media (max-width: 768px) {
-  .sidebar-mobile-hidden {
+  .sidebar {
     position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 280px;
     z-index: 1000;
     transform: translateX(-100%);
-    transition: transform 0.3s ease-in-out;
+    transition: transform 0.25s ease;
+    background: var(--sidebar-bg);
   }
 
-  .sidebar-mobile-hidden.open {
+  .sidebar.open {
     transform: translateX(0);
   }
+
+  /* Mobile TopBar */
+  .topbar {
+    height: var(--topbar-height);
+    padding: 0 12px;
+  }
+}
+
+/* Sidebar Backdrop Overlay */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 900;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-backdrop.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Main Content Safe Height */
+.main-content {
+  height: calc(100vh - var(--topbar-height));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* List Containers */
+.list-container {
+  height: 100%;
+  overflow-y: auto;
+  padding-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Touch-friendly scrolling */
@@ -95,10 +150,36 @@ body {
 /* Minimum touch target size */
 button, a, [role="button"] {
   min-height: 44px;
-  min-width: 44px;
 }
 
-/* Prevent horizontal overflow */
-.overflow-x-hidden {
-  overflow-x: hidden;
+.list-item {
+  min-height: 44px;
+}
+
+/* Icon buttons */
+.icon-button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile Tabs (horizontal scroll) */
+.tabs-mobile {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabs-mobile::-webkit-scrollbar {
+  display: none;
+}
+
+/* Body scroll lock when sidebar open */
+body.sidebar-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
 }

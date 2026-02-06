@@ -10,11 +10,24 @@ import { ChatSocketProvider } from '../contexts/ChatSocketContext'
 export default function MainLayout() {
   const { channelId } = useParams<{ channelId: string }>()
   const [channelName, setChannelName] = useState('general')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Request notification permission on mount
   useEffect(() => {
     requestNotificationPermission()
   }, [])
+
+  // Lock body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.classList.add('sidebar-open')
+    } else {
+      document.body.classList.remove('sidebar-open')
+    }
+    return () => {
+      document.body.classList.remove('sidebar-open')
+    }
+  }, [sidebarOpen])
 
   useEffect(() => {
     if (channelId) {
@@ -39,12 +52,21 @@ export default function MainLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* Mobile Sidebar Backdrop */}
+      <div 
+        className={`sidebar-backdrop ${sidebarOpen ? 'visible' : ''} md:hidden`}
+        onClick={() => setSidebarOpen(false)}
+      />
       <ErrorBoundary>
-        <Sidebar />
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </ErrorBoundary>
       <div className="flex flex-col flex-1 h-full overflow-hidden">
-        <TopBar channelName={channelName} channelId={channelId ? parseInt(channelId) : undefined} />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden">
+        <TopBar 
+          channelName={channelName} 
+          channelId={channelId ? parseInt(channelId) : undefined}
+          onMenuClick={() => setSidebarOpen(true)}
+        />
+        <main className="flex-1 overflow-y-auto overflow-x-hidden touch-scroll">
           {/* ChatSocketProvider mounted here once after login; it will manage the chat WebSocket lifecycle */}
           {/*
             ChatSocketProvider is intentionally NOT mounted by default in desktop-first App Shell.

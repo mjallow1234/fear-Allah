@@ -200,7 +200,7 @@ export default function TaskInboxPage() {
       
       {/* Tabs */}
       <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6">
-        <div className="max-w-4xl mx-auto flex gap-1">
+        <div className="max-w-4xl mx-auto flex gap-1 tabs-mobile">
           {!user?.is_system_admin && (
             <button
               onClick={() => setActiveTab('my-tasks')}
