@@ -610,16 +610,12 @@ class AutomationService:
         limit: int = 50,
         offset: int = 0,
     ) -> list[AutomationTask]:
-        """Return tasks that are required for a role and currently unclaimed."""
-        # Exclude tasks that already have any assignments — claiming must be the first assignment
+        """Return tasks that are required for a role and have no assignments at all."""
+        # Exclude tasks that have ANY assignment - only truly free tasks are available
         from sqlalchemy import select as _select
-        # Only consider operational role assignments (e.g., foreman, delivery) when determining
-        # whether a task is still 'available' to be claimed. Allow requester and other non-operational
-        # assignments to exist without blocking claim availability.
         assignment_exists = (
             _select(TaskAssignment.id)
             .where(TaskAssignment.task_id == AutomationTask.id)
-            .where(TaskAssignment.role_hint.in_(['foreman', 'delivery']))
         )
 
         query = (
