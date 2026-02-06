@@ -77,6 +77,15 @@ export default function TaskCard({
   const [showConfirm, setShowConfirm] = useState(false)
   const authUser = useAuthStore((s) => s.user)
   const currentUserIsAdmin = authUser?.is_system_admin === true
+  const userOperationalRoles = authUser?.operational_roles ?? []
+  
+  // Check if user can claim this task based on required_role
+  const canClaim = !task.required_role || 
+    currentUserIsAdmin || 
+    userOperationalRoles.includes(task.required_role)
+  const claimDisabledReason = !canClaim 
+    ? `Requires ${task.required_role} role (you have: ${userOperationalRoles.length ? userOperationalRoles.join(', ') : 'none'})`
+    : ''
   
   // Normalize status/type to uppercase for config lookup (backend may return lowercase)
   const normalizedTaskType = normalizeType(task.task_type)
@@ -210,8 +219,15 @@ export default function TaskCard({
         <div className="flex-shrink-0">
           {isAvailableView && onClaim && (
             <button
-              onClick={async (e) => { e.stopPropagation(); if (onClaim) await onClaim(task.id) }}
-              className={clsx('flex items-center gap-2 px-3 py-2 rounded-lg transition-colors bg-[#5865f2] hover:bg-[#4752c4] text-white')}
+              onClick={async (e) => { e.stopPropagation(); if (onClaim && canClaim) await onClaim(task.id) }}
+              disabled={!canClaim}
+              title={claimDisabledReason || undefined}
+              className={clsx(
+                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
+                canClaim 
+                  ? 'bg-[#5865f2] hover:bg-[#4752c4] text-white'
+                  : 'bg-[#3f4147] text-[#72767d] cursor-not-allowed'
+              )}
             >
               Claim
             </button>
