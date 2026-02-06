@@ -597,8 +597,11 @@ class AutomationService:
         # Log debug information
         logger.info(f"[TASK-LIST-DEBUG] user_id={user_id_debug} role={user_role_debug} is_system_admin={user_is_admin_debug} limit={limit} offset={offset} total_before_pagination={total_before_pagination}")
 
-        # Apply ordering and pagination
-        query = query.order_by(AutomationTask.created_at.desc()).limit(limit).offset(offset)
+        # Apply consistent ordering: group by order, then workflow sequence
+        query = query.order_by(
+            AutomationTask.related_order_id.desc(),
+            AutomationTask.created_at.asc()
+        ).limit(limit).offset(offset)
         
         result = await db.execute(query)
         return list(result.scalars().all())
@@ -625,7 +628,10 @@ class AutomationService:
             .where(AutomationTask.status == AutomationTaskStatus.open)
             .where(AutomationTask.claimed_by_user_id == None)
             .where(~exists(assignment_exists))
-            .order_by(AutomationTask.created_at.desc())
+            .order_by(
+                AutomationTask.related_order_id.desc(),
+                AutomationTask.created_at.asc()
+            )
             .limit(limit)
             .offset(offset)
         )
