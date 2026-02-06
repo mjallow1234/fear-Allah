@@ -99,7 +99,21 @@ async def login(
         "is_system_admin": user.is_system_admin,
     })
     
-    # Fetch operational role assignment (if any)
+    # FRESH DB query for operational_roles from user_operational_roles table (source of truth)
+    logger = logging.getLogger(__name__)
+    roles_result = await db.execute(
+        select(UserOperationalRole.role)
+        .where(UserOperationalRole.user_id == user.id)
+    )
+    operational_roles = [r[0] for r in roles_result]
+    
+    logger.info(
+        "[AUTH_LOGIN] user_id=%s operational_roles=%s",
+        user.id,
+        operational_roles
+    )
+
+    # Fetch legacy operational role assignment (if any) for back-compat fields
     from app.db.models import UserRole as UserRoleModel, Role
     from app.api.system import OPERATIONAL_ROLE_NAMES
 
@@ -125,6 +139,7 @@ async def login(
             "role": user.role,
             "operational_role_id": op_role_id,
             "operational_role_name": op_role_name,
+            "operational_roles": operational_roles,  # Fresh from user_operational_roles table
         }
     )
 
@@ -227,7 +242,22 @@ async def register(
         "is_system_admin": user.is_system_admin,
     })
 
-    # Fetch operational role assignment (if any) - keep consistent with /login
+    # FRESH DB query for operational_roles from user_operational_roles table (source of truth)
+    # For new users, this will be empty but we query for consistency
+    logger = logging.getLogger(__name__)
+    roles_result = await db.execute(
+        select(UserOperationalRole.role)
+        .where(UserOperationalRole.user_id == user.id)
+    )
+    operational_roles = [r[0] for r in roles_result]
+    
+    logger.info(
+        "[AUTH_REGISTER] user_id=%s operational_roles=%s",
+        user.id,
+        operational_roles
+    )
+
+    # Fetch legacy operational role assignment (if any) - keep consistent with /login
     from app.db.models import UserRole as UserRoleModel, Role
     from app.api.system import OPERATIONAL_ROLE_NAMES
 
@@ -253,6 +283,7 @@ async def register(
             "role": user.role,
             "operational_role_id": op_role_id,
             "operational_role_name": op_role_name,
+            "operational_roles": operational_roles,  # Fresh from user_operational_roles table
         }
     )
 
