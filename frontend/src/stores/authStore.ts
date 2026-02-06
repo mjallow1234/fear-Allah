@@ -51,10 +51,16 @@ export const useAuthStore = create<AuthState>()(
             localStorage.setItem('user_role', user.role)
           }
 
+          // Normalize user to ensure operational_roles is always an array
+          const normalizedUser = {
+            ...user,
+            operational_roles: user.operational_roles ?? [],
+          }
+
           set({
             token,
-            user,
-            currentUser: user,
+            user: normalizedUser,
+            currentUser: normalizedUser,
             isAuthenticated: true,
           })
 
@@ -114,11 +120,24 @@ export const useAuthStore = create<AuthState>()(
           })
         },
         updateUser: (userData) =>
-          set((state) => ({
-            user: state.user ? { ...state.user, ...userData } : null,
-            currentUser: state.currentUser ? { ...state.currentUser, ...userData } : null,
-          })),
-        setCurrentUser: (userData) => set({ user: userData, currentUser: userData }),
+          set((state) => {
+            // Normalize operational_roles if present in update
+            const normalizedData = userData.operational_roles !== undefined
+              ? { ...userData, operational_roles: userData.operational_roles ?? [] }
+              : userData
+            return {
+              user: state.user ? { ...state.user, ...normalizedData } : null,
+              currentUser: state.currentUser ? { ...state.currentUser, ...normalizedData } : null,
+            }
+          }),
+        setCurrentUser: (userData) => {
+          // Normalize operational_roles to ensure it's always an array
+          const normalizedUser = {
+            ...userData,
+            operational_roles: userData.operational_roles ?? [],
+          }
+          set({ user: normalizedUser, currentUser: normalizedUser })
+        },
       }
     },
     {
@@ -140,8 +159,13 @@ export const useAuthStore = create<AuthState>()(
         try {
           const resp = await api.get('/api/auth/me', { headers: { Authorization: `Bearer ${state.token}` } })
           if (resp?.data) {
-            // Replace stored user with authoritative server copy (includes operational_role_name)
-            setRef.set?.({ currentUser: resp.data, user: resp.data })
+            // Replace stored user with authoritative server copy (includes operational_roles)
+            // Normalize to ensure operational_roles is always an array
+            const normalizedUser = {
+              ...resp.data,
+              operational_roles: resp.data.operational_roles ?? [],
+            }
+            setRef.set?.({ currentUser: normalizedUser, user: normalizedUser })
           }
         } catch (err) {
           // If token invalid or request fails, clear auth

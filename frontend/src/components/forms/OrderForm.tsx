@@ -85,9 +85,13 @@ export default function OrderForm({ isOpen, onClose, onSuccess }: OrderFormProps
   const [success, setSuccess] = useState<string | null>(null)
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null)
   
-  const isAdmin = user?.is_system_admin === true || user?.operational_role_name === 'admin'
-  // Get effective role
-  const effectiveRole = isAdmin ? 'admin' : (user?.role || 'member')
+  const isAdmin = user?.is_system_admin === true || (user?.operational_roles?.includes('admin') ?? false)
+  // Get effective role from operational_roles array (source of truth)
+  const effectiveRole = isAdmin
+    ? 'admin'
+    : user?.operational_roles?.length
+      ? user.operational_roles.join(', ')
+      : 'member'
   
   // Filter order types based on role
   const availableOrderTypes = ORDER_TYPES.filter(ot => 
