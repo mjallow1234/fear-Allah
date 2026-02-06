@@ -161,7 +161,7 @@ export default function TaskInboxPage() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#313338]">
+    <div className="flex flex-col h-full bg-[#313338]">
       {/* Header */}
       <div className="flex-shrink-0 bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">

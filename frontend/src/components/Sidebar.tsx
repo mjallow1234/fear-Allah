@@ -166,7 +166,7 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-60 bg-[#2b2d31] flex flex-col">
+    <div className="w-60 h-full flex-shrink-0 bg-[#2b2d31] flex flex-col overflow-hidden">
       {/* Team selector */}
       <div className="relative">
         <button

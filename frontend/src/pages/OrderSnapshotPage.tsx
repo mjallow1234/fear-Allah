@@ -207,7 +207,7 @@ export default function OrderSnapshotPage() {
   // Render loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#313338] flex items-center justify-center">
+      <div className="h-full bg-[#313338] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#5865f2] animate-spin" />
       </div>
     )
@@ -216,7 +216,7 @@ export default function OrderSnapshotPage() {
   // Render error state
   if (error) {
     return (
-      <div className="min-h-screen bg-[#313338] flex flex-col items-center justify-center gap-4 p-6">
+      <div className="h-full bg-[#313338] flex flex-col items-center justify-center gap-4 p-6">
         <AlertCircle className="w-12 h-12 text-red-400" />
         <p className="text-[#dbdee1] text-lg">{error}</p>
         <button
@@ -238,7 +238,7 @@ export default function OrderSnapshotPage() {
   const TypeIcon = typeConfig?.icon || Package
 
   return (
-    <div className="min-h-screen bg-[#313338]">
+    <div className="h-full bg-[#313338]">
       {/* Header */}
       <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">

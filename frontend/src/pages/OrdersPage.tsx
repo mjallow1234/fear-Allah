@@ -173,7 +173,7 @@ export default function OrdersPage() {
   const completedOrders = orders.filter(o => o.status === 'COMPLETED' || o.status === 'CANCELLED')
 
   return (
-    <div className="min-h-screen bg-[#313338]">
+    <div className="h-full bg-[#313338]">
       {/* Header */}
       <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">

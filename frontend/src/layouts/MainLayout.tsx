@@ -38,13 +38,13 @@ export default function MainLayout() {
   }, [channelId])
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <ErrorBoundary>
         <Sidebar />
       </ErrorBoundary>
-      <div className="flex flex-col flex-1 min-h-screen">
+      <div className="flex flex-col flex-1 h-full overflow-hidden">
         <TopBar channelName={channelName} channelId={channelId ? parseInt(channelId) : undefined} />
-        <main className="flex-1 overflow-visible">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden">
           {/* ChatSocketProvider mounted here once after login; it will manage the chat WebSocket lifecycle */}
           {/*
             ChatSocketProvider is intentionally NOT mounted by default in desktop-first App Shell.
