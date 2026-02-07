@@ -42,7 +42,7 @@ export default function ChangePassword() {
     setLoading(true)
 
     try {
-      const response = await api.post('/api/auth/change-password', {
+      await api.post('/api/auth/change-password', {
         current_password: currentPassword,
         new_password: newPassword,
       })
