@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { Sparkles } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import api from '../services/api'
 
 export default function Welcome() {
