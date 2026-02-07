@@ -1,16 +1,60 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { Sparkles } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import api from '../services/api'
 
 export default function Welcome() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuthStore()
+  const [loading, setLoading] = useState(false)
 
-  const handleEnterWorkspace = () => {
-    // Clear the first login flag
-    updateUser({ is_first_login: false })
-    // Navigate to home
-    navigate('/')
+  const handleEnterWorkspace = async () => {
+    setLoading(true)
+    
+    try {
+      // Mark welcome as dismissed in localStorage
+      localStorage.setItem('welcome_dismissed', 'true')
+      
+      // Clear the first login flag
+      updateUser({ is_first_login: false })
+      
+      // Find best channel to redirect to
+      // 1. Try to get most recent DM
+      const dmResponse = await api.get('/api/channels/direct/list')
+      const dmChannels = Array.isArray(dmResponse.data) ? dmResponse.data : []
+      
+      if (dmChannels.length > 0) {
+        // Redirect to first DM
+        navigate(`/channels/${dmChannels[0].id}`)
+        return
+      }
+      
+      // 2. Try to find #general channel
+      const channelsResponse = await api.get('/api/channels/')
+      const channels = Array.isArray(channelsResponse.data) ? channelsResponse.data : []
+      
+      const generalChannel = channels.find(c => c.name === 'general')
+      if (generalChannel) {
+        navigate(`/channels/${generalChannel.id}`)
+        return
+      }
+      
+      // 3. Fallback to first available channel
+      if (channels.length > 0) {
+        navigate(`/channels/${channels[0].id}`)
+        return
+      }
+      
+      // 4. Ultimate fallback to home
+      navigate('/')
+    } catch (error) {
+      console.error('Failed to find channel:', error)
+      // Fallback to home on error
+      navigate('/')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -41,9 +85,10 @@ export default function Welcome() {
 
         <button
           onClick={handleEnterWorkspace}
-          className="bg-[#5865f2] hover:bg-[#4752c4] text-white text-lg font-medium py-3 px-8 rounded-lg transition-colors"
+          disabled={loading}
+          className="bg-[#5865f2] hover:bg-[#4752c4] disabled:bg-[#4752c4]/50 disabled:cursor-not-allowed text-white text-lg font-medium py-3 px-8 rounded-lg transition-colors"
         >
-          Enter Workspace
+          {loading ? 'Loading...' : 'Enter Workspace'}
         </button>
 
         <div className="mt-8 text-[#72767d] text-sm">

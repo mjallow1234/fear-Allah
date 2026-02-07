@@ -38,8 +38,9 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/change-password" replace />
   }
   
-  // Redirect first-time users to welcome page (but not if already on welcome or change-password)
-  if (user?.is_first_login && window.location.pathname !== '/welcome' && window.location.pathname !== '/change-password') {
+  // Redirect first-time users to welcome page (but not if already dismissed or on special routes)
+  const welcomeDismissed = localStorage.getItem('welcome_dismissed') === 'true'
+  if (user?.is_first_login && !welcomeDismissed && window.location.pathname !== '/welcome' && window.location.pathname !== '/change-password') {
     return <Navigate to="/welcome" replace />
   }
   
