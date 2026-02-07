@@ -41,6 +41,10 @@ class User(Base):
     muted_reason = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # Password management
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
+    must_change_password = Column(Boolean, default=False)
     # Relationships
     messages = relationship("Message", back_populates="author", foreign_keys="[Message.author_id]")
     team_memberships = relationship("TeamMember", back_populates="user")

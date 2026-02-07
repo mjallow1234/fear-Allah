@@ -887,8 +887,10 @@ async def reset_user_password(
     temp_password = secrets.token_urlsafe(12)
     user.hashed_password = get_password_hash(temp_password)
     
-    # TODO: Set a flag to force password change on next login
-    # user.must_change_password = True
+    # Force password change on next login
+    from datetime import datetime, timezone as dt_timezone
+    user.must_change_password = True
+    user.password_changed_at = None
     
     await db.commit()
     

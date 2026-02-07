@@ -16,6 +16,7 @@ interface User {
   operational_role_id?: number
   operational_role_name?: string
   operational_roles: string[]  // Fresh from user_operational_roles table - source of truth for task permissions
+  must_change_password?: boolean  // Force password change flag
 }
 
 interface AuthState {

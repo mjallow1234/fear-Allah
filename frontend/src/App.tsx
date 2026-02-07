@@ -22,10 +22,22 @@ import AIInsightsPage from './pages/AIInsightsPage'
 import OperationalGuard from './components/OperationalGuard'
 import AdminOnlyGuard from './components/AdminOnlyGuard'
 import Unauthorized from './pages/Unauthorized'
+import ChangePassword from './pages/ChangePassword'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />
+  const user = useAuthStore((state) => state.user)
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" />
+  }
+  
+  // Force password change if required (but not on change-password route itself)
+  if (user?.must_change_password && window.location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />
+  }
+  
+  return <>{children}</>
 }
 
 function App() {
@@ -52,6 +64,15 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Change password route - accessible when authenticated but not wrapped in PrivateRoute guard */}
+      <Route 
+        path="/change-password" 
+        element={
+          useAuthStore.getState().isAuthenticated 
+            ? <ChangePassword /> 
+            : <Navigate to="/login" />
+        } 
+      />
       <Route
         path="/"
         element={

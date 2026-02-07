@@ -92,6 +92,12 @@ async def login(
             detail="User account is disabled",
         )
     
+    # Update last login timestamp
+    from datetime import datetime, timezone as dt_timezone
+    user.last_login_at = datetime.now(dt_timezone.utc)
+    db.add(user)
+    await db.commit()
+    
     # Phase 8.4.4: Include is_system_admin in JWT for rate limit decisions
     access_token = create_access_token(data={
         "sub": str(user.id), 
@@ -284,6 +290,7 @@ async def register(
             "operational_role_id": op_role_id,
             "operational_role_name": op_role_name,
             "operational_roles": operational_roles,  # Fresh from user_operational_roles table
+            "must_change_password": user.must_change_password or False,
         }
     )
 
@@ -304,6 +311,7 @@ def serialize_user(user: User, operational_roles: list[str] = None) -> dict:
         "operational_role_id": getattr(user, 'operational_role_id', None),
         "operational_role_name": getattr(user, 'operational_role_name', None),
         "operational_roles": operational_roles or [],  # Fresh from user_operational_roles table
+        "must_change_password": getattr(user, 'must_change_password', False) or False,
     }
 
 
@@ -361,3 +369,51 @@ async def me(
 async def logout():
     # For JWT, logout is handled client-side by removing the token
     return {"message": "Successfully logged out"}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Change user's password.
+    Requires current password verification.
+    Clears must_change_password flag and updates password_changed_at.
+    """
+    from datetime import datetime, timezone as dt_timezone
+    
+    # Get user from database
+    user_id = current_user["user_id"]
+    query = select(User).where(User.id == user_id)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    if not verify_password(request.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    
+    # Update password
+    user.hashed_password = get_password_hash(request.new_password)
+    user.must_change_password = False
+    user.password_changed_at = datetime.now(dt_timezone.utc)
+    
+    db.add(user)
+    await db.commit()
+    
+    return {
+        "message": "Password changed successfully",
+        "must_change_password": False,
+    }
