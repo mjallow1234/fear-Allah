@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, Search, MessageSquare } from 'lucide-react'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+import PresenceIndicator from './PresenceIndicator'
 
 interface User {
   id: number
@@ -108,8 +109,13 @@ export default function NewDMModal({ isOpen, onClose, onDMCreated }: NewDMModalP
                 disabled={creating === user.id}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#35373c] transition-colors text-left disabled:opacity-50"
               >
-                <div className="w-10 h-10 rounded-full bg-[#5865f2] flex items-center justify-center text-white font-medium">
-                  {(user.display_name || user.username).charAt(0).toUpperCase()}
+                <div className="relative">
+                  <div className="w-10 h-10 rounded-full bg-[#5865f2] flex items-center justify-center text-white font-medium">
+                    {(user.display_name || user.username).charAt(0).toUpperCase()}
+                  </div>
+                  <div className="absolute -bottom-0.5 -right-0.5">
+                    <PresenceIndicator userId={user.id} size="md" />
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-white font-medium truncate">

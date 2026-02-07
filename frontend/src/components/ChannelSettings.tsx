@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X, UserPlus, UserMinus, Shield, Users } from 'lucide-react'
 import api from '../services/api'
+import PresenceIndicator from './PresenceIndicator'
 
 interface ChannelMember {
   id: number
@@ -175,8 +176,13 @@ export default function ChannelSettings({ isOpen, onClose, channelId, channelNam
                     key={member.id}
                     className="flex items-center gap-3 px-3 py-2 bg-[#2b2d31] rounded-lg"
                   >
-                    <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-sm">
-                      {(member.display_name || member.username).charAt(0).toUpperCase()}
+                    <div className="relative">
+                      <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-sm">
+                        {(member.display_name || member.username).charAt(0).toUpperCase()}
+                      </div>
+                      <div className="absolute -bottom-0.5 -right-0.5">
+                        <PresenceIndicator userId={member.user_id} size="md" />
+                      </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

@@ -299,8 +299,16 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                   'bg-[#35373c] text-white'
               )}
             >
-              <div className="w-6 h-6 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
-                {dm.other_username ? dm.other_username.charAt(0).toUpperCase() : '?'}
+              <div className="relative">
+                <div className="w-6 h-6 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
+                  {dm.other_username ? dm.other_username.charAt(0).toUpperCase() : '?'}
+                </div>
+                {isUserOnline(dm.other_user_id) && (
+                  <Circle
+                    size={10}
+                    className="absolute -bottom-0.5 -right-0.5 fill-current text-green-500"
+                  />
+                )}
               </div>
               <span className="truncate">{dm.display_name}</span>
             </Link>

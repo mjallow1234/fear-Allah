@@ -23,6 +23,7 @@ import OperationalGuard from './components/OperationalGuard'
 import AdminOnlyGuard from './components/AdminOnlyGuard'
 import Unauthorized from './pages/Unauthorized'
 import ChangePassword from './pages/ChangePassword'
+import Welcome from './pages/Welcome'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -35,6 +36,11 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   // Force password change if required (but not on change-password route itself)
   if (user?.must_change_password && window.location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />
+  }
+  
+  // Redirect first-time users to welcome page (but not if already on welcome or change-password)
+  if (user?.is_first_login && window.location.pathname !== '/welcome' && window.location.pathname !== '/change-password') {
+    return <Navigate to="/welcome" replace />
   }
   
   return <>{children}</>
@@ -64,6 +70,15 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Welcome route - for first-time users */}
+      <Route 
+        path="/welcome" 
+        element={
+          useAuthStore.getState().isAuthenticated 
+            ? <Welcome /> 
+            : <Navigate to="/login" />
+        } 
+      />
       {/* Change password route - accessible when authenticated but not wrapped in PrivateRoute guard */}
       <Route 
         path="/change-password" 

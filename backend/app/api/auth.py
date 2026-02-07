@@ -92,8 +92,11 @@ async def login(
             detail="User account is disabled",
         )
     
-    # Update last login timestamp
+    # Check if this is first login (before updating timestamp)
     from datetime import datetime, timezone as dt_timezone
+    is_first_login = user.last_login_at is None
+    
+    # Update last login timestamp
     user.last_login_at = datetime.now(dt_timezone.utc)
     db.add(user)
     await db.commit()
@@ -146,6 +149,8 @@ async def login(
             "operational_role_id": op_role_id,
             "operational_role_name": op_role_name,
             "operational_roles": operational_roles,  # Fresh from user_operational_roles table
+            "must_change_password": user.must_change_password or False,
+            "is_first_login": is_first_login,
         }
     )
 
@@ -291,6 +296,7 @@ async def register(
             "operational_role_name": op_role_name,
             "operational_roles": operational_roles,  # Fresh from user_operational_roles table
             "must_change_password": user.must_change_password or False,
+            "is_first_login": True,  # New registrations are always first login
         }
     )
 
