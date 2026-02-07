@@ -12,6 +12,14 @@
   --input-bg: #383a40;
   --accent: #5865f2;
   --topbar-height: 64px;
+  --app-height: 100%;
+}
+
+@supports (-webkit-touch-callout: none) {
+  /* iOS & mobile browsers */
+  :root {
+    --app-height: -webkit-fill-available;
+  }
 }
 
 @media (max-width: 768px) {
@@ -30,7 +38,7 @@
 html,
 body,
 #root {
-  height: 100%;
+  height: var(--app-height);
   margin: 0;
   overflow: hidden;
 }

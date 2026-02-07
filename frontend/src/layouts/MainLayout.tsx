@@ -51,7 +51,7 @@ export default function MainLayout() {
   }, [channelId])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       {/* Mobile Sidebar Backdrop */}
       <div 
         className={`sidebar-backdrop ${sidebarOpen ? 'visible' : ''} md:hidden`}
