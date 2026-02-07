@@ -60,7 +60,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   
   // New Socket.IO presence from store
   const onlineUserIds = usePresenceStore((state) => state.onlineUserIds)
-  const isUserOnline = (userId: number | undefined | null) => userId ? onlineUserIds.has(userId) : false
+  const isUserOnline = (userId: number | undefined | null) => userId ? onlineUserIds.has(Number(userId)) : false
 
   // Team members for online display (user_id from API, not id)
   const [teamMembers, setTeamMembers] = useState<{ user_id: number; username: string; display_name?: string }[]>([])

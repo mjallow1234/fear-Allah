@@ -939,7 +939,7 @@ export default function ChannelView() {
             <div className="flex items-center gap-2 text-sm text-gray-400">
               <Users size={16} />
               <span>
-                {channelMembers.filter(m => onlineUserIds.has(m.id)).length} online / {channelMembers.length} members
+                {channelMembers.filter(m => onlineUserIds.has(Number(m.user_id || m.id))).length} online / {channelMembers.length} members
               </span>
             </div>
           )}

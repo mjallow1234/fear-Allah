@@ -23,30 +23,37 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
   onlineUserIds: new Set(),
   
   setInitialPresence: (userIds: number[]) => {
-    console.log('[Presence] Setting initial presence:', userIds)
-    set({ onlineUserIds: new Set(userIds) })
+    // Ensure all IDs are numbers (socket might send strings)
+    const normalizedIds = userIds.map(id => Number(id))
+    console.log('[Presence] Setting initial presence:', normalizedIds)
+    set({ onlineUserIds: new Set(normalizedIds) })
   },
   
   userOnline: (userId: number) => {
-    console.log('[Presence] User online:', userId)
+    // Ensure ID is a number (socket might send string)
+    const normalizedId = Number(userId)
+    console.log('[Presence] User online:', normalizedId)
     set((state) => {
       const newSet = new Set(state.onlineUserIds)
-      newSet.add(userId)
+      newSet.add(normalizedId)
       return { onlineUserIds: newSet }
     })
   },
   
   userOffline: (userId: number) => {
-    console.log('[Presence] User offline:', userId)
+    // Ensure ID is a number (socket might send string)
+    const normalizedId = Number(userId)
+    console.log('[Presence] User offline:', normalizedId)
     set((state) => {
       const newSet = new Set(state.onlineUserIds)
-      newSet.delete(userId)
+      newSet.delete(normalizedId)
       return { onlineUserIds: newSet }
     })
   },
   
   isOnline: (userId: number) => {
-    return get().onlineUserIds.has(userId)
+    // Ensure ID is a number for comparison
+    return get().onlineUserIds.has(Number(userId))
   },
   
   clearPresence: () => {
