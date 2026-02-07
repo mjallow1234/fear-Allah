@@ -20,6 +20,7 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str]
     status: str
     is_system_admin: bool
+    last_login_at: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -43,7 +44,16 @@ async def get_current_user_profile(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return user
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        status=user.status.value if hasattr(user.status, 'value') else user.status,
+        is_system_admin=user.is_system_admin,
+        last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
+    )
 
 
 @router.put("/me", response_model=UserResponse)
@@ -72,7 +82,17 @@ async def update_current_user_profile(
     
     await db.commit()
     await db.refresh(user)
-    return user
+    
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        status=user.status.value if hasattr(user.status, 'value') else user.status,
+        is_system_admin=user.is_system_admin,
+        last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
+    )
 
 
 @router.get("/", response_model=List[UserResponse])

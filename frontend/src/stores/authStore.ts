@@ -18,6 +18,7 @@ interface User {
   operational_roles: string[]  // Fresh from user_operational_roles table - source of truth for task permissions
   must_change_password?: boolean  // Force password change flag
   is_first_login?: boolean  // First time user logs in
+  last_login_at?: string | null  // ISO timestamp of last login
 }
 
 interface AuthState {

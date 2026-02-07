@@ -318,6 +318,7 @@ def serialize_user(user: User, operational_roles: list[str] = None) -> dict:
         "operational_role_name": getattr(user, 'operational_role_name', None),
         "operational_roles": operational_roles or [],  # Fresh from user_operational_roles table
         "must_change_password": getattr(user, 'must_change_password', False) or False,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
     }
 
 
