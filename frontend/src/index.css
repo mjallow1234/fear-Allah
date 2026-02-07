@@ -177,6 +177,42 @@ button, a, [role="button"] {
   display: none;
 }
 
+/* Page Layout with Fixed Tabs */
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-tabs {
+  flex-shrink: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  position: relative;
+  z-index: 10;
+}
+
+.page-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .page-tabs {
+    position: relative;
+    top: 0;
+  }
+}
+
+.page-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Body scroll lock when sidebar open */
 body.sidebar-open {
   overflow: hidden;

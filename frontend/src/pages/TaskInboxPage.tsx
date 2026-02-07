@@ -161,7 +161,7 @@ export default function TaskInboxPage() {
   });
 
   return (
-    <div className="flex flex-col h-full bg-[#313338]">
+    <div className="page-container flex flex-col h-full bg-[#313338] overflow-hidden">
       {/* Header */}
       <div className="flex-shrink-0 bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -199,8 +199,8 @@ export default function TaskInboxPage() {
       </div>
       
       {/* Tabs */}
-      <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6">
-        <div className="max-w-4xl mx-auto flex gap-1 tabs-mobile">
+      <div className="page-tabs flex-shrink-0 h-12 bg-[#2b2d31] border-b border-[#1f2023] px-6 relative z-10 overflow-visible">
+        <div className="max-w-4xl mx-auto h-full flex gap-1 tabs-mobile items-center">
           {!user?.is_system_admin && (
             <button
               onClick={() => setActiveTab('my-tasks')}
@@ -275,7 +275,7 @@ export default function TaskInboxPage() {
       
       {/* Search and Filter Bar - only show on My Tasks tab */}
       {activeTab === 'my-tasks' && (
-        <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-3">
+        <div className="flex-shrink-0 bg-[#2b2d31] border-b border-[#1f2023] px-6 py-3">
           <div className="max-w-4xl mx-auto flex gap-4 items-center">
             {/* Search Input */}
             <div className="relative flex-1 max-w-xs">
@@ -332,7 +332,7 @@ export default function TaskInboxPage() {
       )}
       
       {/* Task List */}
-      <div className="flex-1">
+      <div className="page-content flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto py-6 px-6 pb-12">
           {loading ? (
             <div className="py-12 text-center">
