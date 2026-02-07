@@ -85,18 +85,20 @@ async def connect(sid: str, environ: dict, auth: dict = None):
         user_id = user_data["user_id"]
         came_online = presence_manager.user_connected(team_id, user_id, sid)
         
-        if came_online:
-            # Broadcast to team that user came online
-            await sio.emit("presence:online", {
-                "user_id": user_id,
-                "username": user_data["username"],
-            }, room=team_room, skip_sid=sid)
-        
-        # Send current online list to connecting user
+        # Send current online list to connecting user first
         online_users = presence_manager.get_online_users(team_id)
         await sio.emit("presence:list", {
             "online_user_ids": online_users,
         }, room=sid)
+        logger.info(f"[Presence] presence:list sent to user {user_id}: {len(online_users)} users online")
+        
+        if came_online:
+            # Broadcast to team that user came online (skip the connecting user)
+            await sio.emit("presence:online", {
+                "user_id": user_id,
+                "username": user_data["username"],
+            }, room=team_room, skip_sid=sid)
+            logger.info(f"[Presence] presence:online emitted for user {user_id} to team {team_id}")
     
     # Emit connection success with user info
     await sio.emit("connected", {
@@ -138,6 +140,7 @@ async def disconnect(sid: str):
         await sio.emit("presence:offline", {
             "user_id": disconnect_info["user_id"],
         }, room=team_room)
+        logger.info(f"[Presence] presence:offline emitted for user {disconnect_info['user_id']}")
     
     if user_data:
         logger.info(f"Socket disconnected: {sid} (user: {user_data['username']}, rooms: {rooms})")
