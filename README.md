@@ -2,6 +2,16 @@
 
 A real-time team chat application built with modern technologies.
 
+## 🚧 Current Focus
+
+Orders & Tasks are frozen as of tag `v0.3-orders-stable`.
+
+Active work areas:
+1. Chats (real-time messaging, reliability, UX)
+2. Users & Roles (management, permissions, auditability)
+
+Sales & finance modules will be addressed AFTER chat stability.
+
 ## Project Structure
 
 ```
