@@ -380,7 +380,7 @@ class ChangePasswordRequest(BaseModel):
 async def change_password(
     request: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Change user's password.
@@ -389,28 +389,19 @@ async def change_password(
     """
     from datetime import datetime, timezone as dt_timezone
     
-    # Get user from database
-    user_id = current_user["user_id"]
-    query = select(User).where(User.id == user_id)
-    result = await db.execute(query)
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
     # Verify current password
-    if not verify_password(request.current_password, user.hashed_password):
+    if not verify_password(request.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
     
     # Update password
-    user.hashed_password = get_password_hash(request.new_password)
-    user.must_change_password = False
-    user.password_changed_at = datetime.now(dt_timezone.utc)
+    current_user.hashed_password = get_password_hash(request.new_password)
+    current_user.must_change_password = False
+    current_user.password_changed_at = datetime.now(dt_timezone.utc)
     
-    db.add(user)
+    db.add(current_user)
     await db.commit()
     
     return {
