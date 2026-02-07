@@ -297,11 +297,18 @@ async def get_channel_messages(
         raise HTTPException(status_code=404, detail="Channel not found")
     if getattr(channel, 'is_archived', False):
         raise HTTPException(status_code=403, detail="Cannot view messages for archived channel")
-    if channel.type != 'public':
-        result = await db.execute(select(ChannelMember).where(ChannelMember.channel_id == channel_id, ChannelMember.user_id == current_user['user_id']))
-        membership = result.scalar_one_or_none()
-        if not membership:
-            raise HTTPException(status_code=403, detail="Not a member of this channel")
+    
+    # Get user's membership to determine join date (required for all channels)
+    result = await db.execute(select(ChannelMember).where(ChannelMember.channel_id == channel_id, ChannelMember.user_id == current_user['user_id']))
+    membership = result.scalar_one_or_none()
+    
+    # For non-public channels, membership is required
+    if channel.type != 'public' and not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this channel")
+    
+    # Privacy guard: Only show messages sent after user joined the channel
+    # If no membership record exists (e.g., public channel never explicitly joined), show all messages
+    join_timestamp = membership.created_at if membership else None
 
     # Only get top-level messages (no parent_id) for the main channel view
     query = (
@@ -312,10 +319,13 @@ async def get_channel_messages(
             Message.is_deleted == False,
             Message.parent_id.is_(None)  # Only top-level messages
         )
-        .order_by(desc(Message.created_at))
-        .offset(skip)
-        .limit(limit)
     )
+    
+    # Filter by join date if membership exists
+    if join_timestamp:
+        query = query.where(Message.created_at >= join_timestamp)
+    
+    query = query.order_by(desc(Message.created_at)).offset(skip).limit(limit)
     result = await db.execute(query)
     messages = result.scalars().all()
     
@@ -355,15 +365,27 @@ async def get_message_replies(
     if not parent_msg or parent_msg.is_deleted:
         raise HTTPException(status_code=404, detail="Message not found")
     
+    # Privacy guard: Get user's join timestamp for the channel
+    membership_query = select(ChannelMember).where(
+        ChannelMember.channel_id == parent_msg.channel_id,
+        ChannelMember.user_id == current_user['user_id']
+    )
+    membership_result = await db.execute(membership_query)
+    membership = membership_result.scalar_one_or_none()
+    join_timestamp = membership.created_at if membership else None
+    
     # Get replies
     query = (
         select(Message)
         .options(selectinload(Message.reactions), selectinload(Message.author), selectinload(Message.attachments))
         .where(Message.parent_id == message_id, Message.is_deleted == False)
-        .order_by(Message.created_at)  # Chronological order for threads
-        .offset(skip)
-        .limit(limit)
     )
+    
+    # Filter by join date if membership exists
+    if join_timestamp:
+        query = query.where(Message.created_at >= join_timestamp)
+    
+    query = query.order_by(Message.created_at).offset(skip).limit(limit)  # Chronological order for threads
     result = await db.execute(query)
     replies = result.scalars().all()
     
