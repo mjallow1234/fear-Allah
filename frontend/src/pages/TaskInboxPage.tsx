@@ -199,13 +199,13 @@ export default function TaskInboxPage() {
       </div>
       
       {/* Tabs */}
-      <div className="page-tabs flex-shrink-0 h-12 bg-[#2b2d31] border-b border-[#1f2023] px-6 relative z-10 overflow-visible">
-        <div className="max-w-4xl mx-auto h-full flex gap-1 tabs-mobile items-center">
+      <div className="page-tabs flex-shrink-0 min-h-12 bg-[#2b2d31] border-b border-[#1f2023] px-6 relative z-10 overflow-visible">
+        <div className="max-w-4xl mx-auto flex flex-wrap gap-2 overflow-x-auto sm:overflow-visible py-2">
           {!user?.is_system_admin && (
             <button
               onClick={() => setActiveTab('my-tasks')}
               className={clsx(
-                'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+                'shrink-0 whitespace-nowrap flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2',
                 activeTab === 'my-tasks'
                   ? 'text-white border-[#5865f2]'
                   : 'text-[#949ba4] border-transparent hover:text-white'
@@ -224,7 +224,7 @@ export default function TaskInboxPage() {
           <button
             onClick={() => setActiveTab('all')}
             className={clsx(
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+              'shrink-0 whitespace-nowrap flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2',
               activeTab === 'all'
                 ? 'text-white border-[#5865f2]'
                 : 'text-[#949ba4] border-transparent hover:text-white'
@@ -237,7 +237,7 @@ export default function TaskInboxPage() {
           <button
             onClick={() => setActiveTab('available')}
             className={clsx(
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+              'shrink-0 whitespace-nowrap flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2',
               activeTab === 'available'
                 ? 'text-white border-[#5865f2]'
                 : 'text-[#949ba4] border-transparent hover:text-white'
@@ -250,7 +250,7 @@ export default function TaskInboxPage() {
           <button
             onClick={() => setActiveTab('created')}
             className={clsx(
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+              'shrink-0 whitespace-nowrap flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2',
               activeTab === 'created'
                 ? 'text-white border-[#5865f2]'
                 : 'text-[#949ba4] border-transparent hover:text-white'
@@ -262,7 +262,7 @@ export default function TaskInboxPage() {
           <button
             onClick={() => setActiveTab('completed')}
             className={clsx(
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2',
+              'shrink-0 whitespace-nowrap flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2',
               activeTab === 'completed'
                 ? 'text-white border-[#5865f2]'
                 : 'text-[#949ba4] border-transparent hover:text-white'
