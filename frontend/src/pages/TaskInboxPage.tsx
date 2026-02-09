@@ -380,47 +380,36 @@ export default function TaskInboxPage() {
             {myAssignments.map((assignment) => {
               const task = tasks.find(t => t.id === assignment.task_id)
               if (!task) {
-                // Show minimal assignment card when task isn't loaded
+                // Render a minimal TaskCard placeholder when the full task object isn't loaded yet
+                const minimalTask = {
+                  id: assignment.task_id,
+                  task_type: 'CUSTOM',
+                  status: assignment.status === 'DONE' ? 'COMPLETED' : (assignment.status as any),
+                  title: `Task #${assignment.task_id}`,
+                  description: null,
+                  created_by_id: assignment.user_id || 0,
+                  related_order_id: null,
+                  metadata: null,
+                  order_details: null,
+                  created_at: assignment.assigned_at || new Date().toISOString(),
+                  updated_at: null,
+                  assignments: [assignment],
+                  required_role: null,
+                } as unknown as AutomationTask
+
                 return (
-                  <div
-                    key={assignment.id}
-                    onClick={() => {
-                      // Fetch and show task details
-                      useTaskStore.getState().fetchTaskDetails(assignment.task_id).then(() => {
-                        const t = useTaskStore.getState().selectedTask
-                        if (t) setSelectedTask(t)
-                      })
-                    }}
-                    className="p-4 rounded-lg cursor-pointer bg-[#2b2d31] border border-[#1f2023] hover:bg-[#35373c] transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        {
-                          (() => {
-                            const fullTask = tasks.find(t => t.id === assignment.task_id)
-                            const label = fullTask && (fullTask.related_order_id || fullTask.related_order_id === 0)
-                              ? `Order #${fullTask.related_order_id}`
-                              : `Task #${assignment.task_id}`
-                            return (
-                              <>
-                                <span className="text-white font-medium">{label}</span>
-                                {assignment.role_hint && (
-                                  <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
-                                )}
-                              </>
-                            )
-                          })()
-                        }
-                      </div>
-                      <span className={clsx(
-                        'text-sm',
-                        assignment.status === 'DONE' ? 'text-green-400' :
-                        assignment.status === 'PENDING' ? 'text-yellow-400' : 'text-blue-400'
-                      )}>
-                        {assignment.status}
-                      </span>
-                    </div>
-                  </div>
+                  <TaskCard
+                    key={`assign-${assignment.id}`}
+                    task={minimalTask}
+                    assignment={assignment}
+                    currentUserId={user?.id || 0}
+                    isCompleting={completingTaskId === assignment.task_id}
+                    onComplete={handleComplete}
+                    onClick={() => useTaskStore.getState().fetchTaskDetails(assignment.task_id).then(() => {
+                      const t = useTaskStore.getState().selectedTask
+                      if (t) setSelectedTask(t)
+                    })}
+                  />
                 )
               }
               return (

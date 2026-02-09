@@ -93,6 +93,11 @@ export default function TaskCard({
   // Determine assignment status; if the task is completed, show assignments as DONE (backend is source of truth)
   let normalizedAssignmentStatus = assignment ? normalizeStatus(assignment.status) : null
   if (normalizedTaskStatus === 'COMPLETED') normalizedAssignmentStatus = 'DONE'
+
+  // Derived display id: prefer Order # when related order exists, otherwise Task #
+  const displayId = (task as any).related_order_id !== undefined && (task as any).related_order_id !== null
+    ? `Order #${(task as any).related_order_id}`
+    : `Task #${task.id}`
   
   const typeConfig = taskTypeConfig[normalizedTaskType] || taskTypeConfig['CUSTOM']
   const status = statusConfig[normalizedTaskStatus] || statusConfig['PENDING']
@@ -162,24 +167,16 @@ export default function TaskCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             {/* Primary label: show Order # when related_order_id exists, otherwise fallback to Task # */}
-            {(() => {
-              const label = (task as any).related_order_id || (task as any).related_order_id === 0
-                ? `Order #${(task as any).related_order_id}`
-                : `Task #${task.id}`
-              return (
-                <>
-                  <span className="text-white font-medium truncate">{label}</span>
-                  {/* Preserve status badge */}
-                  <span className={clsx(
-                    'text-xs px-2 py-0.5 rounded-full',
-                    status.bgColor,
-                    status.color
-                  )}>
-                    {status.label}
-                  </span>
-                </>
-              )
-            })()}
+            <>
+              <span className="text-white font-medium truncate">{displayId}</span>
+              <span className={clsx(
+                'text-xs px-2 py-0.5 rounded-full',
+                status.bgColor,
+                status.color
+              )}>
+                {status.label}
+              </span>
+            </>
           </div>
           
           {task.description && (
