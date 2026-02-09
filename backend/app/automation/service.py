@@ -253,11 +253,12 @@ class AutomationService:
                 )
             )
             existing_assignment = existing_q.scalar_one_or_none()
-            if not existing_assignment and task.required_role:
+            if not existing_assignment:
+                role_hint = task.required_role if task.required_role else None
                 new_assign = TaskAssignment(
                     task_id=task.id,
                     user_id=user_id,
-                    role_hint=task.required_role,
+                    role_hint=role_hint,
                     status=AssignmentStatus.in_progress,
                 )
                 db.add(new_assign)
@@ -267,11 +268,11 @@ class AutomationService:
                     task_id=task.id,
                     user_id=user_id,
                     event_type=TaskEventType.assigned,
-                    event_metadata=json.dumps({"assigned_user_id": user_id, "role_hint": task.required_role}),
+                    event_metadata=json.dumps({"assigned_user_id": user_id, "role_hint": role_hint}),
                 )
                 db.add(evt)
                 await db.flush()
-                logger.info(f"[Automation] Created assignment for claimer {user_id} on task {task.id} (role={task.required_role})")
+                logger.info(f"[Automation] Created assignment for claimer {user_id} on task {task.id} (role={role_hint})")
         except Exception as e:
             logger.warning(f"[Automation] Failed to create assignment for claimer: {e}")
 
