@@ -4,6 +4,7 @@ import { connectSocket, disconnectSocket } from '../realtime'
 import api from '../services/api'
 import { useTaskStore } from './taskStore'
 import { useOrderStore } from './orderStore'
+import { usePreferencesStore } from './preferencesStore'
 
 interface User {
   id: number
@@ -88,6 +89,8 @@ export const useAuthStore = create<AuthState>()(
             try {
               await useTaskStore.getState().fetchMyTasks()
               await useTaskStore.getState().fetchMyAssignments()
+              // Fetch user preferences on login (Phase 2.5)
+              await usePreferencesStore.getState().fetchPreferences()
               const tasksCount = useTaskStore.getState().tasks.length
               // Temporary debug log: user_id from JWT and number of tasks returned
               console.log('[Auth] Login user_id_from_jwt:', userIdFromJwt ?? user.id, 'tasks_count:', tasksCount)
