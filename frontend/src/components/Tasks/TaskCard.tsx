@@ -143,7 +143,7 @@ export default function TaskCard({
     <div
       onClick={onClick}
       className={clsx(
-        'p-4 rounded-lg cursor-pointer transition-all border',
+        'task-item rounded-lg cursor-pointer transition-all border',
         normalizedTaskStatus === 'COMPLETED' || normalizedTaskStatus === 'CANCELLED'
           ? 'bg-[#2b2d31] border-[#1f2023] opacity-75'
           : 'bg-[#2b2d31] border-[#1f2023] hover:bg-[#35373c] hover:border-[#35373c]'

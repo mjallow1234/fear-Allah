@@ -256,7 +256,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           </button>
         </div>
         {channels.length === 0 ? (
-          <div className="flex items-center gap-2 px-4 py-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <div className="flex items-center" style={{ color: 'var(--text-secondary)', padding: 'var(--sidebar-item-padding)' }}>
             <Hash size={16} />
             <span>No channels yet</span>
           </div>
@@ -266,7 +266,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               key={channel.id}
               to={`/channels/${channel.id}`}
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                'flex items-center sidebar-item rounded transition-colors',
                 location.pathname === `/channels/${channel.id}` && 'font-medium'
               )}
               style={{
@@ -317,7 +317,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               key={dm.id}
               to={`/channels/${dm.id}`}
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                'flex items-center sidebar-item rounded transition-colors',
                 location.pathname === `/channels/${dm.id}` && 'font-medium'
               )}
               style={{
@@ -373,7 +373,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 <button
                   key={member.user_id}
                   onClick={() => startDM(String(member.user_id))}
-                  className="w-full flex items-center gap-2 px-2 py-1 mx-2 text-sm rounded transition-colors text-left"
+                  className="w-full flex items-center sidebar-item text-sm rounded transition-colors text-left"
                   style={{ color: 'var(--text-secondary)' }}
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -405,7 +405,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <Link
               to="/admin/forms"
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                'flex items-center sidebar-item rounded transition-colors',
                 location.pathname.startsWith('/admin/forms') && 'font-medium'
               )}
               style={{

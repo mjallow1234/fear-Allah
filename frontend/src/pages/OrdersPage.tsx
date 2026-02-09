@@ -77,7 +77,7 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
   return (
     <div
       onClick={onClick}
-      className={clsx('p-4 rounded-lg cursor-pointer transition-all border')}
+      className={clsx('order-item rounded-lg cursor-pointer transition-all border')}
       style={{
         backgroundColor: 'var(--panel-bg)',
         borderColor: 'var(--sidebar-border)',

@@ -64,6 +64,17 @@ function App() {
     }
   }, [darkMode])
 
+  const compactMode = usePreferencesStore((state) => state.preferences.compact_mode)
+
+  // Apply compact_mode preference to document root (Phase 2.6)
+  useEffect(() => {
+    if (compactMode) {
+      document.documentElement.classList.add('compact')
+    } else {
+      document.documentElement.classList.remove('compact')
+    }
+  }, [compactMode])
+
   // Connect Socket.IO when authenticated
   useEffect(() => {
     if (isAuthenticated && token) {

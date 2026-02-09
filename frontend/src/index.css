@@ -24,6 +24,15 @@
   --accent: #5865f2;
   --topbar-height: 64px;
   --app-height: 100%;
+
+  /* Spacing (default) */
+  --sidebar-item-padding: 8px;
+  --sidebar-item-gap: 8px;
+  --sidebar-item-margin: 8px;
+  --message-item-padding: 12px;
+  --message-item-gap: 12px;
+  --task-item-padding: 12px;
+  --order-item-padding: 16px;
 }
 
 /* Light mode */
@@ -46,6 +55,45 @@
   --dropdown-bg: #ffffff;
   --accent: #5865f2;
 }
+
+/* Compact mode overrides */
+:root.compact {
+  --sidebar-item-padding: 6px;
+  --sidebar-item-gap: 6px;
+  --sidebar-item-margin: 6px;
+  --message-item-padding: 6px;
+  --message-item-gap: 6px;
+  --task-item-padding: 8px;
+  --order-item-padding: 8px;
+}
+
+/* Utility classes for compactable UI elements (use variables, no inline spacing) */
+.sidebar-item {
+  padding-left: var(--sidebar-item-padding);
+  padding-right: var(--sidebar-item-padding);
+  padding-top: calc(var(--sidebar-item-padding) / 2);
+  padding-bottom: calc(var(--sidebar-item-padding) / 2);
+  margin-left: var(--sidebar-item-margin);
+  margin-right: var(--sidebar-item-margin);
+  gap: var(--sidebar-item-gap);
+  display: flex;
+  align-items: center;
+}
+
+.message-item {
+  padding: var(--message-item-padding);
+  gap: var(--message-item-gap);
+  display: flex;
+}
+
+.task-item {
+  padding: var(--task-item-padding);
+}
+
+.order-item {
+  padding: var(--order-item-padding);
+}
+
 
 @supports (-webkit-touch-callout: none) {
   /* iOS & mobile browsers */

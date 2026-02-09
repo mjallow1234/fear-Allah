@@ -437,7 +437,7 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
         ) : messages.map((msg) => (
           <div
             key={msg.id}
-            className="group flex gap-3 hover:bg-[#2e3035] p-2 rounded relative"
+            className="group flex message-item hover:bg-[#2e3035] rounded relative"
           >
             <div className="w-10 h-10 rounded-full bg-[#5865f2] flex items-center justify-center text-white font-medium flex-shrink-0">
               {msg.username.charAt(0).toUpperCase()}
