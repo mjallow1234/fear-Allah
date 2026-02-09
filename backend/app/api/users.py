@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     status: str
     is_system_admin: bool
     last_login_at: Optional[str] = None
+    preferences: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -158,6 +159,21 @@ async def update_user_preferences(
     return UserPreferencesResponse(preferences=UserPreferences(**merged))
 
 
+def _serialize_user(user: User) -> dict:
+    """Return a JSON-serializable dict for a User, safe for responses."""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
+        "status": user.status.value if hasattr(user.status, 'value') else (user.status if user.status is not None else None),
+        "is_system_admin": user.is_system_admin,
+        "last_login_at": user.last_login_at.isoformat() if getattr(user, 'last_login_at', None) else None,
+        "preferences": dict(user.preferences) if getattr(user, 'preferences', None) else None,
+    }
+
+
 @router.get("/", response_model=List[UserResponse])
 async def list_users(
     skip: int = 0,
@@ -168,7 +184,7 @@ async def list_users(
     query = select(User).where(User.is_active == True).offset(skip).limit(limit)
     result = await db.execute(query)
     users = result.scalars().all()
-    return users
+    return [_serialize_user(u) for u in users]
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -184,7 +200,7 @@ async def get_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return user
+    return _serialize_user(user)
 
 
 # Phase 8.6: Get current user's permissions
