@@ -50,3 +50,17 @@ export function shouldShowToast(type: string): boolean {
   const intensity = getNotificationIntensity(type)
   return intensity === 'critical' || intensity === 'important'
 }
+
+export function isBusinessNotificationType(type: string): boolean {
+  return [
+    'task_assigned',
+    'task_completed',
+    'task_auto_closed',
+    'order_created',
+    'order_completed',
+    'low_stock',
+    'inventory_restocked',
+    'sale_recorded',
+    'system',
+  ].includes(type)
+}

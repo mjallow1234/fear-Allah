@@ -52,9 +52,11 @@ function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const token = useAuthStore((state) => state.token)
   const darkMode = usePreferencesStore((state) => state.preferences.dark_mode)
+  const mustChangePassword = useAuthStore((state) => state.user?.must_change_password)
 
-  // Apply dark_mode preference to document root
+  // Apply dark_mode preference to document root only when user is NOT forced to change password
   useEffect(() => {
+    if (mustChangePassword) return
     if (darkMode) {
       document.documentElement.classList.remove('light')
       document.documentElement.classList.add('dark')
@@ -62,22 +64,23 @@ function App() {
       document.documentElement.classList.remove('dark')
       document.documentElement.classList.add('light')
     }
-  }, [darkMode])
+  }, [darkMode, mustChangePassword])
 
   const compactMode = usePreferencesStore((state) => state.preferences.compact_mode)
 
-  // Apply compact_mode preference to document root (Phase 2.6)
+  // Apply compact_mode preference to document root (Phase 2.6) only when not in forced password flow
   useEffect(() => {
+    if (mustChangePassword) return
     if (compactMode) {
       document.documentElement.classList.add('compact')
     } else {
       document.documentElement.classList.remove('compact')
     }
-  }, [compactMode])
+  }, [compactMode, mustChangePassword])
 
-  // Connect Socket.IO when authenticated
+  // Connect Socket.IO when authenticated and not blocked by forced password change
   useEffect(() => {
-    if (isAuthenticated && token) {
+    if (isAuthenticated && token && !mustChangePassword) {
       console.log('[App] User authenticated, connecting Socket.IO...')
       connectSocket()
       subscribeToPresence()
@@ -88,8 +91,10 @@ function App() {
       return () => {
         unsubscribeReceipts()
       }
+    } else if (isAuthenticated && mustChangePassword) {
+      console.warn('[App] Socket connect blocked due to must_change_password flag')
     }
-  }, [isAuthenticated, token])
+  }, [isAuthenticated, token, mustChangePassword])
 
   return (
     <Routes>

@@ -85,22 +85,27 @@ export const useAuthStore = create<AuthState>()(
 
           // Force-refresh task stores BEFORE connecting socket, then connect.
           // This ensures /api/automation/tasks is called after login, not before socket connect.
-          setTimeout(async () => {
-            try {
-              await useTaskStore.getState().fetchMyTasks()
-              await useTaskStore.getState().fetchMyAssignments()
-              // Fetch user preferences on login (Phase 2.5)
-              await usePreferencesStore.getState().fetchPreferences()
-              const tasksCount = useTaskStore.getState().tasks.length
-              // Temporary debug log: user_id from JWT and number of tasks returned
-              console.log('[Auth] Login user_id_from_jwt:', userIdFromJwt ?? user.id, 'tasks_count:', tasksCount)
-            } catch (err) {
-              console.error('[Auth] Failed to refresh tasks on login:', err)
-            } finally {
-              // Connect socket after tasks refreshed
-              connectSocket()
-            }
-          }, 0)
+          // If the server indicates the user must change their password, do not proceed with post-login data refresh or socket connect
+          if (normalizedUser.must_change_password) {
+            console.warn('[Auth] User must change password — blocking post-login data refresh and socket connect', { user_id: normalizedUser.id })
+          } else {
+            setTimeout(async () => {
+              try {
+                await useTaskStore.getState().fetchMyTasks()
+                await useTaskStore.getState().fetchMyAssignments()
+                // Fetch user preferences on login (Phase 2.5)
+                await usePreferencesStore.getState().fetchPreferences()
+                const tasksCount = useTaskStore.getState().tasks.length
+                // Temporary debug log: user_id from JWT and number of tasks returned
+                console.log('[Auth] Login user_id_from_jwt:', userIdFromJwt ?? user.id, 'tasks_count:', tasksCount)
+              } catch (err) {
+                console.error('[Auth] Failed to refresh tasks on login:', err)
+              } finally {
+                // Connect socket after tasks refreshed
+                connectSocket()
+              }
+            }, 0)
+          }
         },
         logout: () => {
           // Disconnect Socket.IO before clearing auth state
@@ -172,6 +177,41 @@ export const useAuthStore = create<AuthState>()(
               operational_roles: resp.data.operational_roles ?? [],
             }
             setRef.set?.({ currentUser: normalizedUser, user: normalizedUser })
+
+            // If the server indicates the user must change their password, do not proceed with post-rehydrate data refresh or socket connect
+            if (resp.data?.must_change_password) {
+              console.warn('[Auth] Rehydrate detected must_change_password=true — blocking data refresh and socket connect', { user_id: resp?.data?.id })
+              // Skip fetch + connect — leave authoritative user in store so UI can redirect to change-password
+            } else {
+              // Refresh tasks before connecting socket (session restore behaves like login)
+              setTimeout(async () => {
+                try {
+                  await useTaskStore.getState().fetchMyTasks()
+                  await useTaskStore.getState().fetchMyAssignments()
+                  const tasksCount = useTaskStore.getState().tasks.length
+
+                  // Attempt to decode user_id from token for temporary logging
+                  let userIdFromJwt: string | number | null = null
+                  try {
+                    if (state?.token) {
+                      const parts = state.token.split('.')
+                      if (parts.length > 1) {
+                        const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+                        const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
+                        const payload = JSON.parse(json)
+                        userIdFromJwt = payload.sub ?? payload.user_id ?? payload.uid ?? null
+                      }
+                    }
+                  } catch (e) {}
+
+                  console.log('[Auth] Rehydrate user_id_from_jwt:', userIdFromJwt ?? state?.user?.id ?? 'unknown', 'tasks_count:', tasksCount)
+                } catch (e) {
+                  console.error('[Auth] Failed to refresh tasks on rehydrate:', e)
+                } finally {
+                  connectSocket()
+                }
+              }, 100)
+            }
           }
         } catch (err) {
           // If token invalid or request fails, clear auth
@@ -180,34 +220,7 @@ export const useAuthStore = create<AuthState>()(
           localStorage.removeItem('user_role')
           setRef.set?.({ token: null, user: null, currentUser: null, isAuthenticated: false })
         } finally {
-          // Refresh tasks before connecting socket (session restore behaves like login)
-          setTimeout(async () => {
-            try {
-              await useTaskStore.getState().fetchMyTasks()
-              await useTaskStore.getState().fetchMyAssignments()
-              const tasksCount = useTaskStore.getState().tasks.length
-
-              // Attempt to decode user_id from token for temporary logging
-              let userIdFromJwt: string | number | null = null
-              try {
-                if (state?.token) {
-                  const parts = state.token.split('.')
-                  if (parts.length > 1) {
-                    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-                    const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
-                    const payload = JSON.parse(json)
-                    userIdFromJwt = payload.sub ?? payload.user_id ?? payload.uid ?? null
-                  }
-                }
-              } catch (e) {}
-
-              console.log('[Auth] Rehydrate user_id_from_jwt:', userIdFromJwt ?? state?.user?.id ?? 'unknown', 'tasks_count:', tasksCount)
-            } catch (e) {
-              console.error('[Auth] Failed to refresh tasks on rehydrate:', e)
-            } finally {
-              connectSocket()
-            }
-          }, 100)
+          // no-op
         }
       },
     }

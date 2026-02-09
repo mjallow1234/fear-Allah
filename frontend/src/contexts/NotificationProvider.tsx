@@ -1,7 +1,7 @@
 import { createContext, useContext, useCallback, useEffect, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ToastContainer, useToasts, ToastNotification } from '../components/Toast'
-import { shouldPlaySound, shouldShowToast } from '../utils/notificationConfig'
+import { shouldPlaySound, shouldShowToast, isBusinessNotificationType } from '../utils/notificationConfig'
 import { playNotificationSound } from '../hooks/useNotificationSound'
 import { onSocketEvent } from '../realtime'
 import { useAuthStore } from '../stores/authStore'
@@ -75,8 +75,9 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       playNotificationSound()
     }
 
-    // Show toast for critical and important notifications only if user enabled them
-    if (shouldShowToast(notificationType) && notificationsEnabled) {
+    // Show toast for critical and important notifications.
+    // For business-critical notifications, bypass the user preference gating temporarily (emergency mode).
+    if (shouldShowToast(notificationType) && (notificationsEnabled || isBusinessNotificationType(notificationType))) {
       const toast: Omit<ToastNotification, 'id'> = {
         type: notificationType,
         title: notification.title,
@@ -85,6 +86,11 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         onClick: () => handleNotificationClick(notification),
       }
       addToast(toast)
+    } else if (shouldShowToast(notificationType) && !notificationsEnabled) {
+      // Log that a business notification would have been suppressed but we're in emergency bypass mode
+      if (isBusinessNotificationType(notificationType)) {
+        console.info('[Notifications] Business notification bypassing user setting (emergency):', notificationType)
+      }
     }
   }, [currentUserId, addToast, handleNotificationClick, notificationsEnabled])
 
