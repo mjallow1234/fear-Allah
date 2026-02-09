@@ -395,10 +395,22 @@ export default function TaskInboxPage() {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="text-white font-medium">Task #{assignment.task_id}</span>
-                        {assignment.role_hint && (
-                          <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
-                        )}
+                        {
+                          (() => {
+                            const fullTask = tasks.find(t => t.id === assignment.task_id)
+                            const label = fullTask && (fullTask.related_order_id || fullTask.related_order_id === 0)
+                              ? `Order #${fullTask.related_order_id}`
+                              : `Task #${assignment.task_id}`
+                            return (
+                              <>
+                                <span className="text-white font-medium">{label}</span>
+                                {assignment.role_hint && (
+                                  <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
+                                )}
+                              </>
+                            )
+                          })()
+                        }
                       </div>
                       <span className={clsx(
                         'text-sm',
@@ -452,10 +464,22 @@ export default function TaskInboxPage() {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="text-white font-medium">Task #{assignment.task_id}</span>
-                        {assignment.role_hint && (
-                          <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
-                        )}
+                        {
+                          (() => {
+                            const fullTask = tasks.find(t => t.id === assignment.task_id)
+                            const label = fullTask && (fullTask.related_order_id || fullTask.related_order_id === 0)
+                              ? `Order #${fullTask.related_order_id}`
+                              : `Task #${assignment.task_id}`
+                            return (
+                              <>
+                                <span className="text-white font-medium">{label}</span>
+                                {assignment.role_hint && (
+                                  <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
+                                )}
+                              </>
+                            )
+                          })()
+                        }
                       </div>
                       <span className={clsx(
                         'text-sm',
