@@ -5,6 +5,7 @@ import { shouldPlaySound, shouldShowToast } from '../utils/notificationConfig'
 import { playNotificationSound } from '../hooks/useNotificationSound'
 import { onSocketEvent } from '../realtime'
 import { useAuthStore } from '../stores/authStore'
+import { usePreferencesStore } from '../stores/preferencesStore'
 
 interface Notification {
   id: number
@@ -43,6 +44,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const { toasts, addToast, dismissToast } = useToasts()
   const navigate = useNavigate()
   const currentUserId = useAuthStore((state) => state.user?.id)
+  // Respect user preference for notifications (Phase 2.7)
+  const notificationsEnabled = usePreferencesStore((state) => state.preferences.notifications)
 
   const handleNotificationClick = useCallback((notification: Notification) => {
     // Route to appropriate page based on notification type
@@ -72,8 +75,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       playNotificationSound()
     }
 
-    // Show toast for critical and important notifications
-    if (shouldShowToast(notificationType)) {
+    // Show toast for critical and important notifications only if user enabled them
+    if (shouldShowToast(notificationType) && notificationsEnabled) {
       const toast: Omit<ToastNotification, 'id'> = {
         type: notificationType,
         title: notification.title,
@@ -83,7 +86,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       }
       addToast(toast)
     }
-  }, [currentUserId, addToast, handleNotificationClick])
+  }, [currentUserId, addToast, handleNotificationClick, notificationsEnabled])
 
   // Listen for real-time notifications
   useEffect(() => {
