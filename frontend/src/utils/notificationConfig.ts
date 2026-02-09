@@ -25,6 +25,7 @@ export const NOTIFICATION_INTENSITY: Record<string, NotificationIntensity> = {
   task_claimed: 'silent',
   
   // Chat notifications (keep existing behavior)
+  message: 'important',
   mention: 'important',
   reply: 'silent',
   dm: 'important',

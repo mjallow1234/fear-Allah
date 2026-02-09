@@ -97,7 +97,48 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     return () => unsubscribe()
   }, [showNotification])
 
+  // Subscribe to chat messages globally and emit toasts for them when appropriate
+  useEffect(() => {
+    const unsubscribe = onSocketEvent<any>('message:new', (message) => {
+      try {
+        console.log('[Notifications] Received message:new', message)
+        const currentUserId = useAuthStore.getState().user?.id
 
+        // Ignore messages sent by self
+        if (message.author_id && currentUserId && message.author_id === currentUserId) return
+
+        // Ignore if user is actively viewing this channel
+        const path = window.location.pathname || ''
+        const channelPath = `/channels/${message.channel_id}`
+        if (path.startsWith(channelPath)) return
+
+        // Build a friendly title (use channel name if provided, otherwise author)
+        const title = message.channel_name ? `#${message.channel_name}` : (message.author_username || 'Message')
+
+        // Delegate to showNotification which will respect user preferences
+        const notificationPayload: Notification = {
+          id: message.id || -Date.now(),
+          type: 'message',
+          title,
+          content: message.content ?? null,
+          channel_id: message.channel_id,
+          message_id: null,
+          task_id: null,
+          order_id: null,
+          sender_id: message.author_id ?? null,
+          sender_username: message.author_username ?? null,
+          is_read: false,
+          created_at: message.created_at ?? new Date().toISOString(),
+        }
+
+        showNotification(notificationPayload)
+      } catch (err) {
+        console.error('[Notifications] Failed to handle message:new', err)
+      }
+    })
+
+    return () => unsubscribe()
+  }, [showNotification])
 
   return (
     <NotificationContext.Provider value={{ showNotification }}>
@@ -106,5 +147,6 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     </NotificationContext.Provider>
   )
 }
+
 
 export default NotificationProvider
