@@ -105,6 +105,10 @@ class AutomationService:
         )
         user_roles = {row[0] for row in role_result}
 
+        # Fallback: include the simple `user.role` column if present (tests and some setups use this)
+        if getattr(user, 'role', None):
+            user_roles.add(user.role)
+
         # Diagnostic logging for debugging role issues
         logger.info(
             "[CLAIM_ROLE_CHECK] user_id=%s roles=%s required_role=%s task_id=%s",
