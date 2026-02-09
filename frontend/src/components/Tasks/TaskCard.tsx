@@ -161,14 +161,25 @@ export default function TaskCard({
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-white font-medium truncate">{task.title}</span>
-            <span className={clsx(
-              'text-xs px-2 py-0.5 rounded-full',
-              status.bgColor,
-              status.color
-            )}>
-              {status.label}
-            </span>
+            {/* Primary label: show Order # when related_order_id exists, otherwise fallback to Task # */}
+            {(() => {
+              const label = (task as any).related_order_id || (task as any).related_order_id === 0
+                ? `Order #${(task as any).related_order_id}`
+                : `Task #${task.id}`
+              return (
+                <>
+                  <span className="text-white font-medium truncate">{label}</span>
+                  {/* Preserve status badge */}
+                  <span className={clsx(
+                    'text-xs px-2 py-0.5 rounded-full',
+                    status.bgColor,
+                    status.color
+                  )}>
+                    {status.label}
+                  </span>
+                </>
+              )
+            })()}
           </div>
           
           {task.description && (
