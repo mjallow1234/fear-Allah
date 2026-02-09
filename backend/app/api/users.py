@@ -32,6 +32,22 @@ class UserUpdateRequest(BaseModel):
     status: Optional[str] = None
 
 
+# Phase 2.5: User Preferences
+class UserPreferences(BaseModel):
+    """User preferences schema with strict validation."""
+    dark_mode: bool = True
+    compact_mode: bool = False
+    notifications: bool = True
+    sound: bool = True
+
+    class Config:
+        extra = "forbid"  # Reject unknown fields
+
+
+class UserPreferencesResponse(BaseModel):
+    preferences: UserPreferences
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
     current_user: dict = Depends(get_current_user),
@@ -93,6 +109,53 @@ async def update_current_user_profile(
         is_system_admin=user.is_system_admin,
         last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
     )
+
+
+# Phase 2.5: User Preferences Endpoints
+@router.get("/me/preferences", response_model=UserPreferencesResponse)
+async def get_user_preferences(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current user's preferences."""
+    query = select(User).where(User.id == current_user["user_id"])
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Return stored preferences or defaults
+    if user.preferences:
+        prefs = UserPreferences(**user.preferences)
+    else:
+        prefs = UserPreferences()
+
+    return UserPreferencesResponse(preferences=prefs)
+
+
+@router.put("/me/preferences", response_model=UserPreferencesResponse)
+async def update_user_preferences(
+    request: UserPreferences,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update current user's preferences (merges with existing)."""
+    query = select(User).where(User.id == current_user["user_id"])
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Merge with existing preferences (don't overwrite unset fields)
+    existing = user.preferences or {}
+    merged = {**existing, **request.model_dump()}
+    user.preferences = merged
+    await db.commit()
+    await db.refresh(user)
+
+    return UserPreferencesResponse(preferences=UserPreferences(**merged))
 
 
 @router.get("/", response_model=List[UserResponse])

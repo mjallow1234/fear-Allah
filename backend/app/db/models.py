@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, UniqueConstraint, Float
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -45,6 +46,8 @@ class User(Base):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     must_change_password = Column(Boolean, default=False)
+    # User preferences (Phase 2.5)
+    preferences = Column(JSONB, nullable=True, default=None)
     # Relationships
     messages = relationship("Message", back_populates="author", foreign_keys="[Message.author_id]")
     team_memberships = relationship("TeamMember", back_populates="user")
