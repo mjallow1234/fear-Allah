@@ -97,6 +97,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     return () => unsubscribe()
   }, [showNotification])
 
+
+
   return (
     <NotificationContext.Provider value={{ showNotification }}>
       {children}
