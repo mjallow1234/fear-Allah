@@ -106,28 +106,58 @@ export default function TaskInboxPage() {
     }
   }, [activeTab, fetchMyAssignments, fetchMyTasks, fetchAvailableTasks, operationalRoleName, debouncedSearch, orderTypeFilter])
   
-  // Get tasks based on active tab
+  // Canonical task filter helpers (single source of truth)
+  const normalizeStatus = (s?: string) => (s || '').toString().toLowerCase()
+
+  const isAvailable = (task: AutomationTask) => {
+    // Some backends may expose `claimed_by_user_id` on the task; if present, respect it
+    const claimedBy = (task as any).claimed_by_user_id
+    return normalizeStatus(task.status) === 'open' && !claimedBy && !(task.assignments?.length)
+  }
+
+  const isMyTask = (task: AutomationTask, userId?: number) => {
+    const s = normalizeStatus(task.status)
+    if (!userId) return false
+    return (s === 'claimed' || s === 'in_progress') && !!task.assignments?.some(a => a.user_id === userId)
+  }
+
+  const isCompleted = (task: AutomationTask, userId?: number) => {
+    const s = normalizeStatus(task.status)
+    if (!userId) return false
+    return s === 'completed' && !!task.assignments?.some(a => a.user_id === userId)
+  }
+
+  const isAll = (task: AutomationTask, userId?: number) => {
+    return task.created_by_id === userId || !!task.assignments?.some(a => a.user_id === userId)
+  }
+
+  // Get tasks based on active tab using canonical helpers
   const getFilteredTasks = (): AutomationTask[] => {
-    const normalizeStatus = (s?: string) => (s || '').toString().toUpperCase()
+    const userId = user?.id || 0
 
     if (activeTab === 'my-tasks') {
-      // Get tasks where user has assignments
-      const taskIds = new Set(myAssignments.map(a => a.task_id))
-      // For now, we show assignment info directly - tasks list will need API update
-      // Return empty until we have full task objects
-      return tasks.filter(t => taskIds.has(t.id))
+      const fromTasks = tasks.filter(t => isMyTask(t, userId))
+      if (fromTasks.length > 0) return fromTasks
+      // Fallback: when detailed task objects are not yet loaded, return placeholder entries derived from myAssignments
+      if (myAssignments && myAssignments.length > 0) {
+        return myAssignments.map(a => ({ __assignmentOnly: true, assignment: a } as any)) as unknown as AutomationTask[]
+      }
+      return []
     } else if (activeTab === 'created') {
       return tasks.filter(t => t.created_by_id === user?.id)
     } else if (activeTab === 'all') {
-      return tasks
+      return tasks.filter(t => isAll(t, user?.id || 0))
+    } else if (activeTab === 'available') {
+      // Use server-provided availableTasks but apply canonical filter as a safety check
+      return (availableTasks || []).filter(isAvailable)
     } else {
-      // Completed tab: use task.status (not assignment status)
-      return tasks.filter(t => normalizeStatus(t.status) === 'COMPLETED')
+      // completed
+      return tasks.filter(t => isCompleted(t, user?.id))
     }
   }
-  
+
   const filteredTasks = getFilteredTasks()
-  const tasksToRender = activeTab === 'available' ? availableTasks : filteredTasks
+  const tasksToRender = filteredTasks
   
   // Get assignment for a task
   const getAssignment = (taskId: number) => {
@@ -406,19 +436,55 @@ export default function TaskInboxPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {tasksToRender.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                assignment={activeTab === 'available' ? undefined : getAssignment(task.id)}
-                currentUserId={user?.id || 0}
-                isCompleting={activeTab === 'available' ? false : completingTaskId === task.id}
-                onComplete={handleComplete}
-                onClick={() => setSelectedTask(task)}
-                isAvailableView={activeTab === 'available'}
-                onClaim={activeTab === 'available' ? async (taskId: number) => { await claimTask(taskId) } : undefined}
-              />
-            ))}
+            {tasksToRender.map((item: any) => {
+              if (item && item.__assignmentOnly) {
+                const assignment = item.assignment
+                return (
+                  <div
+                    key={`assign-${assignment.id}`}
+                    onClick={() => {
+                      useTaskStore.getState().fetchTaskDetails(assignment.task_id).then(() => {
+                        const t = useTaskStore.getState().selectedTask
+                        if (t) setSelectedTask(t)
+                      })
+                    }}
+                    className="p-4 rounded-lg cursor-pointer bg-[#2b2d31] border border-[#1f2023] hover:bg-[#35373c] transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-white font-medium">Task #{assignment.task_id}</span>
+                        {assignment.role_hint && (
+                          <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
+                        )}
+                      </div>
+                      <span className={clsx(
+                        'text-sm',
+                        assignment.status === 'DONE' ? 'text-green-400' :
+                        assignment.status === 'PENDING' ? 'text-yellow-400' : 'text-blue-400'
+                      )}>
+                        {assignment.status}
+                      </span>
+                    </div>
+                  </div>
+                )
+              }
+
+              const task: AutomationTask = item
+              const assignment = getAssignment(task.id)
+              return (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  assignment={assignment}
+                  currentUserId={user?.id || 0}
+                  isCompleting={completingTaskId === task.id}
+                  onComplete={handleComplete}
+                  onClick={() => setSelectedTask(task)}
+                  isAvailableView={activeTab === 'available'}
+                  onClaim={activeTab === 'available' ? async (taskId: number) => { await claimTask(taskId) } : undefined}
+                />
+              )
+            })}
           </div>
         )}
         </div>
