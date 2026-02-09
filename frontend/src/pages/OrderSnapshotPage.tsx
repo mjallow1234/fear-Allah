@@ -207,8 +207,8 @@ export default function OrderSnapshotPage() {
   // Render loading state
   if (loading) {
     return (
-      <div className="h-full bg-[#313338] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[#5865f2] animate-spin" />
+      <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--main-bg)' }}>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--accent)' }} />
       </div>
     )
   }
@@ -216,12 +216,13 @@ export default function OrderSnapshotPage() {
   // Render error state
   if (error) {
     return (
-      <div className="h-full bg-[#313338] flex flex-col items-center justify-center gap-4 p-6">
-        <AlertCircle className="w-12 h-12 text-red-400" />
-        <p className="text-[#dbdee1] text-lg">{error}</p>
+      <div className="h-full flex flex-col items-center justify-center gap-4 p-6" style={{ backgroundColor: 'var(--main-bg)' }}>
+        <AlertCircle className="w-12 h-12" style={{ color: 'var(--text-danger, red)' }} />
+        <p className="text-lg" style={{ color: 'var(--text-primary)' }}>{error}</p>
         <button
           onClick={() => navigate(-1)}
-          className="px-4 py-2 bg-[#5865f2] text-white rounded-md hover:bg-[#4752c4] transition-colors"
+          className="px-4 py-2 rounded-md transition-colors"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--text-primary)' }}
         >
           Go Back
         </button>
@@ -238,14 +239,15 @@ export default function OrderSnapshotPage() {
   const TypeIcon = typeConfig?.icon || Package
 
   return (
-    <div className="h-full bg-[#313338]">
+    <div className="h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
-      <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
+      <div style={{ backgroundColor: 'var(--panel-bg)', borderBottom: '1px solid var(--sidebar-border)' }} className="px-6 py-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate(-1)}
-              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
             >
               <ArrowLeft size={20} />
             </button>
@@ -254,10 +256,10 @@ export default function OrderSnapshotPage() {
                 <TypeIcon size={20} className="text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-white">
+                <h1 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
                   Order #{order.reference || order.id}
                 </h1>
-                <p className="text-sm text-[#949ba4]">{typeConfig.label}</p>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{typeConfig.label}</p>
               </div>
             </div>
           </div>
@@ -275,10 +277,10 @@ export default function OrderSnapshotPage() {
       <div className="max-w-3xl mx-auto p-6 space-y-6">
         
         {/* Status Hint Banner */}
-        <div className="bg-[#2b2d31] border border-[#1f2023] rounded-lg p-4">
+        <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--panel-bg)', border: '1px solid var(--sidebar-border)' }}>
           <div className="flex items-center gap-3">
-            <Clock className="w-5 h-5 text-[#5865f2]" />
-            <p className="text-[#dbdee1]">{getStatusHint()}</p>
+            <Clock className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+            <p style={{ color: 'var(--text-primary)' }}>{getStatusHint()}</p>
           </div>
         </div>
 
@@ -292,30 +294,30 @@ export default function OrderSnapshotPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {order.customer_name && (
               <div className="flex items-center gap-3">
-                <User className="w-4 h-4 text-[#949ba4]" />
+                <User className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                 <div>
-                  <p className="text-xs text-[#949ba4]">Customer</p>
-                  <p className="text-[#dbdee1]">{order.customer_name}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Customer</p>
+                  <p style={{ color: 'var(--text-primary)' }}>{order.customer_name}</p>
                 </div>
               </div>
             )}
             
             {order.customer_phone && (
               <div className="flex items-center gap-3">
-                <Phone className="w-4 h-4 text-[#949ba4]" />
+                <Phone className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                 <div>
-                  <p className="text-xs text-[#949ba4]">Phone</p>
-                  <p className="text-[#dbdee1]">{order.customer_phone}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Phone</p>
+                  <p style={{ color: 'var(--text-primary)' }}>{order.customer_phone}</p>
                 </div>
               </div>
             )}
             
             {order.delivery_location && (
               <div className="flex items-center gap-3">
-                <MapPin className="w-4 h-4 text-[#949ba4]" />
+                <MapPin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                 <div>
-                  <p className="text-xs text-[#949ba4]">Delivery Location</p>
-                  <p className="text-[#dbdee1]">{order.delivery_location}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Delivery Location</p>
+                  <p style={{ color: 'var(--text-primary)' }}>{order.delivery_location}</p>
                 </div>
               </div>
             )}
@@ -344,9 +346,9 @@ export default function OrderSnapshotPage() {
           </div>
           
           {order.internal_comment && (
-            <div className="mt-4 pt-4 border-t border-[#1f2023]">
-              <p className="text-xs text-[#949ba4] mb-1">Notes</p>
-              <p className="text-[#dbdee1] text-sm">{order.internal_comment}</p>
+            <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
+              <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>Notes</p>
+              <p style={{ color: 'var(--text-primary)', fontSize: '0.875rem' }}>{order.internal_comment}</p>
             </div>
           )}
         </div>

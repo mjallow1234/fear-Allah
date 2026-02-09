@@ -150,8 +150,8 @@ export default function OrderDetailsPage() {
       <div className="max-w-3xl mx-auto py-6 px-6">
         {loadingOrder ? (
           <div className="py-12 text-center">
-            <Loader2 className="animate-spin mx-auto mb-4 text-[#5865f2]" size={32} />
-            <p className="text-[#949ba4]">Loading order details...</p>
+            <Loader2 className="animate-spin mx-auto mb-4" size={32} style={{ color: 'var(--accent)' }} />
+            <p style={{ color: 'var(--text-secondary)' }}>Loading order details...</p>
           </div>
         ) : !order ? (
           <div className="py-12 text-center">

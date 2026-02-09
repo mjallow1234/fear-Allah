@@ -161,23 +161,24 @@ export default function TaskInboxPage() {
   });
 
   return (
-    <div className="page-container flex flex-col h-full bg-[#313338] overflow-hidden">
+    <div className="page-container flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
-      <div className="flex-shrink-0 bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
+      <div className="flex-shrink-0 px-6 py-4" style={{ backgroundColor: 'var(--panel-bg)', borderBottom: '1px solid var(--sidebar-border)' }}>
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate(-1)}
-              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
             >
               <ArrowLeft size={20} />
             </button>
             <div>
-              <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+              <h1 className="text-xl font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
                 <ClipboardList size={24} />
                 Task Inbox
               </h1>
-              <p className="text-sm text-[#949ba4]">
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                 {pendingCount} pending task{pendingCount !== 1 ? 's' : ''}
               </p>
             </div>
@@ -185,12 +186,8 @@ export default function TaskInboxPage() {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className={clsx(
-              'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-              loading
-                ? 'bg-[#1f2023] text-[#72767d] cursor-not-allowed'
-                : 'bg-[#5865f2] hover:bg-[#4752c4] text-white'
-            )}
+            className={clsx('flex items-center gap-2 px-3 py-2 rounded-lg transition-colors')}
+            style={loading ? { backgroundColor: 'var(--input-bg)', color: 'var(--text-muted)', cursor: 'not-allowed' } : { backgroundColor: 'var(--accent)', color: 'var(--text-primary)' }}
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Refresh

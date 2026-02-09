@@ -77,12 +77,14 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
   return (
     <div
       onClick={onClick}
-      className={clsx(
-        'p-4 rounded-lg cursor-pointer transition-all border',
-        order.status === 'COMPLETED' || order.status === 'CANCELLED'
-          ? 'bg-[#2b2d31] border-[#1f2023] opacity-75'
-          : 'bg-[#2b2d31] border-[#1f2023] hover:bg-[#35373c] hover:border-[#35373c]'
-      )}
+      className={clsx('p-4 rounded-lg cursor-pointer transition-all border')}
+      style={{
+        backgroundColor: 'var(--panel-bg)',
+        borderColor: 'var(--sidebar-border)',
+        opacity: (order.status === 'COMPLETED' || order.status === 'CANCELLED') ? 0.75 : 1
+      }}
+      onMouseEnter={(e) => { if (!(order.status === 'COMPLETED' || order.status === 'CANCELLED')) { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--sidebar-hover)'; (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--sidebar-hover)'; } }}
+      onMouseLeave={(e) => { if (!(order.status === 'COMPLETED' || order.status === 'CANCELLED')) { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--panel-bg)'; (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--sidebar-border)'; } }}
     >
       <div className="flex items-start gap-4">
         {/* Type Icon */}
@@ -96,7 +98,7 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-white font-medium">Order #{order.id}</span>
+            <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Order #{order.id}</span>
             <span className={clsx(
               'text-xs px-2 py-0.5 rounded-full flex items-center gap-1',
               status.bgColor,
@@ -107,14 +109,12 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
             </span>
           </div>
           
-          <div className="flex items-center gap-4 text-xs text-[#72767d]">
+          <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
             <span className="flex items-center gap-1">
               <Clock size={12} />
               {formatTime(order.created_at)}
             </span>
-            <span className={clsx('px-1.5 py-0.5 rounded', typeConfig.color + '/20', 'text-white/80')}>
-              {typeConfig.label}
-            </span>
+            <span className={clsx('px-1.5 py-0.5 rounded', typeConfig.color + '/20')} style={{ color: 'var(--text-primary)' }}>
           </div>
           
           {/* Automation progress */}
@@ -173,23 +173,24 @@ export default function OrdersPage() {
   const completedOrders = orders.filter(o => o.status === 'COMPLETED' || o.status === 'CANCELLED')
 
   return (
-    <div className="h-full bg-[#313338]">
+    <div className="h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
-      <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
+      <div style={{ backgroundColor: 'var(--panel-bg)', borderBottom: '1px solid var(--sidebar-border)' }} className="px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate(-1)}
-              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
             >
               <ArrowLeft size={20} />
             </button>
             <div>
-              <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+              <h1 className="text-xl font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
                 <ShoppingCart size={24} />
                 Orders
               </h1>
-              <p className="text-sm text-[#949ba4]">
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                 {activeOrders.length} active order{activeOrders.length !== 1 ? 's' : ''}
               </p>
             </div>
@@ -244,14 +245,14 @@ export default function OrdersPage() {
         
         {loading ? (
           <div className="py-12 text-center">
-            <Loader2 className="animate-spin mx-auto mb-4 text-[#5865f2]" size={32} />
-            <p className="text-[#949ba4]">Loading orders...</p>
+            <Loader2 className="animate-spin mx-auto mb-4" size={32} style={{ color: 'var(--accent)' }} />
+            <p style={{ color: 'var(--text-secondary)' }}>Loading orders...</p>
           </div>
         ) : orders.length === 0 ? (
           <div className="py-12 text-center">
-            <ShoppingCart size={48} className="mx-auto mb-4 text-[#949ba4] opacity-50" />
-            <p className="text-[#949ba4]">No orders yet</p>
-            <p className="text-[#72767d] text-sm mt-1">
+            <ShoppingCart size={48} className="mx-auto mb-4" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
+            <p style={{ color: 'var(--text-secondary)' }}>No orders yet</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
               Orders will appear here as they are created
             </p>
           </div>

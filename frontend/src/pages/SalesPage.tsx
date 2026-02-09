@@ -249,18 +249,19 @@ export default function SalesPage() {
   ]
 
   return (
-    <div className="flex flex-col h-full bg-[#313338]">
+    <div className="flex flex-col h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
-      <div className="h-12 border-b border-[#1f2023] flex items-center px-4 justify-between flex-shrink-0">
+      <div className="h-12 flex items-center px-4 justify-between flex-shrink-0" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(-1)}
-            className="p-1 text-[#949ba4] hover:text-white transition-colors"
+            className="p-1 transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
           >
             <ArrowLeft size={20} />
           </button>
-          <DollarSign size={20} className="text-green-400" />
-          <span className="text-white font-semibold">Sales & Inventory</span>
+          <DollarSign size={20} style={{ color: 'var(--accent)' }} />
+          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Sales & Inventory</span>
         </div>
         
         <div className="flex items-center gap-4">
@@ -287,17 +288,13 @@ export default function SalesPage() {
           </div>
           
           {/* Date Range Filter */}
-          <div className="flex items-center gap-1 bg-[#1e1f22] rounded-lg p-1">
+          <div className="flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: 'var(--input-bg)' }}>
             {dateRanges.map(({ value, label }) => (
               <button
                 key={value}
                 onClick={() => setDateRange(value)}
-                className={clsx(
-                  'px-3 py-1 text-sm rounded-md transition-colors',
-                  dateRange === value
-                    ? 'bg-[#5865f2] text-white'
-                    : 'text-[#949ba4] hover:text-white hover:bg-[#35373c]'
-                )}
+                className={clsx('px-3 py-1 text-sm rounded-md transition-colors')}
+                style={dateRange === value ? { backgroundColor: 'var(--accent)', color: 'var(--text-primary)' } : { color: 'var(--text-secondary)' }}
               >
                 {label}
               </button>

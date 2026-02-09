@@ -115,16 +115,16 @@ export default function OrderFormDetails({ formPayload }: OrderFormDetailsProps)
 
         return (
           <div key={groupName}>
-            <h5 className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide mb-2">
+            <h5 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
               {groupName}
             </h5>
             <dl className="space-y-2">
               {entries.map(([key, value]) => (
                 <div key={key} className="flex flex-col sm:flex-row sm:gap-4">
-                  <dt className="text-sm text-[#949ba4] sm:w-32 flex-shrink-0">
+                  <dt className="text-sm sm:w-32 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                     {humanize(key)}
                   </dt>
-                  <dd className="text-sm text-white">
+                  <dd className="text-sm" style={{ color: 'var(--text-primary)' }}>
                     {formatValue(value)}
                   </dd>
                 </div>
@@ -137,16 +137,16 @@ export default function OrderFormDetails({ formPayload }: OrderFormDetailsProps)
       {/* Render ungrouped fields */}
       {hasUngrouped && (
         <div>
-          <h5 className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide mb-2">
+          <h5 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
             Other Details
           </h5>
           <dl className="space-y-2">
             {ungroupedEntries.map(([key, value]) => (
               <div key={key} className="flex flex-col sm:flex-row sm:gap-4">
-                <dt className="text-sm text-[#949ba4] sm:w-32 flex-shrink-0">
+                <dt className="text-sm sm:w-32 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                   {humanize(key)}
                 </dt>
-                <dd className="text-sm text-white">
+                <dd className="text-sm" style={{ color: 'var(--text-primary)' }}>
                   {formatValue(value)}
                 </dd>
               </div>
