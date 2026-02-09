@@ -5,13 +5,22 @@
 /* Dark mode (default) */
 :root,
 :root.dark {
-  --sidebar-bg: #1a1d21;
-  --sidebar-text: #b9bbbe;
-  --sidebar-hover: #34373c;
-  --sidebar-active: #4752c4;
+  --sidebar-bg: #2b2d31;
+  --sidebar-text: #949ba4;
+  --sidebar-hover: #35373c;
+  --sidebar-active: #35373c;
+  --sidebar-border: #1f2023;
+  --sidebar-user-bg: #232428;
+  --topbar-bg: #313338;
+  --topbar-border: #1f2023;
   --main-bg: #313338;
   --main-text: #dcddde;
-  --input-bg: #383a40;
+  --text-primary: #ffffff;
+  --text-secondary: #949ba4;
+  --text-muted: #b9bbbe;
+  --input-bg: #1e1f22;
+  --input-hover: #2e3035;
+  --dropdown-bg: #111214;
   --accent: #5865f2;
   --topbar-height: 64px;
   --app-height: 100%;
@@ -20,12 +29,21 @@
 /* Light mode */
 :root.light {
   --sidebar-bg: #f2f3f5;
-  --sidebar-text: #4f5660;
+  --sidebar-text: #5c6370;
   --sidebar-hover: #e3e5e8;
-  --sidebar-active: #5865f2;
+  --sidebar-active: #d4d7dc;
+  --sidebar-border: #e3e5e8;
+  --sidebar-user-bg: #ebedef;
+  --topbar-bg: #ffffff;
+  --topbar-border: #e3e5e8;
   --main-bg: #ffffff;
   --main-text: #2e3338;
+  --text-primary: #060607;
+  --text-secondary: #5c6370;
+  --text-muted: #747f8d;
   --input-bg: #e3e5e8;
+  --input-hover: #ebedef;
+  --dropdown-bg: #ffffff;
   --accent: #5865f2;
 }
 

@@ -177,46 +177,52 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   }
 
   return (
-    <div className={`sidebar w-60 h-full flex-shrink-0 bg-[#2b2d31] flex flex-col overflow-hidden md:relative md:transform-none ${isOpen ? 'open' : ''}`}>
+    <div className={`sidebar w-60 h-full flex-shrink-0 flex flex-col overflow-hidden md:relative md:transform-none ${isOpen ? 'open' : ''}`} style={{ backgroundColor: 'var(--sidebar-bg)' }}>
       {/* Team selector */}
       <div className="relative">
         <button
           onClick={() => setShowTeamMenu(!showTeamMenu)}
-          className="w-full h-12 flex items-center justify-between px-4 border-b border-[#1f2023] shadow-sm hover:bg-[#35373c] transition-colors"
+          className="w-full h-12 flex items-center justify-between px-4 shadow-sm transition-colors"
+          style={{ borderBottom: '1px solid var(--sidebar-border)', backgroundColor: 'transparent' }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
         >
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-[#5865f2] flex items-center justify-center text-white text-xs font-bold">
+            <div className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: 'var(--accent)' }}>
               {(() => {
                 const name = selectedTeam?.display_name ?? selectedTeam?.name ?? ''
                 return name ? name.charAt(0) : 'T'
               })()}
             </div>
-            <span className="font-bold text-white truncate">
+            <span className="font-bold truncate" style={{ color: 'var(--text-primary)' }}>
               {selectedTeam?.display_name || selectedTeam?.name || 'Select Team'}
             </span>
           </div>
-          <ChevronDown size={18} className={clsx('text-[#949ba4] transition-transform', showTeamMenu && 'rotate-180')} />
+          <ChevronDown size={18} className={clsx('transition-transform', showTeamMenu && 'rotate-180')} style={{ color: 'var(--text-secondary)' }} />
         </button>
 
         {/* Team dropdown */}
         {showTeamMenu && (
-          <div className="absolute top-12 left-0 right-0 bg-[#111214] border border-[#1f2023] rounded-b shadow-lg z-50 max-h-64 overflow-y-auto">
+          <div className="absolute top-12 left-0 right-0 rounded-b shadow-lg z-50 max-h-64 overflow-y-auto" style={{ backgroundColor: 'var(--dropdown-bg)', border: '1px solid var(--sidebar-border)' }}>
             {Array.isArray(teams) && teams.map((team) => (
               <button
                 key={team.id}
                 onClick={() => handleSelectTeam(team)}
                 className={clsx(
-                  'w-full flex items-center gap-2 px-4 py-2 hover:bg-[#35373c] transition-colors text-left',
-                  selectedTeam?.id === team.id && 'bg-[#35373c]'
+                  'w-full flex items-center gap-2 px-4 py-2 transition-colors text-left',
+                  selectedTeam?.id === team.id && 'bg-[var(--sidebar-hover)]'
                 )}
+                style={{ backgroundColor: selectedTeam?.id === team.id ? 'var(--sidebar-hover)' : 'transparent' }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = selectedTeam?.id === team.id ? 'var(--sidebar-hover)' : 'transparent'}
               >
-                <div className="w-6 h-6 rounded bg-[#5865f2] flex items-center justify-center text-white text-xs font-bold">
+                <div className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: 'var(--accent)' }}>
                   {(() => { const name = team.display_name ?? team.name ?? ''; return name ? name.charAt(0) : 'T' })()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-white text-sm font-medium truncate">{team.display_name || team.name}</div>
+                  <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{team.display_name || team.name}</div>
                   {team.description && (
-                    <div className="text-[#949ba4] text-xs truncate">{team.description}</div>
+                    <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{team.description}</div>
                   )}
                 </div>
                 {selectedTeam?.id === team.id && (
@@ -225,7 +231,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               </button>
             ))}
             {teams.length === 0 && (
-              <div className="px-4 py-3 text-[#949ba4] text-sm">
+              <div className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
                 No teams available
               </div>
             )}
@@ -236,12 +242,13 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       {/* Channels */}
       <div className="flex-1 overflow-y-auto py-4">
         <div className="px-2 mb-2 flex items-center justify-between">
-          <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
+          <span className="text-xs font-semibold uppercase tracking-wide px-2" style={{ color: 'var(--text-secondary)' }}>
             Channels
           </span>
           <button 
             onClick={() => setShowCreateChannelModal(true)}
-            className={clsx('p-1 transition-colors', isSystemAdmin ? 'text-[#949ba4] hover:text-white' : 'text-[#949ba4] opacity-50 cursor-not-allowed')}
+            className={clsx('p-1 transition-colors', isSystemAdmin ? 'hover:opacity-100' : 'opacity-50 cursor-not-allowed')}
+            style={{ color: 'var(--text-secondary)' }}
             title={isSystemAdmin ? 'Add Channel' : 'Only admins can create channels'}
             disabled={!isSystemAdmin}
           >
@@ -249,7 +256,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           </button>
         </div>
         {channels.length === 0 ? (
-          <div className="flex items-center gap-2 px-4 py-2 text-[#949ba4] text-sm">
+          <div className="flex items-center gap-2 px-4 py-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
             <Hash size={16} />
             <span>No channels yet</span>
           </div>
@@ -259,10 +266,25 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               key={channel.id}
               to={`/channels/${channel.id}`}
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded text-[#949ba4] hover:text-[#dbdee1] hover:bg-[#35373c] transition-colors',
-                location.pathname === `/channels/${channel.id}` &&
-                  'bg-[#35373c] text-white'
+                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                location.pathname === `/channels/${channel.id}` && 'font-medium'
               )}
+              style={{
+                color: location.pathname === `/channels/${channel.id}` ? 'var(--text-primary)' : 'var(--text-secondary)',
+                backgroundColor: location.pathname === `/channels/${channel.id}` ? 'var(--sidebar-active)' : 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                if (location.pathname !== `/channels/${channel.id}`) {
+                  e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'
+                  e.currentTarget.style.color = 'var(--text-primary)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (location.pathname !== `/channels/${channel.id}`) {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                }
+              }}
             >
               <Hash size={18} />
               <span>{channel.display_name || channel.name}</span>
@@ -272,19 +294,20 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
         {/* Direct Messages */}
         <div className="px-2 mt-6 mb-2 flex items-center justify-between">
-          <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
+          <span className="text-xs font-semibold uppercase tracking-wide px-2" style={{ color: 'var(--text-secondary)' }}>
             Direct Messages
           </span>
           <button 
             onClick={() => setShowNewDMModal(true)}
-            className="p-1 text-[#949ba4] hover:text-white transition-colors"
+            className="p-1 transition-colors hover:opacity-100"
+            style={{ color: 'var(--text-secondary)' }}
             title="New Direct Message"
           >
             <Plus size={14} />
           </button>
         </div>
         {dmChannels.length === 0 ? (
-          <div className="flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm">
+          <div className="flex items-center gap-2 px-2 py-1 mx-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
             <MessageSquare size={16} />
             <span>No DMs yet</span>
           </div>
@@ -294,13 +317,28 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               key={dm.id}
               to={`/channels/${dm.id}`}
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded text-[#949ba4] hover:text-[#dbdee1] hover:bg-[#35373c] transition-colors',
-                location.pathname === `/channels/${dm.id}` &&
-                  'bg-[#35373c] text-white'
+                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                location.pathname === `/channels/${dm.id}` && 'font-medium'
               )}
+              style={{
+                color: location.pathname === `/channels/${dm.id}` ? 'var(--text-primary)' : 'var(--text-secondary)',
+                backgroundColor: location.pathname === `/channels/${dm.id}` ? 'var(--sidebar-active)' : 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                if (location.pathname !== `/channels/${dm.id}`) {
+                  e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'
+                  e.currentTarget.style.color = 'var(--text-primary)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (location.pathname !== `/channels/${dm.id}`) {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                }
+              }}
             >
               <div className="relative">
-                <div className="w-6 h-6 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-medium" style={{ backgroundColor: 'var(--accent)' }}>
                   {dm.other_username ? dm.other_username.charAt(0).toUpperCase() : '?'}
                 </div>
                 {isUserOnline(dm.other_user_id) && (
@@ -317,12 +355,12 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
         {/* Online Users (presence) */}
         <div className="px-2 mt-6 mb-2">
-          <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
+          <span className="text-xs font-semibold uppercase tracking-wide px-2" style={{ color: 'var(--text-secondary)' }}>
             Online — {teamMembers.filter(m => m.user_id !== user?.id && isUserOnline(m.user_id)).length}
           </span>
         </div>
         {teamMembers.filter(m => m.user_id !== user?.id && isUserOnline(m.user_id)).length === 0 ? (
-          <div className="flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm">
+          <div className="flex items-center gap-2 px-2 py-1 mx-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
             <Circle size={16} className="text-gray-500" />
             <span>No one else online</span>
           </div>
@@ -335,11 +373,14 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 <button
                   key={member.user_id}
                   onClick={() => startDM(String(member.user_id))}
-                  className="w-full flex items-center gap-2 px-2 py-1 mx-2 text-[#949ba4] text-sm hover:bg-[#35373c] rounded transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-2 py-1 mx-2 text-sm rounded transition-colors text-left"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   title="Click to start a DM"
                 >
                   <div className="relative">
-                    <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-xs font-medium">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium" style={{ backgroundColor: 'var(--accent)' }}>
                       {displayName ? displayName.charAt(0).toUpperCase() : '?'}
                     </div>
                     <Circle
@@ -357,16 +398,32 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         {isSystemAdmin && (
           <>
             <div className="px-2 mt-6 mb-2">
-              <span className="text-xs font-semibold text-[#949ba4] uppercase tracking-wide px-2">
+              <span className="text-xs font-semibold uppercase tracking-wide px-2" style={{ color: 'var(--text-secondary)' }}>
                 Administration
               </span>
             </div>
             <Link
               to="/admin/forms"
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded text-[#949ba4] hover:text-[#dbdee1] hover:bg-[#35373c] transition-colors',
-                location.pathname.startsWith('/admin/forms') && 'bg-[#35373c] text-white'
+                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                location.pathname.startsWith('/admin/forms') && 'font-medium'
               )}
+              style={{
+                color: location.pathname.startsWith('/admin/forms') ? 'var(--text-primary)' : 'var(--text-secondary)',
+                backgroundColor: location.pathname.startsWith('/admin/forms') ? 'var(--sidebar-active)' : 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                if (!location.pathname.startsWith('/admin/forms')) {
+                  e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'
+                  e.currentTarget.style.color = 'var(--text-primary)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!location.pathname.startsWith('/admin/forms')) {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                }
+              }}
             >
               <FileText size={18} />
               <span>Form Builder</span>
@@ -374,9 +431,25 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <Link
               to="/admin/ai"
               className={clsx(
-                'flex items-center gap-2 px-2 py-1 mx-2 rounded text-[#949ba4] hover:text-[#dbdee1] hover:bg-[#35373c] transition-colors',
-                location.pathname === '/admin/ai' && 'bg-[#35373c] text-white'
+                'flex items-center gap-2 px-2 py-1 mx-2 rounded transition-colors',
+                location.pathname === '/admin/ai' && 'font-medium'
               )}
+              style={{
+                color: location.pathname === '/admin/ai' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                backgroundColor: location.pathname === '/admin/ai' ? 'var(--sidebar-active)' : 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                if (location.pathname !== '/admin/ai') {
+                  e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'
+                  e.currentTarget.style.color = 'var(--text-primary)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (location.pathname !== '/admin/ai') {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                }
+              }}
             >
               <Brain size={18} />
               <span>AI Insights</span>
@@ -386,9 +459,9 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       </div>
 
       {/* User area */}
-      <div className="h-14 bg-[#232428] flex items-center px-2 gap-2">
+      <div className="h-14 flex items-center px-2 gap-2" style={{ backgroundColor: 'var(--sidebar-user-bg)' }}>
         <div className="relative">
-          <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-white text-sm font-medium">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" style={{ backgroundColor: 'var(--accent)' }}>
             {(() => { const name = user?.display_name ?? user?.username ?? ''; return name ? name.charAt(0) : 'U' })()}
           </div>
           <Circle
@@ -397,20 +470,22 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-white truncate">
+          <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
             {user?.display_name || user?.username}
           </div>
-          <div className="text-xs text-[#949ba4] truncate capitalize">{isUserOnline(user?.id) ? 'online' : 'offline'}</div>
+          <div className="text-xs truncate capitalize" style={{ color: 'var(--text-secondary)' }}>{isUserOnline(user?.id) ? 'online' : 'offline'}</div>
         </div>
         <Link
           to="/settings"
-          className="p-1 text-[#949ba4] hover:text-white transition-colors"
+          className="p-1 transition-colors"
+          style={{ color: 'var(--text-secondary)' }}
         >
           <Settings size={18} />
         </Link>
         <Link
           to="/profile"
-          className="p-1 text-[#949ba4] hover:text-white transition-colors"
+          className="p-1 transition-colors"
+          style={{ color: 'var(--text-secondary)' }}
         >
           <User size={18} />
         </Link>

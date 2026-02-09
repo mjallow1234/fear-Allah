@@ -62,24 +62,26 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
 
   return (
     <>
-      <div className="topbar h-12 bg-[#313338] border-b border-[#1f2023] flex items-center px-4 justify-between">
+      <div className="topbar h-12 flex items-center px-4 justify-between" style={{ backgroundColor: 'var(--topbar-bg)', borderBottom: '1px solid var(--topbar-border)' }}>
         <div className="flex items-center gap-2">
           {/* Mobile menu button */}
           {onMenuClick && (
             <button
               onClick={onMenuClick}
-              className="md:hidden p-2 text-[#949ba4] hover:text-white transition-colors icon-button"
+              className="md:hidden p-2 transition-colors icon-button"
+              style={{ color: 'var(--text-secondary)' }}
               aria-label="Open menu"
             >
               <Menu size={20} />
             </button>
           )}
-          <Hash size={20} className="text-[#949ba4]" />
-          <span className="text-white font-semibold">{channelName}</span>
+          <Hash size={20} style={{ color: 'var(--text-secondary)' }} />
+          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{channelName}</span>
           {channelId && (
             <button
               onClick={() => setSettingsOpen(true)}
-              className="p-1 text-[#949ba4] hover:text-white transition-colors"
+              className="p-1 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
               title="Channel Settings"
             >
               <Settings size={16} />
@@ -90,11 +92,14 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {/* Search button */}
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 px-3 py-1 bg-[#1e1f22] rounded text-[#949ba4] hover:bg-[#2e3035] transition-colors"
+            className="flex items-center gap-2 px-3 py-1 rounded transition-colors"
+            style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--input-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--input-bg)'}
           >
             <Search size={16} />
             <span className="text-sm">Search</span>
-            <kbd className="text-xs bg-[#313338] px-1 rounded">Ctrl+K</kbd>
+            <kbd className="text-xs px-1 rounded" style={{ backgroundColor: 'var(--topbar-bg)' }}>Ctrl+K</kbd>
           </button>
           
           {/* Notification Bell */}
@@ -105,12 +110,13 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {perms.tabs.includes('tasks') && (
             <button
               onClick={() => handleTabNavigate('/tasks', 'tasks')}
-              className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="relative p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
               title="Task Inbox"
             >
               <ClipboardList size={20} />
               {pendingTaskCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#5865f2] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 w-5 h-5 text-white text-xs font-bold rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent)' }}>
                   {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
                 </span>
               )}
@@ -121,7 +127,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {perms.tabs.includes('orders') && (
             <button
               onClick={() => handleTabNavigate('/orders', 'orders')}
-              className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="relative p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
               title="Orders"
             >
               <ShoppingCart size={20} />
@@ -137,7 +144,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {perms.tabs.includes('sales') && (
             <button
               onClick={() => handleTabNavigate('/sales', 'sales')}
-              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
               title="Sales & Inventory"
             >
               <DollarSign size={20} />
@@ -148,7 +156,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {isSystemAdmin && (
             <button
               onClick={() => navigate('/system/audit')}
-              className="p-2 text-[#949ba4] hover:text-white transition-colors"
+              className="p-2 transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
               title="Audit Log"
             >
               <FileText size={20} />
@@ -167,7 +176,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           )} 
           
           {onlineCount !== undefined && (
-            <div className="flex items-center gap-1 text-sm text-[#949ba4]">
+            <div className="flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
               <Users size={16} />
               <span>{onlineCount} online</span>
             </div>
@@ -187,8 +196,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
                   opacity: 0.8,
                   padding: "4px 8px",
                   borderRadius: "6px",
-                  background: "#1f2937",
-                  color: "#e5e7eb",
+                  backgroundColor: "var(--input-bg)",
+                  color: "var(--text-primary)",
                   textTransform: "capitalize",
                 }}
               >
@@ -197,7 +206,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             )
           })()}
 
-          <span className="text-sm text-[#949ba4]">
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {user?.display_name || user?.username}
           </span>
         </div>

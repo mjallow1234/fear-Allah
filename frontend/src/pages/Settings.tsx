@@ -5,14 +5,14 @@ export default function Settings() {
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-white mb-6">Settings</h1>
+      <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--text-primary)' }}>Settings</h1>
       
       <div className="space-y-6">
-        <section className="bg-[#2b2d31] rounded-lg p-4">
-          <h2 className="text-lg font-semibold text-white mb-4">Appearance</h2>
+        <section className="rounded-lg p-4" style={{ backgroundColor: 'var(--sidebar-bg)' }}>
+          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Appearance</h2>
           <div className="space-y-3">
             <label className="flex items-center justify-between">
-              <span className="text-[#b5bac1]">Dark Mode</span>
+              <span style={{ color: 'var(--text-muted)' }}>Dark Mode</span>
               <input
                 type="checkbox"
                 checked={preferences.dark_mode}
@@ -21,7 +21,7 @@ export default function Settings() {
               />
             </label>
             <label className="flex items-center justify-between">
-              <span className="text-[#b5bac1]">Compact Mode</span>
+              <span style={{ color: 'var(--text-muted)' }}>Compact Mode</span>
               <input
                 type="checkbox"
                 checked={preferences.compact_mode}
@@ -32,11 +32,11 @@ export default function Settings() {
           </div>
         </section>
 
-        <section className="bg-[#2b2d31] rounded-lg p-4">
-          <h2 className="text-lg font-semibold text-white mb-4">Notifications</h2>
+        <section className="rounded-lg p-4" style={{ backgroundColor: 'var(--sidebar-bg)' }}>
+          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Notifications</h2>
           <div className="space-y-3">
             <label className="flex items-center justify-between">
-              <span className="text-[#b5bac1]">Enable Notifications</span>
+              <span style={{ color: 'var(--text-muted)' }}>Enable Notifications</span>
               <input
                 type="checkbox"
                 checked={preferences.notifications}
@@ -45,7 +45,7 @@ export default function Settings() {
               />
             </label>
             <label className="flex items-center justify-between">
-              <span className="text-[#b5bac1]">Sound</span>
+              <span style={{ color: 'var(--text-muted)' }}>Sound</span>
               <input
                 type="checkbox"
                 checked={preferences.sound}
