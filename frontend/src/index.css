@@ -2,7 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* Dark mode (default) */
+:root,
+:root.dark {
   --sidebar-bg: #1a1d21;
   --sidebar-text: #b9bbbe;
   --sidebar-hover: #34373c;
@@ -13,6 +15,18 @@
   --accent: #5865f2;
   --topbar-height: 64px;
   --app-height: 100%;
+}
+
+/* Light mode */
+:root.light {
+  --sidebar-bg: #f2f3f5;
+  --sidebar-text: #4f5660;
+  --sidebar-hover: #e3e5e8;
+  --sidebar-active: #5865f2;
+  --main-bg: #ffffff;
+  --main-text: #2e3338;
+  --input-bg: #e3e5e8;
+  --accent: #5865f2;
 }
 
 @supports (-webkit-touch-callout: none) {

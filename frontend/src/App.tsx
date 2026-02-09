@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
+import { usePreferencesStore } from './stores/preferencesStore'
 import { connectSocket, subscribeToPresence } from './realtime'
 import { subscribeToReadReceipts } from './realtime/readReceipts'
 import Login from './pages/Login'
@@ -50,6 +51,18 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const token = useAuthStore((state) => state.token)
+  const darkMode = usePreferencesStore((state) => state.preferences.dark_mode)
+
+  // Apply dark_mode preference to document root
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.remove('light')
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+      document.documentElement.classList.add('light')
+    }
+  }, [darkMode])
 
   // Connect Socket.IO when authenticated
   useEffect(() => {
