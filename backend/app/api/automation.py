@@ -936,11 +936,13 @@ async def get_my_assignments(
     if not user.is_system_admin:
         query = query.where(TaskAssignment.user_id == user_id)
 
-    # Filter to only show tasks that are open or in_progress (exclude completed)
+    # Filter to only show assignments for tasks that are not completed (include pending/claimed)
     from app.db.enums import AutomationTaskStatus
     query = query.where(
         ATModel.status.in_([
             AutomationTaskStatus.open,
+            AutomationTaskStatus.pending,
+            AutomationTaskStatus.claimed,
             AutomationTaskStatus.in_progress,
         ])
     )
