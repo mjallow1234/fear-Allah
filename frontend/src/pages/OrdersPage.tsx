@@ -115,6 +115,8 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
               {formatTime(order.created_at)}
             </span>
             <span className={clsx('px-1.5 py-0.5 rounded', typeConfig.color + '/20')} style={{ color: 'var(--text-primary)' }}>
+              {typeConfig.label}
+            </span>
           </div>
           
           {/* Automation progress */}
