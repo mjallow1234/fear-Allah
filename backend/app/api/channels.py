@@ -333,7 +333,7 @@ async def mark_channel_read(
     from app.db.crud import get_channel_member
     membership = await get_channel_member(db, channel_id, current_user["user_id"])
     if not membership:
-        raise HTTPException(status_code=403, detail="User not a member of this channel")
+        raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
 
     user_id = current_user["user_id"]
     
@@ -469,7 +469,17 @@ async def join_channel(
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
+    # Prevent users with must_change_password from joining
+    result = await db.execute(select(User).where(User.id == current_user["user_id"]))
+    user = result.scalar_one_or_none()
+    if user and getattr(user, 'must_change_password', False):
+        raise HTTPException(status_code=403, detail="Password change required")
+
+    # For private channels, do not allow self-join via REST; require admin
+    if channel.type != 'public':
+        raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
+
     # Check if already a member
     query = select(ChannelMember).where(
         ChannelMember.channel_id == channel_id,
@@ -478,7 +488,7 @@ async def join_channel(
     result = await db.execute(query)
     if result.scalar_one_or_none():
         return {"message": "Already a member of this channel"}
-    
+
     membership = ChannelMember(
         user_id=current_user["user_id"],
         channel_id=channel_id,
@@ -510,11 +520,11 @@ async def get_channel_messages_v34(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    # Enforce membership
+    # Enforce membership for non-public channels
     from app.db.crud import get_channel_member
     membership = await get_channel_member(db, channel_id, current_user["user_id"])
-    if not membership:
-        raise HTTPException(status_code=403, detail="User not a member of this channel")
+    if channel.type != 'public' and not membership:
+        raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
 
     # Normalize limit and prepare cursor
     limit = min(max(1, limit), 100)
@@ -540,6 +550,18 @@ async def get_channel_messages_v34(
 
     if cursor_time is not None:
         base_q = base_q.where(Message.created_at < cursor_time)
+
+    # Apply public/member lower bound to avoid showing messages older than join/user creation
+    # Fetch user to apply must_change_password check and lower bound
+    result = await db.execute(select(User).where(User.id == current_user["user_id"]))
+    user = result.scalar_one_or_none()
+    if user and getattr(user, 'must_change_password', False):
+        raise HTTPException(status_code=403, detail="Password change required")
+
+    # Determine join timestamp
+    join_timestamp = membership.created_at if membership else (user.created_at if user else None)
+    if join_timestamp:
+        base_q = base_q.where(Message.created_at >= join_timestamp)
 
     base_q = base_q.order_by(desc(Message.created_at)).limit(limit + 1)
 
@@ -586,7 +608,7 @@ async def leave_channel(
     membership = result.scalar_one_or_none()
     
     if not membership:
-        raise HTTPException(status_code=400, detail="Not a member of this channel")
+        raise HTTPException(status_code=400, detail="You are not a member of this channel. Contact admin if that is not the case.")
     
     await db.delete(membership)
     await db.commit()
@@ -1025,7 +1047,7 @@ async def remove_channel_member(
     membership = member_result.scalar_one_or_none()
     
     if not membership:
-        raise HTTPException(status_code=404, detail="User is not a member of this channel")
+        raise HTTPException(status_code=404, detail="You are not a member of this channel. Contact admin if that is not the case.")
     
     await db.delete(membership)
     await db.commit()

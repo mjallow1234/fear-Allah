@@ -160,10 +160,21 @@ async def create_message(
     if getattr(channel, 'is_archived', False):
         raise HTTPException(status_code=403, detail="Cannot post to archived channel")
     
-    # Get username for broadcasting
-    query = select(User).where(User.id == current_user["user_id"])
-    result = await db.execute(query)
+    # For private channels, require membership
+    if getattr(channel, 'type', None) != 'public':
+        m_q = select(ChannelMember).where(ChannelMember.channel_id == request.channel_id, ChannelMember.user_id == current_user['user_id'])
+        m_r = await db.execute(m_q)
+        m = m_r.scalar_one_or_none()
+        if not m:
+            raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
+
+    # Load user and enforce must_change_password
+    result = await db.execute(select(User).where(User.id == current_user["user_id"]))
     user = result.scalar_one_or_none()
+    if user and getattr(user, 'must_change_password', False):
+        raise HTTPException(status_code=403, detail="Password change required")
+    
+    # Get username for broadcasting
     username = user.username if user else "Unknown"
 
     # Verify parent message if provided and update thread metadata
@@ -215,7 +226,6 @@ async def create_message(
     # Broadcast to WebSocket clients and emit per-user unread updates
     try:
         from app.api.ws import manager, create_mention_notifications
-        from app.db.models import ChannelMember
         from app.services.unread import get_unread_count
 
         await manager.broadcast_to_channel(request.channel_id, {
@@ -301,14 +311,19 @@ async def get_channel_messages(
     # Get user's membership to determine join date (required for all channels)
     result = await db.execute(select(ChannelMember).where(ChannelMember.channel_id == channel_id, ChannelMember.user_id == current_user['user_id']))
     membership = result.scalar_one_or_none()
-    
+
     # For non-public channels, membership is required
     if channel.type != 'public' and not membership:
-        raise HTTPException(status_code=403, detail="Not a member of this channel")
-    
-    # Privacy guard: Only show messages sent after user joined the channel
-    # If no membership record exists (e.g., public channel never explicitly joined), show all messages
-    join_timestamp = membership.created_at if membership else None
+        raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
+
+    # Fetch user record to enforce must_change_password and public-channel lower bound
+    result = await db.execute(select(User).where(User.id == current_user['user_id']))
+    user = result.scalar_one_or_none()
+    if user and getattr(user, 'must_change_password', False):
+        raise HTTPException(status_code=403, detail="Password change required")
+
+    # Privacy guard: determine lower-bound timestamp. If membership exists use membership.created_at; otherwise use user.created_at (public channel rule)
+    join_timestamp = membership.created_at if membership else (user.created_at if user else None)
 
     # Only get top-level messages (no parent_id) for the main channel view
     query = (
@@ -372,7 +387,16 @@ async def get_message_replies(
     )
     membership_result = await db.execute(membership_query)
     membership = membership_result.scalar_one_or_none()
-    join_timestamp = membership.created_at if membership else None
+
+    # Fetch user to apply public-channel lower bound and must_change_password check
+    result = await db.execute(select(User).where(User.id == current_user['user_id']))
+    user = result.scalar_one_or_none()
+    if user and getattr(user, 'must_change_password', False):
+        raise HTTPException(status_code=403, detail="Password change required")
+
+    join_timestamp = membership.created_at if membership else (user.created_at if user else None)
+
+    # Get replies
     
     # Get replies
     query = (

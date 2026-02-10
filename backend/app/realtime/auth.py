@@ -72,6 +72,10 @@ async def authenticate_socket(auth: dict = None, environ: dict = None) -> Tuple[
             if not user.is_active:
                 logger.warning(f"Socket connection rejected: User {user_id} is inactive")
                 return False, None
+
+            if getattr(user, "must_change_password", False):
+                logger.warning(f"Socket connection rejected: User {user_id} must change password")
+                return False, None
             
             # Get user's team_id (first team membership)
             team_result = await db.execute(

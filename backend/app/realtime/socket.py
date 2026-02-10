@@ -170,6 +170,44 @@ async def join_channel(sid: str, data: dict):
         await sio.emit("error", {"message": "channel_id is required"}, room=sid)
         return
     
+    # Verify server-side access and membership for private channels
+    try:
+        from app.db.database import async_session
+        from app.db.models import Channel, ChannelMember, User
+        from sqlalchemy import select
+
+        async with async_session() as db:
+            # Check channel exists
+            q = select(Channel).where(Channel.id == channel_id)
+            r = await db.execute(q)
+            channel = r.scalar_one_or_none()
+            if not channel:
+                await sio.emit("error", {"message": "Channel not found"}, room=sid)
+                return
+
+            # Check user must change password
+            user_q = select(User).where(User.id == user_data["user_id"])
+            user_r = await db.execute(user_q)
+            user = user_r.scalar_one_or_none()
+            if user and getattr(user, "must_change_password", False):
+                await sio.emit("error", {"message": "Password change required"}, room=sid)
+                return
+
+            if channel.type != 'public':
+                member_q = select(ChannelMember).where(
+                    ChannelMember.channel_id == channel_id,
+                    ChannelMember.user_id == user_data["user_id"],
+                )
+                member_r = await db.execute(member_q)
+                membership = member_r.scalar_one_or_none()
+                if not membership:
+                    await sio.emit("error", {"message": "You are not a member of this channel. Contact admin if that is not the case."}, room=sid)
+                    return
+    except Exception as e:
+        logger.exception("Error verifying channel membership on join")
+        await sio.emit("error", {"message": "Internal server error"}, room=sid)
+        return
+
     room_name = f"channel:{channel_id}"
     await sio.enter_room(sid, room_name)
     user_rooms[sid].add(room_name)

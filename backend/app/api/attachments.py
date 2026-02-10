@@ -108,7 +108,7 @@ async def check_channel_access(
         membership = result.scalar_one_or_none()
         
         if not membership:
-            raise HTTPException(status_code=403, detail="Not a member of this channel")
+            raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
     
     return channel
 
