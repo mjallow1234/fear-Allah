@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, UniqueConstraint, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, UniqueConstraint, Float, CheckConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import JSON as SAJSON
 from sqlalchemy.orm import relationship
@@ -172,12 +172,50 @@ class ChannelRead(Base):
     message = relationship("Message")
 
 
+class DirectConversation(Base):
+    __tablename__ = "direct_conversations"
+    __table_args__ = (
+        UniqueConstraint("participant_pair", name="uq_direct_conversation_pair"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    participant_pair = Column(String(100), nullable=True, unique=True)  # canonical 'min:max' for two-user uniqueness
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    participants = relationship("DirectConversationParticipant", back_populates="conversation", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="direct_conversation")
+
+
+class DirectConversationParticipant(Base):
+    __tablename__ = "direct_conversation_participants"
+    __table_args__ = (
+        UniqueConstraint("direct_conversation_id", "user_id", name="uq_direct_conv_participant"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    direct_conversation_id = Column(Integer, ForeignKey("direct_conversations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    conversation = relationship("DirectConversation", back_populates="participants")
+    user = relationship("User")
+
+
 class Message(Base):
     __tablename__ = "messages"
-    
+    __table_args__ = (
+        # Message must refer to exactly one of channel_id or direct_conversation_id
+        CheckConstraint("((channel_id IS NOT NULL) <> (direct_conversation_id IS NOT NULL))", name="ck_message_one_parent"),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
     content = Column(Text, nullable=False)
-    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=True)
+    direct_conversation_id = Column(Integer, ForeignKey("direct_conversations.id"), nullable=True)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     parent_id = Column(Integer, ForeignKey("messages.id"), nullable=True)  # For threads
     is_edited = Column(Boolean, default=False)
@@ -193,6 +231,7 @@ class Message(Base):
     
     # Relationships
     channel = relationship("Channel", back_populates="messages")
+    direct_conversation = relationship("DirectConversation", back_populates="messages")
     author = relationship("User", back_populates="messages", foreign_keys=[author_id])
     editor = relationship("User", foreign_keys=[editor_id])
     replies = relationship("Message", backref="parent", remote_side=[id])

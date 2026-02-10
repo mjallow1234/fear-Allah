@@ -48,7 +48,7 @@ class AttachmentResponse(BaseModel):
 class MessageResponse(BaseModel):
     id: int
     content: str
-    channel_id: int
+    channel_id: Optional[int] = None
     author_id: int
     parent_id: Optional[int]
     is_edited: bool

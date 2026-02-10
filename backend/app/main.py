@@ -5,7 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from sqlalchemy import select
 
-from app.api import auth, users, teams, channels, messages, websocket, ws, notifications, admin, system, attachments, audit, audit
+from app.api import auth, users, teams, channels, messages, websocket, ws, notifications, admin, system, attachments, audit, audit, direct_conversations
 from app.db.database import create_tables, async_session
 from app.db.models import Team, Channel, ChannelType, User, UserRole
 from app.core.config import settings
@@ -228,6 +228,7 @@ app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
 app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
 app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
+app.include_router(direct_conversations.router, prefix="/api/direct-conversations", tags=["DirectConversations"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(system.router, prefix="/api/system", tags=["System Console"])
