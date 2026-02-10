@@ -205,6 +205,27 @@ class DirectConversationParticipant(Base):
     user = relationship("User")
 
 
+# ----------------------
+# Legacy DM migration mapping
+# ----------------------
+class LegacyDMMigration(Base):
+    __tablename__ = "legacy_dm_migrations"
+    __table_args__ = (
+        UniqueConstraint("legacy_channel_id", name="uq_legacy_dm_channel"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    legacy_channel_id = Column(Integer, nullable=False, unique=True)
+    direct_conversation_id = Column(Integer, nullable=False, unique=True)
+    message_count = Column(Integer, default=0)
+    migrated = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    migrated_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f"<LegacyDMMigration legacy_channel_id={self.legacy_channel_id} direct_conv={self.direct_conversation_id} migrated={self.migrated}>"
+
+
 class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (

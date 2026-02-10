@@ -118,13 +118,16 @@ async def list_channels(
     if team_id:
         query = select(Channel).where(Channel.team_id == team_id, Channel.type != ChannelType.direct)
     elif include_dms:
-        # Get DM channels where user is a member
+        # Get DM channels where user is a member, but exclude ones that have been migrated
+        from app.db.models import LegacyDMMigration
         dm_query = (
             select(Channel)
             .join(ChannelMember, Channel.id == ChannelMember.channel_id)
+            .outerjoin(LegacyDMMigration, LegacyDMMigration.legacy_channel_id == Channel.id)
             .where(
                 ChannelMember.user_id == current_user["user_id"],
-                Channel.type == ChannelType.direct
+                Channel.type == ChannelType.direct,
+                or_(LegacyDMMigration.migrated.is_(False), LegacyDMMigration.id.is_(None))
             )
         )
         result = await db.execute(dm_query)
@@ -238,13 +241,16 @@ async def list_dm_channels(
     """List all DM channels for the current user."""
     my_user_id = current_user["user_id"]
     
-    # Get all DM channels where user is a member
+    # Get all DM channels where user is a member, exclude migrated legacy DMs
+    from app.db.models import LegacyDMMigration
     dm_query = (
         select(Channel)
         .join(ChannelMember, Channel.id == ChannelMember.channel_id)
+        .outerjoin(LegacyDMMigration, LegacyDMMigration.legacy_channel_id == Channel.id)
         .where(
             ChannelMember.user_id == my_user_id,
-            Channel.type == ChannelType.direct
+            Channel.type == ChannelType.direct,
+            or_(LegacyDMMigration.migrated.is_(False), LegacyDMMigration.id.is_(None))
         )
     )
     result = await db.execute(dm_query)

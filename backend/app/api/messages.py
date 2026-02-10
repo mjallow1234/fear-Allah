@@ -160,6 +160,13 @@ async def create_message(
         raise HTTPException(status_code=404, detail="Channel not found")
     if getattr(channel, 'is_archived', False):
         raise HTTPException(status_code=403, detail="Cannot post to archived channel")
+
+    # If this channel is a legacy DM that has been migrated, do not accept new messages here
+    if getattr(channel, 'type', None) == ChannelType.direct.value or (hasattr(channel, 'type') and getattr(channel, 'type') == ChannelType.direct):
+        # Check migration status
+        from app.db.crud import is_channel_migrated
+        if await is_channel_migrated(db, channel.id):
+            raise HTTPException(status_code=403, detail="This direct message channel has been migrated; use direct conversation APIs")
     
     # For private channels, require membership
     if getattr(channel, 'type', None) != 'public':
