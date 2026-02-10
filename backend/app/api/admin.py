@@ -802,6 +802,10 @@ async def update_channel(
     
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Direct messages cannot be managed via channel admin endpoints
+    if str(channel.type) == 'direct':
+        raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")
     
     changes = {}
     
@@ -850,7 +854,11 @@ async def archive_channel(
     
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
+    # Disallow managing DMs
+    if str(channel.type) == 'direct':
+        raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")
+
     channel.is_archived = True
     channel.archived_at = datetime.utcnow()
     channel.archived_by_id = admin.id
@@ -879,7 +887,11 @@ async def unarchive_channel(
     
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
+    # Disallow managing DMs
+    if str(channel.type) == 'direct':
+        raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")
+
     channel.is_archived = False
     channel.archived_at = None
     channel.archived_by_id = None
@@ -908,7 +920,11 @@ async def delete_channel(
     
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
+
+    # Disallow managing DMs
+    if str(channel.type) == 'direct':
+        raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")
+
     channel_name = channel.name
     channel_id_log = channel.id
     

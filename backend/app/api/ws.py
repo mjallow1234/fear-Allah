@@ -30,8 +30,8 @@ class ConnectionManager:
     """Manages WebSocket connections for real-time features."""
     
     def __init__(self):
-        # channel_id -> set of (websocket, user_id)
-        self.channel_connections: Dict[int, Set[tuple]] = {}
+        # room_key -> set of (websocket, user_id). room_key is a string: 'channel:{id}' or 'dm:{id}'
+        self.channel_connections: Dict[str, Set[tuple]] = {}
         # user_id -> set of websockets (user can be in multiple channels)
         self.user_connections: Dict[int, Set[WebSocket]] = {}
         # user_id -> user info cache
@@ -43,9 +43,50 @@ class ConnectionManager:
         # Pending offline tasks: user_id -> asyncio.Task for delayed offline
         self._pending_offline_tasks: Dict[int, asyncio.Task] = {}
     
+    async def _room_key_for_channel(self, channel_id: int) -> str:
+        """Return a room key string for a channel id (used for internal channel_connections map)."""
+        try:
+            from app.db.database import async_session
+            from app.db.models import Channel
+            from app.db.enums import ChannelType
+            from sqlalchemy import select
+            async with async_session() as db:
+                r = await db.execute(select(Channel).where(Channel.id == channel_id))
+                c = r.scalar_one_or_none()
+                if c:
+                    c_type_val = c.type.value if hasattr(c.type, 'value') else c.type
+                    if c_type_val == ChannelType.direct.value:
+                        return f"dm:{channel_id}"
+        except Exception:
+            pass
+        return f"channel:{channel_id}"
+
     async def connect(self, websocket: WebSocket, channel_id: int, user_id: int, username: str = ""):
         """Connect a user to a channel."""
+        # Determine room key and enforce DM membership on connect
+        room_key = await self._room_key_for_channel(channel_id)
+        logger.debug(f"Resolved room_key for channel {channel_id}: {room_key}")
+        # If DM, verify user is a member (defense-in-depth even if handler checked earlier)
+        if room_key.startswith('dm:'):
+            try:
+                from app.db import database as db_mod
+                async with db_mod.async_session() as session:
+                    from sqlalchemy import select
+                    result = await session.execute(select(ChannelMember).where(ChannelMember.channel_id == channel_id, ChannelMember.user_id == user_id))
+                    member = result.scalar_one_or_none()
+                    if not member:
+                        # Reject connect for non-participants
+                        logger.debug(f"Rejecting websocket for user {user_id} to DM {channel_id} - not a member")
+                        await websocket.close(code=4403)
+                        return
+            except Exception as e:
+                logger.debug(f"Rejecting websocket for user {user_id} to DM {channel_id} - error during membership check: {e!r}")
+                logger.exception("Membership check failed")
+                await websocket.close(code=4403)
+                return
+
         await websocket.accept()
+        logger.debug(f"Websocket accepted for user {user_id} in room {room_key}")
         
         # Cancel any pending offline task for this user (they reconnected quickly)
         pending = self._pending_offline_tasks.get(user_id)
@@ -54,15 +95,17 @@ class ConnectionManager:
             logger.info('Cancelled pending offline for user %s due to reconnect', user_id)
             self._pending_offline_tasks.pop(user_id, None)
 
-        # Add to channel connections
-        if channel_id not in self.channel_connections:
-            self.channel_connections[channel_id] = set()
-        self.channel_connections[channel_id].add((websocket, user_id))
+        # Add to channel connections (use room_key)
+        if room_key not in self.channel_connections:
+            self.channel_connections[room_key] = set()
+        self.channel_connections[room_key].add((websocket, user_id))
+        logger.debug(f"Added websocket for user {user_id} to room {room_key}")
         
         # Add to user connections
         if user_id not in self.user_connections:
             self.user_connections[user_id] = set()
         self.user_connections[user_id].add(websocket)
+        logger.debug(f"User connections for {user_id}: {self.user_connections.get(user_id)}")
         
         # Cache user info
         self.user_info[user_id] = {"username": username, "user_id": user_id}
@@ -77,6 +120,7 @@ class ConnectionManager:
             "channel_id": channel_id,
             "user_id": user_id,
             "username": username,
+            "content": None,
             "timestamp": datetime.utcnow().isoformat(),
         }, exclude_user=user_id)
         
@@ -90,11 +134,20 @@ class ConnectionManager:
     
     def disconnect(self, websocket: WebSocket, channel_id: int, user_id: int):
         """Disconnect a user from a channel."""
+        # Determine room key
+        import asyncio
+        async def _get_room_key():
+            return await self._room_key_for_channel(channel_id)
+        try:
+            room_key = asyncio.get_event_loop().run_until_complete(_get_room_key())
+        except Exception:
+            room_key = f"channel:{channel_id}"
+
         # Remove from channel connections
-        if channel_id in self.channel_connections:
-            self.channel_connections[channel_id].discard((websocket, user_id))
-            if not self.channel_connections[channel_id]:
-                del self.channel_connections[channel_id]
+        if room_key in self.channel_connections:
+            self.channel_connections[room_key].discard((websocket, user_id))
+            if not self.channel_connections[room_key]:
+                del self.channel_connections[room_key]
         
         # Remove from user connections
         if user_id in self.user_connections:
@@ -134,23 +187,27 @@ class ConnectionManager:
         })
     
     async def broadcast_to_channel(self, channel_id: int, message: dict, exclude_user: int = None):
-        """Broadcast message to all users in a channel."""
-        if channel_id not in self.channel_connections:
+        """Broadcast message to all users in a channel or DM room."""
+        room_key = await self._room_key_for_channel(channel_id)
+        logger.debug(f"Resolved room_key for broadcast for channel {channel_id}: {room_key}")
+        if room_key not in self.channel_connections:
+            logger.debug(f"No connections for room_key {room_key}; existing keys: {list(self.channel_connections.keys())}")
             return
         
         disconnected = []
         # iterate over a copy to avoid 'Set changed size during iteration' when sockets disconnect
-        for ws, uid in list(self.channel_connections[channel_id]):
+        for ws, uid in list(self.channel_connections[room_key]):
             if exclude_user and uid == exclude_user:
                 continue
             try:
+                logger.debug(f"Sending to user {uid} in room {room_key}: {message}")
                 await ws.send_json(message)
             except Exception:
                 disconnected.append((ws, uid))
         
         # Clean up disconnected
         for conn in disconnected:
-            self.channel_connections[channel_id].discard(conn)
+            self.channel_connections[room_key].discard(conn)
     
     async def send_to_user(self, user_id: int, message: dict):
         """Send message to specific user."""
@@ -360,7 +417,16 @@ async def websocket_chat(
             ))
             member = result.scalar_one_or_none()
             if member is None:
-                # In development mode, auto-join the channel for convenience
+                # If this is a DM, never auto-join — participants must be explicit
+                from app.db.models import Channel
+                ch_q = select(Channel).where(Channel.id == channel_id)
+                ch_r = await session.execute(ch_q)
+                ch = ch_r.scalar_one_or_none()
+                if ch and str(ch.type) == 'direct':
+                    await websocket.close(code=4403)
+                    return
+
+                # In development mode, non-DMs may be auto-joined for convenience
                 from app.core.config import settings
                 if settings.DEBUG:
                     from app.db.models import ChannelMember as ChannelMemberModel

@@ -524,6 +524,25 @@ async def get_channel_messages_v34(
     from app.db.crud import get_channel_member
     membership = await get_channel_member(db, channel_id, current_user["user_id"])
     if channel.type != 'public' and not membership:
+        # If this is a DM, provide a participant-specific message
+        ch_candidates = set()
+        try:
+            if hasattr(channel.type, 'value'):
+                ch_candidates.add(channel.type.value)
+        except Exception:
+            pass
+        try:
+            ch_candidates.add(str(channel.type))
+        except Exception:
+            pass
+        try:
+            ch_candidates.add(channel.type)
+        except Exception:
+            pass
+        from app.db.enums import ChannelType as _CT
+        if _CT.direct.value in ch_candidates:
+            raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation.")
+
         raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
 
     # Normalize limit and prepare cursor
@@ -944,8 +963,9 @@ async def add_channel_member(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     
-    if str(channel.type) == ChannelType.direct.value:
-        raise HTTPException(status_code=400, detail="Cannot add members to DM channels")
+    channel_type_val = channel.type.value if hasattr(channel.type, 'value') else channel.type
+    if channel_type_val == ChannelType.direct.value:
+        raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")
 
     # Enforce admin-only management
     user_q = select(User).where(User.id == current_user["user_id"])
@@ -997,9 +1017,21 @@ async def add_channel_member(
     )
 
 
+async def _disallow_dm_management(channel_id: int, db: AsyncSession = Depends(get_db)):
+    """Dependency to reject any management actions against DM channels before other permissions run."""
+    query = select(Channel).where(Channel.id == channel_id)
+    result = await db.execute(query)
+    channel = result.scalar_one_or_none()
+    if channel:
+        channel_type_val = channel.type.value if hasattr(channel.type, 'value') else channel.type
+        if channel_type_val == ChannelType.direct.value:
+            raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")
+
+
 @router.delete(
     "/{channel_id}/members/{user_id}",
     dependencies=[
+        Depends(_disallow_dm_management),
         Depends(
             require_permission(
                 Permission.KICK_MEMBER,
@@ -1023,9 +1055,9 @@ async def remove_channel_member(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     
-    if str(channel.type) == ChannelType.direct.value:
-        raise HTTPException(status_code=400, detail="Cannot remove members from DM channels")
-    
+    channel_type_val = channel.type.value if hasattr(channel.type, 'value') else channel.type
+    if channel_type_val == ChannelType.direct.value:
+        raise HTTPException(status_code=403, detail="Direct messages cannot be managed as channels.")    
     # Enforce admin-only removal
     current_user_query = select(User).where(User.id == current_user["user_id"])
     current_user_result = await db.execute(current_user_query)

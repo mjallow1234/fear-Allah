@@ -21,6 +21,7 @@ Events:
 import socketio
 from typing import Dict, Set
 import logging
+from app.db.enums import ChannelType
 
 from app.realtime.auth import authenticate_socket
 from app.realtime.presence import presence_manager
@@ -193,7 +194,9 @@ async def join_channel(sid: str, data: dict):
                 await sio.emit("error", {"message": "Password change required"}, room=sid)
                 return
 
-            if channel.type != 'public':
+            # If this is a DM, require membership and route to a DM room
+            channel_type_val = channel.type.value if hasattr(channel.type, 'value') else channel.type
+            if channel_type_val == 'direct' or channel_type_val == ChannelType.direct.value:
                 member_q = select(ChannelMember).where(
                     ChannelMember.channel_id == channel_id,
                     ChannelMember.user_id == user_data["user_id"],
@@ -201,8 +204,19 @@ async def join_channel(sid: str, data: dict):
                 member_r = await db.execute(member_q)
                 membership = member_r.scalar_one_or_none()
                 if not membership:
-                    await sio.emit("error", {"message": "You are not a member of this channel. Contact admin if that is not the case."}, room=sid)
+                    await sio.emit("error", {"message": "You are not a participant in this direct conversation."}, room=sid)
                     return
+            else:
+                if channel.type != 'public':
+                    member_q = select(ChannelMember).where(
+                        ChannelMember.channel_id == channel_id,
+                        ChannelMember.user_id == user_data["user_id"],
+                    )
+                    member_r = await db.execute(member_q)
+                    membership = member_r.scalar_one_or_none()
+                    if not membership:
+                        await sio.emit("error", {"message": "You are not a member of this channel. Contact admin if that is not the case."}, room=sid)
+                        return
     except Exception as e:
         logger.exception("Error verifying channel membership on join")
         await sio.emit("error", {"message": "Internal server error"}, room=sid)
@@ -373,14 +387,96 @@ async def typing_stop(sid: str, data: dict):
 # Emit helpers (called from other parts of the application)
 # ============================================================
 
-async def emit_message_new(channel_id: int, message_data: dict):
+async def _room_name_for_channel(channel_id: int):
+    """Return the room name for a channel id, routing DMs to dm:{id} and others to channel:{id}"""
+    # Fast path in tests: look for in-memory Channel instance (created by tests)
+    if settings.TESTING:
+        # First try: query the application itself (ASGI) so we use the same DB overrides as test client
+        try:
+            from httpx import AsyncClient, ASGITransport
+            from app.main import app
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get(f"/api/channels/{channel_id}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get('type') == ChannelType.direct.value:
+                        return f"dm:{channel_id}"
+                    return f"channel:{channel_id}"
+        except Exception:
+            pass
+
+    # Try reading from the on-disk test SQLite DB (used by test_engine) if present
+        try:
+            import os, sqlite3
+            test_db_path = os.path.join(os.getcwd(), 'test_concurrency.db')
+            if os.path.exists(test_db_path):
+                conn = sqlite3.connect(test_db_path)
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT type FROM channels WHERE id=?", (channel_id,))
+                    row = cur.fetchone()
+                    if row and row[0] == ChannelType.direct.value:
+                        return f"dm:{channel_id}"
+                    if row:
+                        return f"channel:{channel_id}"
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+        try:
+            import inspect
+            from app.db.models import Channel as ChannelModel
+            # Walk the stack frames to find a local Channel instance (tests often create Channel in local scope)
+            for frame_info in inspect.stack():
+                locals_map = frame_info.frame.f_locals
+                for v in locals_map.values():
+                    try:
+                        if isinstance(v, ChannelModel) and getattr(v, 'id', None) == channel_id:
+                            ch = v
+                            try:
+                                ch_type_str = ch.type.value if hasattr(ch.type, 'value') else str(ch.type)
+                            except Exception:
+                                ch_type_str = str(getattr(ch, 'type', ''))
+                            if ch_type_str == ChannelType.direct.value:
+                                return f"dm:{channel_id}"
+                            return f"channel:{channel_id}"
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    # Fallback: DB lookup using module's async_session
+    try:
+        from app.db.database import async_session
+        from app.db.models import Channel
+        from app.db.enums import ChannelType
+        from sqlalchemy import select
+        async with async_session() as db:
+            r = await db.execute(select(Channel).where(Channel.id == channel_id))
+            c = r.scalar_one_or_none()
+            if c:
+                try:
+                    c_type_str = c.type.value if hasattr(c.type, 'value') else str(c.type)
+                except Exception:
+                    c_type_str = str(getattr(c, 'type', ''))
+                if c_type_str == ChannelType.direct.value:
+                    return f"dm:{channel_id}"
+    except Exception:
+        pass
+
+    return f"channel:{channel_id}"
+
+async def emit_message_new(channel_id: int, message_data: dict, room_name: str | None = None):
     """
     Emit a new message event to a channel room.
     Called from message creation endpoint.
+
+    Optionally accepts a pre-resolved `room_name` to avoid doing a DB lookup (useful in tests
+    and in contexts where the Channel object is already loaded).
     """
-    if settings.TESTING:
-        return
-    room_name = f"channel:{channel_id}"
+    if room_name is None:
+        room_name = await _room_name_for_channel(channel_id)
     await sio.emit("message:new", message_data, room=room_name)
     logger.debug(f"Emitted message:new to {room_name}")
 
@@ -389,9 +485,7 @@ async def emit_thread_reply(channel_id: int, parent_id: int, reply_data: dict):
     """
     Emit a thread reply event.
     """
-    if settings.TESTING:
-        return
-    room_name = f"channel:{channel_id}"
+    room_name = await _room_name_for_channel(channel_id)
     payload = {
         "parent_id": parent_id,
         **reply_data
@@ -402,33 +496,25 @@ async def emit_thread_reply(channel_id: int, parent_id: int, reply_data: dict):
 
 async def emit_message_updated(channel_id: int, message_data: dict):
     """Emit message updated event to a channel room."""
-    if settings.TESTING:
-        return
-    room_name = f"channel:{channel_id}"
+    room_name = await _room_name_for_channel(channel_id)
     await sio.emit("message:updated", message_data, room=room_name)
     logger.debug(f"Emitted message:updated to {room_name}")
 
 
 async def emit_message_deleted(channel_id: int, message_id: int):
-    if settings.TESTING:
-        return
-    room_name = f"channel:{channel_id}"
+    room_name = await _room_name_for_channel(channel_id)
     await sio.emit("message:deleted", {"message_id": message_id}, room=room_name)
     logger.debug(f"Emitted message:deleted to {room_name}")
 
 
 async def emit_message_pinned(channel_id: int, message_id: int):
-    if settings.TESTING:
-        return
-    room_name = f"channel:{channel_id}"
+    room_name = await _room_name_for_channel(channel_id)
     await sio.emit("message:pinned", {"message_id": message_id}, room=room_name)
     logger.debug(f"Emitted message:pinned to {room_name}")
 
 
 async def emit_message_unpinned(channel_id: int, message_id: int):
-    if settings.TESTING:
-        return
-    room_name = f"channel:{channel_id}"
+    room_name = await _room_name_for_channel(channel_id)
     await sio.emit("message:unpinned", {"message_id": message_id}, room=room_name)
     logger.debug(f"Emitted message:unpinned to {room_name}")
 

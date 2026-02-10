@@ -11,6 +11,7 @@ from collections import defaultdict
 
 from app.db.database import get_db
 from app.db.models import Message, Channel, User, MessageReaction, AuditLog, FileAttachment, ChannelMember
+from app.db.enums import ChannelType
 from app.core.security import get_current_user, check_user_can_post
 from app.permissions.constants import Permission
 from app.permissions.dependencies import require_permission
@@ -166,7 +167,11 @@ async def create_message(
         m_r = await db.execute(m_q)
         m = m_r.scalar_one_or_none()
         if not m:
-            raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
+            channel_type_val = channel.type.value if hasattr(channel.type, 'value') else channel.type
+            if channel_type_val == ChannelType.direct.value:
+                raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation.")
+            else:
+                raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
 
     # Load user and enforce must_change_password
     result = await db.execute(select(User).where(User.id == current_user["user_id"]))
@@ -283,8 +288,11 @@ async def create_message(
             await emit_thread_reply(request.channel_id, request.parent_id, message_payload)
         else:
             # New message
-            logger.info(f"Emitting message:new to channel {request.channel_id} payload_id {message.id}")
-            await emit_message_new(request.channel_id, message_payload)
+            # Resolve room_name based on Channel object to avoid cross-session DB lookups
+            ch_type_val = channel.type.value if hasattr(channel.type, 'value') else channel.type
+            room_name = f"dm:{request.channel_id}" if ch_type_val == ChannelType.direct.value or str(ch_type_val) == ChannelType.direct.value else f"channel:{request.channel_id}"
+            logger.info(f"Emitting message:new to channel {request.channel_id} payload_id {message.id} room={room_name}")
+            await emit_message_new(request.channel_id, message_payload, room_name=room_name)
     except Exception as e:
         # Don't fail REST if Socket.IO emit fails
         logger.warning(f"Socket.IO emit failed: {e}")
@@ -314,6 +322,24 @@ async def get_channel_messages(
 
     # For non-public channels, membership is required
     if channel.type != 'public' and not membership:
+        # For DMs provide a participant-specific message
+            # Normalize channel type robustly
+        ch_candidates = set()
+        try:
+            if hasattr(channel.type, 'value'):
+                ch_candidates.add(channel.type.value)
+        except Exception:
+            pass
+        try:
+            ch_candidates.add(str(channel.type))
+        except Exception:
+            pass
+        try:
+            ch_candidates.add(channel.type)
+        except Exception:
+            pass
+        if ChannelType.direct.value in ch_candidates:
+            raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation.")
         raise HTTPException(status_code=403, detail="You are not a member of this channel. Contact admin if that is not the case.")
 
     # Fetch user record to enforce must_change_password and public-channel lower bound
@@ -393,6 +419,15 @@ async def get_message_replies(
     user = result.scalar_one_or_none()
     if user and getattr(user, 'must_change_password', False):
         raise HTTPException(status_code=403, detail="Password change required")
+
+    # If this is a DM, enforce membership strictly
+    channel_q = select(Channel).where(Channel.id == parent_msg.channel_id)
+    ch_res = await db.execute(channel_q)
+    ch = ch_res.scalar_one_or_none()
+    if ch:
+        ch_type_val = ch.type.value if hasattr(ch.type, 'value') else ch.type
+        if ch_type_val == ChannelType.direct.value and not membership:
+            raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation.")
 
     join_timestamp = membership.created_at if membership else (user.created_at if user else None)
 

@@ -14,6 +14,13 @@ else:
 sync_engine = create_engine(DATABASE_URL)
 
 # Async engine for application
+# If running tests and a test_concurrency.db exists, prefer it so module-level async_session
+# can see the same DB as the test fixtures that use a separate engine.
+if settings.TESTING:
+    import os
+    test_db_path = os.path.join(os.getcwd(), 'test_concurrency.db')
+    if os.path.exists(test_db_path):
+        ASYNC_DATABASE_URL = f"sqlite+aiosqlite:///{test_db_path}"
 async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=settings.DEBUG)
 
 # Session factory

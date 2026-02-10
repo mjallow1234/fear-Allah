@@ -199,6 +199,14 @@ async def override_get_db_for_app(test_engine):
                 raise
 
     app.dependency_overrides[get_db] = _override_get_db
+
+    # Ensure modules that use the global async_session (e.g., realtime socket helpers)
+    # use the same AsyncEngine/session factory as the tests so DB lookups inside
+    # those helpers see the same test data.
+    import app.db.database as _db_mod
+    _db_mod.async_engine = test_engine
+    _db_mod.async_session = async_session
+
     yield
     app.dependency_overrides.clear()
 
