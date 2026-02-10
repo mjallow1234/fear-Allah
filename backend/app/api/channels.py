@@ -928,14 +928,6 @@ async def list_channel_members(
 @router.post(
     "/{channel_id}/members",
     response_model=ChannelMemberResponse,
-    dependencies=[
-        Depends(
-            require_permission(
-                Permission.INVITE_MEMBER,
-                channel_param="channel_id",
-            )
-        )
-    ],
 )
 async def add_channel_member(
     channel_id: int,
@@ -943,7 +935,7 @@ async def add_channel_member(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Add a user to a channel."""
+    """Add a user to a channel. Admins only."""
     # Verify channel exists and is not a DM
     channel_query = select(Channel).where(Channel.id == channel_id)
     channel_result = await db.execute(channel_query)
@@ -954,16 +946,20 @@ async def add_channel_member(
     
     if str(channel.type) == ChannelType.direct.value:
         raise HTTPException(status_code=400, detail="Cannot add members to DM channels")
-    
-    # For private channels, check if current user is a member
-    if str(channel.type) == ChannelType.private.value:
-        member_query = select(ChannelMember).where(
-            ChannelMember.channel_id == channel_id,
-            ChannelMember.user_id == current_user["user_id"]
-        )
-        member_result = await db.execute(member_query)
-        if not member_result.scalar_one_or_none():
-            raise HTTPException(status_code=403, detail="Only members can add users to private channels")
+
+    # Enforce admin-only management
+    user_q = select(User).where(User.id == current_user["user_id"])
+    user_r = await db.execute(user_q)
+    curr_user = user_r.scalar_one_or_none()
+    role_val = None
+    if curr_user:
+        try:
+            role_val = curr_user.role.value if hasattr(curr_user.role, 'value') else curr_user.role
+        except Exception:
+            role_val = getattr(curr_user, 'role', None)
+
+    if not (getattr(curr_user, 'is_system_admin', False) or role_val == 'team_admin' or role_val == 'system_admin'):
+        raise HTTPException(status_code=403, detail="You do not have permission to manage this channel.")
     
     # Check if target user exists
     user_query = select(User).where(User.id == request.user_id)
@@ -1030,13 +1026,19 @@ async def remove_channel_member(
     if str(channel.type) == ChannelType.direct.value:
         raise HTTPException(status_code=400, detail="Cannot remove members from DM channels")
     
-    # Check if current user has permission (system admin or removing themselves)
+    # Enforce admin-only removal
     current_user_query = select(User).where(User.id == current_user["user_id"])
     current_user_result = await db.execute(current_user_query)
     curr_user = current_user_result.scalar_one_or_none()
-    
-    if not curr_user.is_system_admin and user_id != current_user["user_id"]:
-        raise HTTPException(status_code=403, detail="Only admins can remove other users")
+    role_val = None
+    if curr_user:
+        try:
+            role_val = curr_user.role.value if hasattr(curr_user.role, 'value') else curr_user.role
+        except Exception:
+            role_val = getattr(curr_user, 'role', None)
+
+    if not (getattr(curr_user, 'is_system_admin', False) or role_val == 'team_admin' or role_val == 'system_admin'):
+        raise HTTPException(status_code=403, detail="You do not have permission to manage this channel.")
     
     # Find and remove membership
     member_query = select(ChannelMember).where(

@@ -792,7 +792,10 @@ async def update_channel(
     current_user: dict = Depends(get_current_user)
 ):
     """Update channel settings"""
-    admin = await require_admin(db, current_user)
+    try:
+        admin = await require_admin(db, current_user)
+    except Exception:
+        raise HTTPException(status_code=403, detail="You do not have permission to manage this channel.")
     
     result = await db.execute(select(Channel).where(Channel.id == channel_id))
     channel = result.scalar_one_or_none()
