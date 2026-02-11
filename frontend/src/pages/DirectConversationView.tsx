@@ -34,5 +34,15 @@ export default function DirectConversationView() {
 
   if (!convNum) return <div />
 
-  return <ConversationMessageView mode="direct" conversationId={convNum} memberUsernames={memberUsernames || undefined} />
+  return (
+    <div className="flex h-full">
+      <div className="flex flex-col flex-1">
+        <ConversationMessageView
+          mode="direct"
+          conversationId={convNum}
+          memberUsernames={memberUsernames || undefined}
+        />
+      </div>
+    </div>
+  )
 }
