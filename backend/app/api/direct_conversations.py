@@ -4,14 +4,16 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from app.db.database import get_db
-from app.db.models import DirectConversation, DirectConversationParticipant, User, Message
+from app.db.models import DirectConversation, DirectConversationParticipant, DirectConversationRead, User, Message
 from app.core.security import get_current_user, check_user_can_post
-from app.realtime.socket import emit_message_new
+from app.realtime.socket import emit_message_new, emit_direct_read_updated
 from app.api.ws import manager
 from app.api.messages import transform_message_to_response
 from datetime import datetime
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class CreateDirectConversationRequest(BaseModel):
@@ -250,3 +252,117 @@ async def post_direct_conversation_message(
         pass
 
     return transform_message_to_response(msg)
+
+
+class DirectConversationReadResponse(BaseModel):
+    user_id: int
+    last_read_message_id: Optional[int]
+
+    class Config:
+        from_attributes = True
+
+
+class MarkReadRequest(BaseModel):
+    last_read_message_id: int
+
+
+@router.get("/{conv_id}/reads", response_model=List[DirectConversationReadResponse])
+async def get_direct_conversation_reads(
+    conv_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all read receipts for a direct conversation.
+    Returns list of {user_id, last_read_message_id} for computing "Seen by X".
+    """
+    # Verify user is participant
+    r = await db.execute(
+        select(DirectConversationParticipant).where(
+            DirectConversationParticipant.direct_conversation_id == conv_id,
+            DirectConversationParticipant.user_id == current_user["user_id"]
+        )
+    )
+    if not r.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation.")
+
+    # Get all read receipts for this conversation
+    reads_query = select(DirectConversationRead).where(DirectConversationRead.direct_conversation_id == conv_id)
+    reads_result = await db.execute(reads_query)
+    reads = reads_result.scalars().all()
+
+    return [
+        {"user_id": r.user_id, "last_read_message_id": r.last_read_message_id}
+        for r in reads
+    ]
+
+
+@router.post("/{conv_id}/reads", response_model=DirectConversationReadResponse)
+async def mark_direct_conversation_read(
+    conv_id: int,
+    request: MarkReadRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mark a direct conversation as read up to a specific message.
+    Upserts the read record and emits direct:read_updated to the dm room.
+    """
+    user_id = current_user["user_id"]
+
+    # Verify user is participant
+    r = await db.execute(
+        select(DirectConversationParticipant).where(
+            DirectConversationParticipant.direct_conversation_id == conv_id,
+            DirectConversationParticipant.user_id == user_id
+        )
+    )
+    if not r.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation.")
+
+    # Verify message exists and belongs to this conversation
+    msg_result = await db.execute(
+        select(Message).where(
+            Message.id == request.last_read_message_id,
+            Message.direct_conversation_id == conv_id,
+            Message.is_deleted == False
+        )
+    )
+    if not msg_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Message not found in this conversation")
+
+    # Upsert read record
+    read_result = await db.execute(
+        select(DirectConversationRead).where(
+            DirectConversationRead.direct_conversation_id == conv_id,
+            DirectConversationRead.user_id == user_id
+        )
+    )
+    read_record = read_result.scalar_one_or_none()
+
+    should_emit = False
+    if read_record:
+        # Only update if new message_id is higher (or if current is None)
+        if read_record.last_read_message_id is None or request.last_read_message_id > read_record.last_read_message_id:
+            read_record.last_read_message_id = request.last_read_message_id
+            should_emit = True
+    else:
+        read_record = DirectConversationRead(
+            user_id=user_id,
+            direct_conversation_id=conv_id,
+            last_read_message_id=request.last_read_message_id
+        )
+        db.add(read_record)
+        should_emit = True
+
+    await db.commit()
+    await db.refresh(read_record)
+
+    # Emit socket event to dm:{conv_id} room
+    if should_emit:
+        try:
+            await emit_direct_read_updated(conv_id, user_id, read_record.last_read_message_id)
+        except Exception as e:
+            logger.warning(f"Socket.IO emit failed for direct read update: {e}")
+
+    return {"user_id": user_id, "last_read_message_id": read_record.last_read_message_id}
