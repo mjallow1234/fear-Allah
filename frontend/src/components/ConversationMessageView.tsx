@@ -47,18 +47,6 @@ export default function ConversationMessageView(props: Props) {
   // Thread
   const [selectedThread, setSelectedThread] = useState<any | null>(null)
 
-  // When opening a thread panel, mark reply notifications as read for that parent message
-  useEffect(() => {
-    if (!selectedThread) return
-    ;(async () => {
-      try {
-        const types = isDirect ? ['dm_reply'] : ['channel_reply']
-        await (await import('../services/notifications')).markNotificationsReadFiltered({ parent_id: Number(selectedThread.id), types })
-      } catch (err) {
-        console.warn('Failed to mark thread notifications as read:', err)
-      }
-    })()
-  }, [selectedThread, isDirect])
 
   // File upload
   const [stagedFiles, setStagedFiles] = useState<(StagedFile | UploadingFile)[]>([])
@@ -75,6 +63,19 @@ export default function ConversationMessageView(props: Props) {
   const isDirect = props.mode === 'direct'
   const channelId = isChannel ? props.channelId : undefined
   const convId = isDirect ? props.conversationId : undefined
+
+  // When opening a thread panel, mark reply notifications as read for that parent message
+  useEffect(() => {
+    if (!selectedThread) return
+    ;(async () => {
+      try {
+        const types = isDirect ? ['dm_reply'] : ['channel_reply']
+        await (await import('../services/notifications')).markNotificationsReadFiltered({ parent_id: Number(selectedThread.id), types })
+      } catch (err) {
+        console.warn('Failed to mark thread notifications as read:', err)
+      }
+    })()
+  }, [selectedThread, isDirect])
 
   // Mark as read for channel mode
   const markAsReadIfAtBottom = useCallback(() => {
@@ -148,6 +149,18 @@ export default function ConversationMessageView(props: Props) {
           } catch (err) {
             console.warn('Failed to mark DM notifications as read:', err)
           }
+
+        }
+
+        // Subscribe to message:new events for this view
+        const unsubscribeMessage = onSocketEvent<any>('message:new', (data) => {
+          if (cancelled) return
+
+          // Channel mode: require channel_id to match
+          if (isChannel) {
+            if (data.channel_id !== channelId) return
+            if (data.parent_id) return
+            if (data.author_id === currentUserId) return
             if (seenMessageIdsRef.current.has(data.id)) return
             seenMessageIdsRef.current.add(data.id)
             shouldScrollToBottom.current = true
