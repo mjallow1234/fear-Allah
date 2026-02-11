@@ -25,6 +25,7 @@ import AdminOnlyGuard from './components/AdminOnlyGuard'
 import Unauthorized from './pages/Unauthorized'
 import ChangePassword from './pages/ChangePassword'
 import Welcome from './pages/Welcome'
+import DirectConversationView from './pages/DirectConversationView'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -128,6 +129,7 @@ function App() {
       >
         <Route index element={<ChannelView />} />
         <Route path="channels/:channelId" element={<ChannelView />} />
+        <Route path="direct/:convId" element={<DirectConversationView />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         <Route path="notifications" element={<NotificationsPage />} />

@@ -112,31 +112,51 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   // Presence is enabled via `usePresence()` and will connect once auth/user is ready.
   // The hook ensures it only starts once and manages reconnection; do not reconnect on every render.
 
-  // Fetch DM channels
+  // Fetch DM channels (use new direct-conversations API)
   const fetchDMChannels = useCallback(async () => {
-    if (!token) return
+    if (!token || !user) return
     try {
-      const response = await api.get('/api/channels/direct/list')
-      // Normalize to array to prevent .map() crashes if API returns unexpected shape
-      const dmData = Array.isArray(response.data)
-        ? response.data
-        : Array.isArray(response.data?.dm_channels)
-          ? response.data.dm_channels
-          : []
+      const response = await api.get('/api/direct-conversations/')
+      const convs = Array.isArray(response.data) ? response.data : []
+
+      // Map conversations to DMChannel shape by resolving other participant info
+      const dmData: DMChannel[] = await Promise.all(convs.map(async (conv: any) => {
+        const otherId = conv.participant_ids.find((id: number) => id !== user.id)
+        try {
+          const r = await api.get(`/api/users/${otherId}`)
+          const other = r.data
+          return {
+            id: conv.id,
+            name: `dm-${conv.id}`,
+            display_name: other.display_name || other.username,
+            other_user_id: other.id,
+            other_username: other.username
+          }
+        } catch (e) {
+          return {
+            id: conv.id,
+            name: `dm-${conv.id}`,
+            display_name: `DM ${conv.id}`,
+            other_user_id: otherId,
+            other_username: `user${otherId}`
+          }
+        }
+      }))
+
       setDmChannels(dmData)
     } catch (error) {
       console.error('Failed to fetch DM channels:', error)
     }
-  }, [token])
+  }, [token, user])
 
   // Start a DM with a user
   const startDM = async (userId: string) => {
     try {
-      const response = await api.post('/api/channels/direct', { user_id: parseInt(userId) })
+      const response = await api.post('/api/direct-conversations/', { other_user_id: parseInt(userId) })
       const dmChannel = response.data
-      // Refresh DM list and navigate to the channel
+      // Refresh DM list and navigate to the direct conversation
       await fetchDMChannels()
-      navigateAndClose(`/channels/${dmChannel.id}`)
+      navigateAndClose(`/direct/${dmChannel.id}`)
     } catch (error) {
       console.error('Failed to start DM:', error)
     }
@@ -315,23 +335,23 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           Array.isArray(dmChannels) && dmChannels.map((dm) => (
             <Link
               key={dm.id}
-              to={`/channels/${dm.id}`}
+              to={`/direct/${dm.id}`}
               className={clsx(
                 'flex items-center sidebar-item rounded transition-colors',
-                location.pathname === `/channels/${dm.id}` && 'font-medium'
+                location.pathname === `/direct/${dm.id}` && 'font-medium'
               )}
               style={{
-                color: location.pathname === `/channels/${dm.id}` ? 'var(--text-primary)' : 'var(--text-secondary)',
-                backgroundColor: location.pathname === `/channels/${dm.id}` ? 'var(--sidebar-active)' : 'transparent'
+                color: location.pathname === `/direct/${dm.id}` ? 'var(--text-primary)' : 'var(--text-secondary)',
+                backgroundColor: location.pathname === `/direct/${dm.id}` ? 'var(--sidebar-active)' : 'transparent'
               }}
               onMouseEnter={(e) => {
-                if (location.pathname !== `/channels/${dm.id}`) {
+                if (location.pathname !== `/direct/${dm.id}`) {
                   e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'
                   e.currentTarget.style.color = 'var(--text-primary)'
                 }
               }}
               onMouseLeave={(e) => {
-                if (location.pathname !== `/channels/${dm.id}`) {
+                if (location.pathname !== `/direct/${dm.id}`) {
                   e.currentTarget.style.backgroundColor = 'transparent'
                   e.currentTarget.style.color = 'var(--text-secondary)'
                 }
@@ -497,7 +517,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         onClose={() => setShowNewDMModal(false)}
         onDMCreated={(channelId) => {
           fetchDMChannels()
-          navigateAndClose(`/channels/${channelId}`)
+          navigateAndClose(`/direct/${channelId}`)
         }}
       />
 

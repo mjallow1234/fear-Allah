@@ -10,6 +10,8 @@ export {
   isSocketConnected,
   joinChannel,
   leaveChannel,
+  joinRoom,
+  leaveRoom,
   onSocketEvent,
 } from './socket'
 

@@ -20,13 +20,13 @@ export default function Welcome() {
       updateUser({ is_first_login: false })
       
       // Find best channel to redirect to
-      // 1. Try to get most recent DM
-      const dmResponse = await api.get('/api/channels/direct/list')
-      const dmChannels = Array.isArray(dmResponse.data) ? dmResponse.data : []
+      // 1. Try to get most recent direct conversation
+      const dmResponse = await api.get('/api/direct-conversations/')
+      const dmConvs = Array.isArray(dmResponse.data) ? dmResponse.data : []
       
-      if (dmChannels.length > 0) {
-        // Redirect to first DM
-        navigate(`/channels/${dmChannels[0].id}`)
+      if (dmConvs.length > 0) {
+        // Redirect to first DM conversation
+        navigate(`/direct/${dmConvs[0].id}`)
         return
       }
       

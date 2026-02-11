@@ -46,7 +46,8 @@ export default function NewDMModal({ isOpen, onClose, onDMCreated }: NewDMModalP
   const startDM = async (userId: number) => {
     setCreating(userId)
     try {
-      const response = await api.post('/api/channels/direct', { user_id: userId })
+      // Use new direct_conversations API
+      const response = await api.post('/api/direct-conversations/', { other_user_id: userId })
       onDMCreated(response.data.id)
       onClose()
     } catch (error) {

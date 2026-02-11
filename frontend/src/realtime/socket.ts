@@ -195,6 +195,27 @@ export function leaveChannel(channelId: number): void {
 }
 
 /**
+ * Join a named room (generic) - useful for DM rooms like "dm:{id}".
+ */
+export function joinRoom(roomName: string): void {
+  if (!socket?.connected) {
+    console.log('[Socket.IO] Queued room join (not connected yet):', roomName)
+    return
+  }
+  console.log('[Socket.IO] Joining room:', roomName)
+  socket.emit('join_room', { room: roomName })
+}
+
+/**
+ * Leave a named room.
+ */
+export function leaveRoom(roomName: string): void {
+  if (!socket?.connected) return
+  console.log('[Socket.IO] Leaving room:', roomName)
+  socket.emit('leave_room', { room: roomName })
+}
+
+/**
  * Subscribe to an event.
  * Uses a single master listener per event type to avoid duplicate handlers.
  * Returns unsubscribe function.
