@@ -10,7 +10,7 @@ from datetime import datetime
 from collections import defaultdict
 
 from app.db.database import get_db
-from app.db.models import Message, Channel, User, MessageReaction, AuditLog, FileAttachment, ChannelMember
+from app.db.models import Message, Channel, User, MessageReaction, AuditLog, FileAttachment, ChannelMember, DirectConversationParticipant
 from app.db.enums import ChannelType
 from app.core.security import get_current_user, check_user_can_post
 from app.permissions.constants import Permission
@@ -478,13 +478,34 @@ async def create_reply(
     if not parent_msg:
         raise HTTPException(status_code=404, detail="Parent message not found")
     
-    # Create the reply
-    reply = Message(
-        content=request.content,
-        channel_id=parent_msg.channel_id,
-        author_id=current_user["user_id"],
-        parent_id=message_id,
-    )
+    # Create the reply based on parent message context
+    if parent_msg.channel_id:
+        reply = Message(
+            content=request.content,
+            channel_id=parent_msg.channel_id,
+            author_id=current_user["user_id"],
+            parent_id=message_id,
+        )
+    elif parent_msg.direct_conversation_id:
+        # Validate user is participant of this direct conversation
+        participant = await db.execute(
+            select(DirectConversationParticipant).where(
+                DirectConversationParticipant.direct_conversation_id == parent_msg.direct_conversation_id,
+                DirectConversationParticipant.user_id == current_user["user_id"]
+            )
+        )
+        if not participant.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="Not a participant of this conversation")
+
+        reply = Message(
+            content=request.content,
+            direct_conversation_id=parent_msg.direct_conversation_id,
+            author_id=current_user["user_id"],
+            parent_id=message_id,
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Invalid parent message context")
+
     db.add(reply)
     
     # Update parent message thread metadata
@@ -504,13 +525,14 @@ async def create_reply(
 
     # Socket.IO emit for real-time thread reply
     try:
-        from app.realtime.socket import emit_thread_reply
+        from app.realtime.socket import emit_thread_reply, emit_thread_reply_dm
         
         username = reply.author.username if reply.author else f"user_{current_user['user_id']}"
         reply_payload = {
             "id": reply.id,
             "content": reply.content,
             "channel_id": reply.channel_id,
+            "direct_conversation_id": reply.direct_conversation_id,
             "author_id": current_user["user_id"],
             "author_username": username,
             "parent_id": message_id,
@@ -518,8 +540,12 @@ async def create_reply(
             "is_edited": False,
             "reactions": [],
         }
-        logger.info(f"Emitting thread:reply for reply {reply.id} to parent {message_id} in channel {reply.channel_id}")
-        await emit_thread_reply(reply.channel_id, message_id, reply_payload)
+        if reply.channel_id:
+            logger.info(f"Emitting thread:reply for reply {reply.id} to parent {message_id} in channel:{reply.channel_id}")
+            await emit_thread_reply(reply.channel_id, message_id, reply_payload)
+        elif reply.direct_conversation_id:
+            logger.info(f"Emitting thread:reply for reply {reply.id} to parent {message_id} in dm:{reply.direct_conversation_id}")
+            await emit_thread_reply_dm(reply.direct_conversation_id, message_id, reply_payload)
     except Exception as e:
         logger.warning(f"Socket.IO emit failed for thread reply: {e}")
     
