@@ -30,6 +30,11 @@ export const NOTIFICATION_INTENSITY: Record<string, NotificationIntensity> = {
   reply: 'silent',
   dm: 'important',
   reaction: 'silent',
+  // New chat notifications for persistent system
+  dm_message: 'important',
+  dm_reply: 'important',
+  channel_reply: 'important',
+  message_pinned: 'silent',
   
   // Other
   low_stock: 'critical',

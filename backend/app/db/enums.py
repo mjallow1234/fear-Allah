@@ -32,6 +32,9 @@ class NotificationType(str, enum.Enum):
     mention = "mention"
     reply = "reply"
     dm = "dm"
+    dm_message = "dm_message"
+    dm_reply = "dm_reply"
+    channel_reply = "channel_reply"
     reaction = "reaction"
     # Automation notifications (Phase 6.4)
     task_opened = "task_opened"

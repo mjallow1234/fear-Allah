@@ -217,6 +217,31 @@ async def post_direct_conversation_message(
     except Exception:
         pass
 
+    # Create a persistent notification for the other participant about the new DM message (Phase N2)
+    try:
+        from app.db.enums import NotificationType
+        from app.services.notification_emitter import create_and_emit_notification
+
+        # Determine other participant (only notify the other user, not the sender)
+        pr = await db.execute(select(DirectConversationParticipant).where(DirectConversationParticipant.direct_conversation_id == conv_id))
+        participants = pr.scalars().all()
+        other_participant = next((p for p in participants if p.user_id != current_user["user_id"]), None)
+        if other_participant:
+            sender_username = current_user.get('username') or f"user_{current_user['user_id']}"
+            await create_and_emit_notification(
+                db,
+                user_id=other_participant.user_id,
+                notification_type=NotificationType.dm_message,
+                title=f"New message from {sender_username}",
+                content=(msg.content or '')[:100],
+                message_id=msg.id,
+                sender_id=current_user['user_id'],
+                metadata={"direct_conversation_id": conv_id},
+            )
+    except Exception:
+        # Non-fatal - notification creation should not fail the message post
+        logger.exception('Failed to create DM notification')
+
     # Log message timestamps for debugging join timestamp exclusion issues
     # created message logged by audit/logging elsewhere if needed
 
@@ -248,6 +273,31 @@ async def post_direct_conversation_message(
                 "reactions": [],
             }
             await emit_thread_reply_dm(conv_id, request.parent_id, reply_payload)
+
+            # Create a notification for the parent message author (dm_reply)
+            try:
+                from app.db.enums import NotificationType
+                from app.services.notification_emitter import create_and_emit_notification
+                # Ensure parent author exists and is not the replier
+                if parent_msg.author_id and parent_msg.author_id != current_user['user_id']:
+                    # Check author is still active
+                    from app.db.models import User as UserModel
+                    r = await db.execute(select(UserModel).where(UserModel.id == parent_msg.author_id, UserModel.is_active == True))
+                    parent_author = r.scalar_one_or_none()
+                    if parent_author:
+                        sender_username = current_user.get('username') or f"user_{current_user['user_id']}"
+                        await create_and_emit_notification(
+                            db,
+                            user_id=parent_author.id,
+                            notification_type=NotificationType.dm_reply,
+                            title=f"New reply from {sender_username}",
+                            content=(msg.content or '')[:100],
+                            message_id=msg.id,
+                            sender_id=current_user['user_id'],
+                            metadata={"direct_conversation_id": conv_id, "parent_id": request.parent_id},
+                        )
+            except Exception:
+                logger.exception('Failed to create DM reply notification')
     except Exception:
         pass
 

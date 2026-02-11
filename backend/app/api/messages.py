@@ -293,6 +293,29 @@ async def create_message(
             # Thread reply
             logger.info(f"Emitting thread:reply to channel {request.channel_id} parent {request.parent_id} payload_id {message.id}")
             await emit_thread_reply(request.channel_id, request.parent_id, message_payload)
+
+            # Create a notification for the parent message author about the reply (channel_reply)
+            try:
+                from app.db.enums import NotificationType
+                from app.services.notification_emitter import create_and_emit_notification
+                # Ensure parent author exists and is not the replier
+                if parent_msg and parent_msg.author_id and parent_msg.author_id != current_user['user_id']:
+                    # Check author is still active
+                    r = await db.execute(select(User).where(User.id == parent_msg.author_id, User.is_active == True))
+                    parent_author = r.scalar_one_or_none()
+                    if parent_author:
+                        await create_and_emit_notification(
+                            db,
+                            user_id=parent_author.id,
+                            notification_type=NotificationType.channel_reply,
+                            title=f"New reply from {username}",
+                            content=(message.content or '')[:100],
+                            message_id=message.id,
+                            sender_id=current_user['user_id'],
+                            metadata={"channel_id": request.channel_id, "parent_id": request.parent_id},
+                        )
+            except Exception as e:
+                logger.exception(f'Failed to create channel reply notification: {e}')
         else:
             # New message
             # Resolve room_name based on Channel object to avoid cross-session DB lookups

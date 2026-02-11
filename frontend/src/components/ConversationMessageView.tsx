@@ -47,6 +47,19 @@ export default function ConversationMessageView(props: Props) {
   // Thread
   const [selectedThread, setSelectedThread] = useState<any | null>(null)
 
+  // When opening a thread panel, mark reply notifications as read for that parent message
+  useEffect(() => {
+    if (!selectedThread) return
+    ;(async () => {
+      try {
+        const types = isDirect ? ['dm_reply'] : ['channel_reply']
+        await (await import('../services/notifications')).markNotificationsReadFiltered({ parent_id: Number(selectedThread.id), types })
+      } catch (err) {
+        console.warn('Failed to mark thread notifications as read:', err)
+      }
+    })()
+  }, [selectedThread, isDirect])
+
   // File upload
   const [stagedFiles, setStagedFiles] = useState<(StagedFile | UploadingFile)[]>([])
   const [uploadLimits, setUploadLimits] = useState<AttachmentLimits | null>(null)
@@ -110,6 +123,14 @@ export default function ConversationMessageView(props: Props) {
           // Join channel room
           joinChannel(channelId)
 
+          // Mark channel reply notifications as read for this channel
+          try {
+            // Only mark the channel_reply notifications for this channel
+            await (await import('../services/notifications')).markNotificationsReadFiltered({ channel_id: Number(channelId), types: ['channel_reply'] })
+          } catch (err) {
+            console.warn('Failed to mark channel notifications as read:', err)
+          }
+
         } else if (isDirect && convId !== undefined) {
           const { messages: list, has_more } = await fetchDirectConversationMessages(convId)
           if (cancelled) return
@@ -120,16 +141,13 @@ export default function ConversationMessageView(props: Props) {
           // Join DM room
           const room = `dm:${convId}`
           joinRoom(room)
-        }
 
-        // Subscribe to common socket events
-        const unsubscribeMessage = onSocketEvent<any>('message:new', (data) => {
-          if (cancelled) return
-          // Channel mode: require channel_id to match
-          if (isChannel) {
-            if (data.channel_id !== channelId) return
-            if (data.parent_id) return
-            if (data.author_id === currentUserId) return
+          // Mark DM message notifications as read for this conversation
+          try {
+            await (await import('../services/notifications')).markNotificationsReadFiltered({ direct_conversation_id: Number(convId), types: ['dm_message'] })
+          } catch (err) {
+            console.warn('Failed to mark DM notifications as read:', err)
+          }
             if (seenMessageIdsRef.current.has(data.id)) return
             seenMessageIdsRef.current.add(data.id)
             shouldScrollToBottom.current = true

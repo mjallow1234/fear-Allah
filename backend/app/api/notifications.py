@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, and_
+from sqlalchemy import select, update, func, and_, or_
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List
@@ -177,6 +177,63 @@ async def delete_notification(
     
     return {"success": True}
 
+
+class MarkFilteredRequest(BaseModel):
+    direct_conversation_id: Optional[int] = None
+    channel_id: Optional[int] = None
+    parent_id: Optional[int] = None
+    types: Optional[List[str]] = None
+
+
+@router.post("/read-filtered")
+async def mark_notifications_read_filtered(
+    request: MarkFilteredRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Mark notifications as read filtered by conversation/channel/parent or types
+
+    This endpoint supports marking a subset of notifications as read, e.g. when a user opens
+    a DM or channel or views a thread.
+    """
+    conditions = [Notification.user_id == current_user["user_id"], Notification.is_read == False]
+
+    # Apply filters
+    if request.channel_id is not None:
+        conditions.append(Notification.channel_id == request.channel_id)
+
+    if request.direct_conversation_id is not None:
+        # extra_data stores JSON; use a simple text match to find the direct_conversation_id
+        conditions.append(Notification.extra_data.ilike(f'%"direct_conversation_id": {request.direct_conversation_id}%'))
+
+    if request.parent_id is not None:
+        conditions.append(
+            or_(
+                Notification.extra_data.ilike(f'%"parent_id": {request.parent_id}%'),
+                Notification.message_id == request.parent_id
+            )
+        )
+
+    if request.types:
+        conditions.append(Notification.type.in_(request.types))
+
+    stmt = update(Notification).where(*conditions).values(is_read=True)
+    result = await db.execute(stmt)
+    await db.commit()
+
+    # Emit updated unread count for the user
+    unread_query = select(func.count(Notification.id)).where(Notification.user_id == current_user["user_id"], Notification.is_read == False)
+    unread_res = await db.execute(unread_query)
+    unread_count = unread_res.scalar() or 0
+
+    try:
+        from app.services.notification_emitter import emit_notification_count_update
+        await emit_notification_count_update(current_user["user_id"], unread_count)
+    except Exception:
+        # Non-fatal
+        pass
+
+    return {"updated": result.rowcount}
 
 # Helper function to create notifications (used by other modules)
 async def create_notification(
