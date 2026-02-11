@@ -111,6 +111,7 @@ export default function Message({
 
   return (
     <div 
+      data-message-id={message.id}
       className={`message group relative p-2 rounded-lg hover:bg-gray-800/50 transition-colors ${onClick ? 'cursor-pointer' : ''}`}
       onClick={(e) => {
         // Don't trigger onClick when clicking reaction buttons or menu

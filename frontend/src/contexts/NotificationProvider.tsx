@@ -49,7 +49,42 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const notificationsEnabled = usePreferencesStore((state) => state.preferences.notifications)
 
   const handleNotificationClick = useCallback((notification: Notification) => {
-    // Route to appropriate page based on notification type
+    // Parse extra_data if present
+    let extra: any = null
+    try {
+      if (notification.extra_data) extra = JSON.parse(notification.extra_data as string)
+    } catch (e) {
+      // ignore
+    }
+
+    // Special-case chat notifications
+    if (notification.type === 'channel_reply') {
+      const channelId = notification.channel_id || (extra && extra.channel_id)
+      const parentId = (extra && extra.parent_id) || null
+      if (channelId && parentId) {
+        navigate(`/channels/${channelId}?message=${parentId}`)
+        return
+      }
+    }
+
+    if (notification.type === 'dm_reply') {
+      const convId = (extra && extra.direct_conversation_id) || null
+      const parentId = (extra && extra.parent_id) || null
+      if (convId && parentId) {
+        navigate(`/direct/${convId}?message=${parentId}`)
+        return
+      }
+    }
+
+    if (notification.type === 'dm_message') {
+      const convId = (extra && extra.direct_conversation_id) || null
+      if (convId) {
+        navigate(`/direct/${convId}`)
+        return
+      }
+    }
+
+    // Fallbacks for legacy fields
     if (notification.order_id) {
       navigate(`/order-snapshot/${notification.order_id}`)
     } else if (notification.task_id) {

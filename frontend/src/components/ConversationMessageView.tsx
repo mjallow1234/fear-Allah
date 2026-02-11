@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import Message from './Chat/Message'
 import ThreadPanel from '../components/ThreadPanel'
 import { Send, Paperclip } from 'lucide-react'
@@ -332,6 +333,49 @@ export default function ConversationMessageView(props: Props) {
       }
     }
   }, [messages, markAsReadIfAtBottom, isChannel])
+
+  // Open thread panel automatically when ?message={parent_id} present in URL
+  const location = useLocation()
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const parentId = params.get('message') ? Number(params.get('message')) : null
+    if (!parentId) return
+
+    ;(async () => {
+      try {
+        // Try to find parent in loaded messages first
+        let parent = messages?.find((m: any) => m.id === parentId)
+
+        // If not found, fetch message from server
+        if (!parent) {
+          const res = await api.get(`/api/messages/${parentId}`)
+          parent = res.data
+          if (!parent) return
+          // Merge parent into current messages so it appears in the list
+          setMessages(p => mergeMessagesById(p, [parent]))
+        }
+
+        // Ensure this parent belongs to this view (channel or direct)
+        if (isChannel && parent.channel_id !== channelId) return
+        if (isDirect && parent.direct_conversation_id !== convId) return
+
+        setSelectedThread(parent)
+
+        // Scroll to and briefly highlight the parent message
+        setTimeout(() => {
+          const el = document.querySelector(`[data-message-id="${parentId}"]`) as HTMLElement | null
+          if (!el) return
+          if (typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+          el.classList.add('ring-2', 'ring-blue-400', 'rounded-lg')
+          setTimeout(() => el.classList.remove('ring-2', 'ring-blue-400', 'rounded-lg'), 1600)
+        }, 100)
+      } catch (err) {
+        console.error('Failed to open thread from URL', err)
+      }
+    })()
+  }, [messages, location.search, channelId, convId, isChannel, isDirect])
 
   // Mark as read on scroll
   useEffect(() => {
