@@ -298,8 +298,8 @@ async def create_message(
             try:
                 from app.db.enums import NotificationType
                 from app.services.notification_emitter import create_and_emit_notification
-                # Ensure parent author exists and is not the replier
-                if parent_msg and parent_msg.author_id and parent_msg.author_id != current_user['user_id']:
+                # Ensure parent author exists, parent not deleted, and is not the replier
+                if parent_msg and not getattr(parent_msg, 'is_deleted', False) and parent_msg.author_id and parent_msg.author_id != current_user['user_id']:
                     # Check author is still active
                     r = await db.execute(select(User).where(User.id == parent_msg.author_id, User.is_active == True))
                     parent_author = r.scalar_one_or_none()

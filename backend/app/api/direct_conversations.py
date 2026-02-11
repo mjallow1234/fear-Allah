@@ -278,8 +278,8 @@ async def post_direct_conversation_message(
             try:
                 from app.db.enums import NotificationType
                 from app.services.notification_emitter import create_and_emit_notification
-                # Ensure parent author exists and is not the replier
-                if parent_msg.author_id and parent_msg.author_id != current_user['user_id']:
+                # Ensure parent author exists, parent not deleted, and is not the replier
+                if parent_msg and not getattr(parent_msg, 'is_deleted', False) and parent_msg.author_id and parent_msg.author_id != current_user['user_id']:
                     # Check author is still active
                     from app.db.models import User as UserModel
                     r = await db.execute(select(UserModel).where(UserModel.id == parent_msg.author_id, UserModel.is_active == True))
