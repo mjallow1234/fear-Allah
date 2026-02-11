@@ -23,10 +23,16 @@ describe('EmojiPickerPopover', () => {
     // Search input
     expect(screen.getByPlaceholderText('Search emojis')).toBeInTheDocument()
 
-    // There should be several emojis rendered (not just recent)
-    expect(screen.getAllByRole('button').length).toBeGreaterThan(10)
+    // The picker shows category tabs (9 tabs = Recent + 8 categories)
+    // plus emoji grid buttons when there's content (recent is empty at start)
+    // Check that category tabs are rendered (at least 9 buttons for tabs)
+    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(9)
 
-    // A sample emoji we included should be present
+    // A sample emoji we included should be present when searching for it
+    const searchInput = screen.getByPlaceholderText('Search emojis') as HTMLInputElement
+    // Search for pizza to load the full emoji dataset
+    searchInput.focus()
+    fireEvent.change(searchInput, { target: { value: 'pizza' } })
     expect(screen.getAllByTitle(/pizza/i).length).toBeGreaterThanOrEqual(1)
   })
 
@@ -61,9 +67,14 @@ describe('EmojiPickerPopover', () => {
       <EmojiPickerPopover open={true} onClose={onClose} onSelect={onSelect} anchorRef={{ current: trigger as HTMLButtonElement }} />
     )
 
+    // Search for pizza to make it visible
+    const searchInput = screen.getByPlaceholderText('Search emojis') as HTMLInputElement
+    fireEvent.change(searchInput, { target: { value: 'pizza' } })
+
     // Click pizza
-    const pizzaBtn = screen.getAllByRole('button').find(b => b.textContent === '🍕')!
-    fireEvent.click(pizzaBtn)
+    const pizzaBtn = screen.getAllByRole('button').find(b => b.textContent === '🍕')
+    expect(pizzaBtn).toBeTruthy()
+    fireEvent.click(pizzaBtn!)
 
     expect(onSelect).toHaveBeenCalledWith('🍕')
     expect(onClose).toHaveBeenCalled()

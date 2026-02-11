@@ -92,7 +92,8 @@ export function uploadFile(
   file: File,
   channelId: number,
   messageId?: number,
-  onProgress?: (progress: UploadProgress) => void
+  onProgress?: (progress: UploadProgress) => void,
+  directConversationId?: number
 ): Promise<Attachment> {
   return new Promise((resolve, reject) => {
     const formData = new FormData()
@@ -100,6 +101,9 @@ export function uploadFile(
     formData.append('channel_id', channelId.toString())
     if (messageId) {
       formData.append('message_id', messageId.toString())
+    }
+    if (directConversationId) {
+      formData.append('direct_conversation_id', String(directConversationId))
     }
 
     const xhr = new XMLHttpRequest()

@@ -110,8 +110,7 @@ def test_engine():
                 pass
             await conn.run_sync(Base.metadata.create_all)
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(_setup())
+    asyncio.run(_setup())
 
     try:
         yield engine
@@ -121,27 +120,19 @@ def test_engine():
                 await conn.run_sync(Base.metadata.drop_all)
             await engine.dispose()
 
-        loop.run_until_complete(_teardown())
+        asyncio.run(_teardown())
 
 @pytest.fixture
-async def test_session(test_engine, request):
+async def test_session(test_engine):
     async_session = sessionmaker(
         test_engine, class_=AsyncSession, expire_on_commit=False
     )
     # Construct an AsyncSession instance and return it directly so tests receive a resolved session
     session = async_session()
-
-    # Schedule session close when the test finishes
-    import asyncio
-    def _schedule_close():
-        try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(session.close())
-        except Exception:
-            pass
-
-    request.addfinalizer(_schedule_close)
-    return session
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
 # Backwards compatible alias used across many tests

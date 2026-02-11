@@ -317,70 +317,71 @@ async def leave_room(sid: str, data: dict):
 async def typing_start(sid: str, data: dict):
     """
     Handle typing start event.
-    Broadcasts to channel room (excluding sender).
-    
-    Expected data: { "channel_id": int }
+    Supports channel_id or direct_conversation_id. Broadcasts to appropriate room (excluding sender).
     """
     user_data = authenticated_users.get(sid)
     if not user_data:
         await sio.emit("error", {"message": "Not authenticated"}, room=sid)
         return
-    
+
     channel_id = data.get("channel_id")
-    if not channel_id:
-        await sio.emit("error", {"message": "channel_id is required"}, room=sid)
+    direct_id = data.get("direct_conversation_id")
+    if not channel_id and not direct_id:
+        await sio.emit("error", {"message": "channel_id or direct_conversation_id is required"}, room=sid)
         return
-    
+
     user_id = user_data["user_id"]
     username = user_data["username"]
-    
-    # Track typing state
-    typing_manager.start_typing(channel_id, user_id, username)
-    
-    # Broadcast to channel room (exclude sender)
-    room_name = f"channel:{channel_id}"
-    await sio.emit("typing:start", {
-        "user_id": user_id,
-        "username": username,
-        "channel_id": channel_id,
-    }, room=room_name, skip_sid=sid)
-    
-    logger.debug(f"User {username} started typing in channel {channel_id}")
+
+    # If direct conversation typing, map to negative channel key for typing_manager
+    if direct_id:
+        key = -int(direct_id)
+        typing_manager.start_typing(key, user_id, username)
+        room_name = f"dm:{direct_id}"
+        payload = {"user_id": user_id, "username": username, "direct_conversation_id": int(direct_id)}
+    else:
+        key = int(channel_id)
+        typing_manager.start_typing(key, user_id, username)
+        room_name = f"channel:{channel_id}"
+        payload = {"user_id": user_id, "username": username, "channel_id": int(channel_id)}
+
+    await sio.emit("typing:start", payload, room=room_name, skip_sid=sid)
+    logger.debug(f"User {username} started typing in room {room_name}")
 
 
 @sio.event
 async def typing_stop(sid: str, data: dict):
     """
     Handle typing stop event.
-    Broadcasts to channel room (excluding sender).
-    
-    Expected data: { "channel_id": int }
+    Supports channel_id or direct_conversation_id. Broadcasts to appropriate room (excluding sender).
     """
     user_data = authenticated_users.get(sid)
     if not user_data:
         await sio.emit("error", {"message": "Not authenticated"}, room=sid)
         return
-    
+
     channel_id = data.get("channel_id")
-    if not channel_id:
-        await sio.emit("error", {"message": "channel_id is required"}, room=sid)
+    direct_id = data.get("direct_conversation_id")
+    if not channel_id and not direct_id:
+        await sio.emit("error", {"message": "channel_id or direct_conversation_id is required"}, room=sid)
         return
-    
+
     user_id = user_data["user_id"]
     username = user_data["username"]
-    
-    # Remove typing state
-    typing_manager.stop_typing(channel_id, user_id)
-    
-    # Broadcast to channel room (exclude sender)
-    room_name = f"channel:{channel_id}"
-    await sio.emit("typing:stop", {
-        "user_id": user_id,
-        "username": username,
-        "channel_id": channel_id,
-    }, room=room_name, skip_sid=sid)
-    
-    logger.debug(f"User {username} stopped typing in channel {channel_id}")
+
+    if direct_id:
+        key = -int(direct_id)
+        typing_manager.stop_typing(key, user_id)
+        room_name = f"dm:{direct_id}"
+        payload = {"user_id": user_id, "username": username, "direct_conversation_id": int(direct_id)}
+    else:
+        key = int(channel_id)
+        typing_manager.stop_typing(key, user_id)
+        room_name = f"channel:{channel_id}"
+        payload = {"user_id": user_id, "username": username, "channel_id": int(channel_id)}
+
+    await sio.emit("typing:stop", payload, room=room_name, skip_sid=sid)
+    logger.debug(f"User {username} stopped typing in room {room_name}")
 
 
 # ============================================================
@@ -519,6 +520,33 @@ async def emit_message_unpinned(channel_id: int, message_id: int):
     logger.debug(f"Emitted message:unpinned to {room_name}")
 
 
+# DM-specific emits
+async def emit_thread_reply_dm(conv_id: int, parent_id: int, reply_data: dict):
+    room_name = f"dm:{conv_id}"
+    payload = {"parent_id": parent_id, **reply_data}
+    await sio.emit("thread:reply", payload, room=room_name)
+    logger.debug(f"Emitted thread:reply to {room_name}")
+
+
+async def emit_direct_read_updated(conv_id: int, user_id: int, last_read_message_id: int | None):
+    room_name = f"dm:{conv_id}"
+    payload = {"direct_conversation_id": conv_id, "user_id": user_id, "last_read_message_id": last_read_message_id}
+    await sio.emit("direct:read_updated", payload, room=room_name)
+    logger.debug(f"Emitted direct:read_updated to {room_name}")
+
+
+async def emit_message_pinned_dm(conv_id: int, message_id: int):
+    room_name = f"dm:{conv_id}"
+    await sio.emit("message:pinned", {"message_id": message_id}, room=room_name)
+    logger.debug(f"Emitted message:pinned to {room_name}")
+
+
+async def emit_message_unpinned_dm(conv_id: int, message_id: int):
+    room_name = f"dm:{conv_id}"
+    await sio.emit("message:unpinned", {"message_id": message_id}, room=room_name)
+    logger.debug(f"Emitted message:unpinned to {room_name}")
+
+
 async def emit_notification(user_id: int, notification_data: dict):
     """
     Emit a notification to a specific user.
@@ -583,6 +611,13 @@ async def emit_attachment_added(channel_id: int, attachment_data: dict):
     Phase 9.1: Emit attachment added event to channel.
     """
     room_name = f"channel:{channel_id}"
+    await sio.emit("message:attachment_added", attachment_data, room=room_name)
+    logger.debug(f"Emitted message:attachment_added to {room_name}")
+
+
+async def emit_attachment_added_dm(conv_id: int, attachment_data: dict):
+    """Emit attachment added event to DM room"""
+    room_name = f"dm:{conv_id}"
     await sio.emit("message:attachment_added", attachment_data, room=room_name)
     logger.debug(f"Emitted message:attachment_added to {room_name}")
 

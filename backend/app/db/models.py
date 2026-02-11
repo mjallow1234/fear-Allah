@@ -172,6 +172,28 @@ class ChannelRead(Base):
     message = relationship("Message")
 
 
+class DirectConversationRead(Base):
+    """
+    Track last read message per user per direct conversation (DM).
+    Mirrors ChannelRead semantics for direct conversations.
+    """
+    __tablename__ = "direct_conversation_reads"
+    __table_args__ = (
+        Index("ix_direct_reads_conv_message", "direct_conversation_id", "last_read_message_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    direct_conversation_id = Column(Integer, ForeignKey("direct_conversations.id"), nullable=False)
+    last_read_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User")
+    direct_conversation = relationship("DirectConversation")
+    message = relationship("Message")
+
+
 class DirectConversation(Base):
     __tablename__ = "direct_conversations"
     __table_args__ = (

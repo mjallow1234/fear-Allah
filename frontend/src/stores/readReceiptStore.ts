@@ -5,35 +5,35 @@
 import { create } from 'zustand';
 
 interface ReadReceiptStore {
-  // channelId -> { userId -> lastReadMessageId }
-  readsByChannel: Record<number, Record<number, number>>;
+  // roomKey -> { userId -> lastReadMessageId } where roomKey is a number (channel id) or string like "dm:{id}"
+  readsByChannel: Record<string, Record<number, number>>;
   
   /**
-   * Set initial reads when entering a channel (from REST API).
+   * Set initial reads when entering a room (channel or DM) (from REST API).
    */
-  setInitialReads: (channelId: number, reads: Array<{ user_id: number; last_read_message_id: number | null }>) => void;
+  setInitialReads: (roomKey: string | number, reads: Array<{ user_id: number; last_read_message_id: number | null }>) => void;
   
   /**
    * Update a single read receipt (from socket event).
    * Only updates if new value > existing.
    */
-  updateRead: (channelId: number, userId: number, lastReadMessageId: number) => void;
+  updateRead: (roomKey: string | number, userId: number, lastReadMessageId: number) => void;
   
   /**
-   * Get all reads for a channel.
+   * Get all reads for a room.
    */
-  getChannelReads: (channelId: number) => Record<number, number>;
+  getChannelReads: (roomKey: string | number) => Record<number, number>;
   
   /**
    * Get users who have read up to or past a specific message.
    * Excludes the specified user (typically current user).
    */
-  getUsersWhoReadMessage: (channelId: number, messageId: number, excludeUserId?: number) => number[];
+  getUsersWhoReadMessage: (roomKey: string | number, messageId: number, excludeUserId?: number) => number[];
   
   /**
-   * Clear reads for a channel.
+   * Clear reads for a room.
    */
-  clearChannel: (channelId: number) => void;
+  clearChannel: (roomKey: string | number) => void;
   
   /**
    * Clear all reads.
@@ -44,7 +44,8 @@ interface ReadReceiptStore {
 export const useReadReceiptStore = create<ReadReceiptStore>((set, get) => ({
   readsByChannel: {},
   
-  setInitialReads: (channelId: number, reads: Array<{ user_id: number; last_read_message_id: number | null }>) => {
+  setInitialReads: (roomKey: string | number, reads: Array<{ user_id: number; last_read_message_id: number | null }>) => {
+    const key = typeof roomKey === 'number' ? String(roomKey) : roomKey;
     const readsMap: Record<number, number> = {};
     
     for (const read of reads) {
@@ -56,14 +57,15 @@ export const useReadReceiptStore = create<ReadReceiptStore>((set, get) => ({
     set((state) => ({
       readsByChannel: {
         ...state.readsByChannel,
-        [channelId]: readsMap,
+        [key]: readsMap,
       },
     }));
   },
   
-  updateRead: (channelId: number, userId: number, lastReadMessageId: number) => {
+  updateRead: (roomKey: string | number, userId: number, lastReadMessageId: number) => {
+    const key = typeof roomKey === 'number' ? String(roomKey) : roomKey;
     set((state) => {
-      const channelReads = state.readsByChannel[channelId] || {};
+      const channelReads = state.readsByChannel[key] || {};
       const existing = channelReads[userId];
       
       // Only update if new value is greater
@@ -74,7 +76,7 @@ export const useReadReceiptStore = create<ReadReceiptStore>((set, get) => ({
       return {
         readsByChannel: {
           ...state.readsByChannel,
-          [channelId]: {
+          [key]: {
             ...channelReads,
             [userId]: lastReadMessageId,
           },
@@ -83,12 +85,14 @@ export const useReadReceiptStore = create<ReadReceiptStore>((set, get) => ({
     });
   },
   
-  getChannelReads: (channelId: number) => {
-    return get().readsByChannel[channelId] || {};
+  getChannelReads: (roomKey: string | number) => {
+    const key = typeof roomKey === 'number' ? String(roomKey) : roomKey;
+    return get().readsByChannel[key] || {};
   },
   
-  getUsersWhoReadMessage: (channelId: number, messageId: number, excludeUserId?: number) => {
-    const channelReads = get().readsByChannel[channelId] || {};
+  getUsersWhoReadMessage: (roomKey: string | number, messageId: number, excludeUserId?: number) => {
+    const key = typeof roomKey === 'number' ? String(roomKey) : roomKey;
+    const channelReads = get().readsByChannel[key] || {};
     const users: number[] = [];
     
     for (const [userIdStr, lastReadId] of Object.entries(channelReads)) {
@@ -108,10 +112,11 @@ export const useReadReceiptStore = create<ReadReceiptStore>((set, get) => ({
     return users;
   },
   
-  clearChannel: (channelId: number) => {
+  clearChannel: (roomKey: string | number) => {
+    const key = typeof roomKey === 'number' ? String(roomKey) : roomKey;
     set((state) => {
       const newReads = { ...state.readsByChannel };
-      delete newReads[channelId];
+      delete newReads[key];
       return { readsByChannel: newReads };
     });
   },

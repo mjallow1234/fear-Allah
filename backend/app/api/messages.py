@@ -717,13 +717,21 @@ async def pin_message(
     system_roles = await get_system_roles(db, current_user["user_id"])
     channel_roles = await get_channel_roles(db, current_user["user_id"], message.channel_id)
 
-    # System admin bypass
+    # System admin bypass or message author allowed for DMs
     user_q = await db.execute(select(User).where(User.id == current_user["user_id"]))
     user = user_q.scalar_one()
-    if user.is_system_admin:
-        allowed = True
+    # If this message belongs to a channel, use channel permissions to decide
+    if message.channel_id is not None:
+        if user.is_system_admin:
+            allowed = True
+        else:
+            allowed = PermissionService.has_permission(permission=Permission.PIN_MESSAGE, system_roles=system_roles, channel_roles=channel_roles)
     else:
-        allowed = PermissionService.has_permission(permission=Permission.PIN_MESSAGE, system_roles=system_roles, channel_roles=channel_roles)
+        # For DM messages, allow the message author or system admins to pin/unpin
+        if user.is_system_admin or message.author_id == user.id:
+            allowed = True
+        else:
+            allowed = False
 
     if not allowed:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -736,12 +744,17 @@ async def pin_message(
         from app.services.audit import log_audit_from_user
         user_q = await db.execute(select(User).where(User.id == current_user["user_id"]))
         actor = user_q.scalar_one()
-        await log_audit_from_user(db, actor, action="message.pinned", target_type="message", target_id=message.id, description=f"Message pinned in channel {message.channel_id}", meta={"message_id": message.id, "channel_id": message.channel_id})
+        await log_audit_from_user(db, actor, action="message.pinned", target_type="message", target_id=message.id, description=f"Message pinned (channel={message.channel_id}, direct_conv={message.direct_conversation_id})", meta={"message_id": message.id, "channel_id": message.channel_id, "direct_conversation_id": message.direct_conversation_id})
 
         # Emit
         try:
             from app.realtime.socket import emit_message_pinned
-            await emit_message_pinned(message.channel_id, message.id)
+            if message.channel_id is not None:
+                await emit_message_pinned(message.channel_id, message.id)
+            elif message.direct_conversation_id is not None:
+                # Emit to DM room
+                from app.realtime.socket import emit_message_pinned_dm
+                await emit_message_pinned_dm(message.direct_conversation_id, message.id)
         except Exception as e:
             logger.warning(f"Socket emit failed for message pinned: {e}")
 
@@ -789,12 +802,16 @@ async def unpin_message(
         from app.services.audit import log_audit_from_user
         user_q = await db.execute(select(User).where(User.id == current_user["user_id"]))
         actor = user_q.scalar_one()
-        await log_audit_from_user(db, actor, action="message.unpinned", target_type="message", target_id=message.id, description=f"Message unpinned in channel {message.channel_id}", meta={"message_id": message.id, "channel_id": message.channel_id})
+        await log_audit_from_user(db, actor, action="message.unpinned", target_type="message", target_id=message.id, description=f"Message unpinned (channel={message.channel_id}, direct_conv={message.direct_conversation_id})", meta={"message_id": message.id, "channel_id": message.channel_id, "direct_conversation_id": message.direct_conversation_id})
 
         # Emit
         try:
             from app.realtime.socket import emit_message_unpinned
-            await emit_message_unpinned(message.channel_id, message.id)
+            if message.channel_id is not None:
+                await emit_message_unpinned(message.channel_id, message.id)
+            elif message.direct_conversation_id is not None:
+                from app.realtime.socket import emit_message_unpinned_dm
+                await emit_message_unpinned_dm(message.direct_conversation_id, message.id)
         except Exception as e:
             logger.warning(f"Socket emit failed for message unpinned: {e}")
 

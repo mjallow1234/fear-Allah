@@ -11,14 +11,14 @@ interface TypingUser {
 }
 
 interface TypingStore {
-  // channelId -> list of typing users
-  typingByChannel: Record<number, TypingUser[]>;
+  // roomKey -> list of typing users. roomKey is a string like "channel:1" or "dm:1"
+  typingByChannel: Record<string, TypingUser[]>;
   
-  // Actions
-  addTypingUser: (channelId: number, userId: number, username: string) => void;
-  removeTypingUser: (channelId: number, userId: number) => void;
-  getTypingUsers: (channelId: number) => TypingUser[];
-  clearChannel: (channelId: number) => void;
+  // Actions accept either a string room key or a numeric channel id
+  addTypingUser: (roomKey: string | number, userId: number, username: string) => void;
+  removeTypingUser: (roomKey: string | number, userId: number) => void;
+  getTypingUsers: (roomKey: string | number) => TypingUser[];
+  clearChannel: (roomKey: string | number) => void;
   clearAll: () => void;
 }
 
@@ -28,9 +28,10 @@ const TYPING_EXPIRE_MS = 5000;
 export const useTypingStore = create<TypingStore>((set, get) => ({
   typingByChannel: {},
   
-  addTypingUser: (channelId: number, userId: number, username: string) => {
+  addTypingUser: (roomKey: string | number, userId: number, username: string) => {
+    const key = typeof roomKey === 'number' ? `channel:${roomKey}` : roomKey;
     set((state) => {
-      const existing = state.typingByChannel[channelId] || [];
+      const existing = state.typingByChannel[key] || [];
       
       // Check if user already in list
       const existingIndex = existing.findIndex(u => u.userId === userId);
@@ -54,24 +55,25 @@ export const useTypingStore = create<TypingStore>((set, get) => ({
       return {
         typingByChannel: {
           ...state.typingByChannel,
-          [channelId]: updated,
+          [key]: updated,
         },
       };
     });
     
     // Auto-expire after timeout (safety in case stop event is missed)
     setTimeout(() => {
-      const current = get().typingByChannel[channelId] || [];
+      const current = get().typingByChannel[key] || [];
       const user = current.find(u => u.userId === userId);
       if (user && Date.now() - user.startedAt >= TYPING_EXPIRE_MS - 100) {
-        get().removeTypingUser(channelId, userId);
+        get().removeTypingUser(key, userId);
       }
     }, TYPING_EXPIRE_MS);
   },
   
-  removeTypingUser: (channelId: number, userId: number) => {
+  removeTypingUser: (roomKey: string | number, userId: number) => {
+    const key = typeof roomKey === 'number' ? `channel:${roomKey}` : roomKey;
     set((state) => {
-      const existing = state.typingByChannel[channelId] || [];
+      const existing = state.typingByChannel[key] || [];
       const filtered = existing.filter(u => u.userId !== userId);
       
       if (filtered.length === existing.length) {
@@ -81,26 +83,29 @@ export const useTypingStore = create<TypingStore>((set, get) => ({
       
       const newByChannel = { ...state.typingByChannel };
       if (filtered.length === 0) {
-        delete newByChannel[channelId];
+        delete newByChannel[key];
       } else {
-        newByChannel[channelId] = filtered;
+        newByChannel[key] = filtered;
       }
       
       return { typingByChannel: newByChannel };
     });
   },
   
-  getTypingUsers: (channelId: number) => {
-    return get().typingByChannel[channelId] || [];
+  getTypingUsers: (roomKey: string | number) => {
+    const key = typeof roomKey === 'number' ? `channel:${roomKey}` : roomKey;
+    return get().typingByChannel[key] || [];
   },
   
-  clearChannel: (channelId: number) => {
+  clearChannel: (roomKey: string | number) => {
+    const key = typeof roomKey === 'number' ? `channel:${roomKey}` : roomKey;
     set((state) => {
       const newByChannel = { ...state.typingByChannel };
-      delete newByChannel[channelId];
+      delete newByChannel[key];
       return { typingByChannel: newByChannel };
     });
   },
+  
   
   clearAll: () => {
     set({ typingByChannel: {} });

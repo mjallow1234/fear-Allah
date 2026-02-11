@@ -41,11 +41,19 @@ export function subscribeToReadReceipts(): () => void {
       data.last_read_message_id
     );
   };
+
+  const handleDirectReceiptUpdate = (data: { direct_conversation_id: number; user_id: number; last_read_message_id: number | null }) => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    if (data.user_id === currentUserId) return;
+    useReadReceiptStore.getState().updateRead(`dm:${data.direct_conversation_id}`, data.user_id, data.last_read_message_id || 0);
+  }
   
   socket.on('receipt:update', handleReceiptUpdate);
+  socket.on('direct:read_updated', handleDirectReceiptUpdate);
   
   return () => {
     socket.off('receipt:update', handleReceiptUpdate);
+    socket.off('direct:read_updated', handleDirectReceiptUpdate);
   };
 }
 
@@ -155,4 +163,31 @@ export function clearPendingMarkRead(): void {
     markReadDebounceTimer = null;
   }
   pendingMarkRead = null;
+}
+
+/**
+ * Fetch direct conversation reads for a DM
+ */
+export async function fetchDirectConversationReads(convId: number): Promise<Array<{ user_id: number; last_read_message_id: number | null }>> {
+  try {
+    const response = await api.get(`/api/direct-conversations/${convId}/reads`)
+    return Array.isArray(response.data) ? response.data : []
+  } catch (err) {
+    console.error('Failed to fetch direct conversation reads:', err)
+    return []
+  }
+}
+
+/**
+ * Mark a direct conversation read up to a message (no debounce)
+ */
+export async function markDirectConversationRead(convId: number, lastMessageId?: number): Promise<void> {
+  if (!lastMessageId || lastMessageId <= 0) return
+  try {
+    await api.post(`/api/direct-conversations/${convId}/read`, { last_read_message_id: lastMessageId })
+    // Optimistically update local store
+    useReadReceiptStore.getState().updateRead(`dm:${convId}`, useAuthStore.getState().user?.id || 0, lastMessageId)
+  } catch (err) {
+    console.error('Failed to mark direct conversation read:', err)
+  }
 }

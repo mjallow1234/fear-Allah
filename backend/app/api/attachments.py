@@ -137,54 +137,76 @@ def attachment_to_response(attachment: FileAttachment, username: Optional[str] =
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     file: UploadFile = File(...),
-    channel_id: int = Form(...),
+    channel_id: Optional[int] = Form(None),
     message_id: Optional[int] = Form(None),
+    direct_conversation_id: Optional[int] = Form(None),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Upload a file attachment.
-    
+
+    Supports channel uploads and direct conversation uploads (via `direct_conversation_id`).
     - File can be standalone (uploaded before message) or attached to existing message
-    - Validates file type, size, and user's channel access
-    - Emits realtime event if attached to message
+    - Validates file type, size, and user's access
+    - Emits realtime event scoped to channel or dm room
     """
     user_id = current_user["user_id"]
-    
-    # Check channel access
-    channel = await check_channel_access(db, user_id, channel_id)
-    
+
+    # If direct_conversation_id provided, verify membership
+    if direct_conversation_id:
+        # Verify participant
+        pr = await db.execute(select(DirectConversationParticipant).where(DirectConversationParticipant.direct_conversation_id == direct_conversation_id, DirectConversationParticipant.user_id == user_id))
+        part = pr.scalar_one_or_none()
+        if not part:
+            raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation")
+
+    # If channel_id provided, check channel access (legacy behavior)
+    channel = None
+    if channel_id is not None:
+        channel = await check_channel_access(db, user_id, channel_id)
+
     # Track if this is a file-only upload (no existing message)
     is_file_only_message = message_id is None
     created_message = None
-    
+
     # Verify message if provided
     if message_id:
         result = await db.execute(
             select(Message).where(Message.id == message_id)
         )
         message = result.scalar_one_or_none()
-        
+
         if not message:
             raise HTTPException(status_code=404, detail="Message not found")
-        
+
         if message.is_deleted:
             raise HTTPException(status_code=400, detail="Cannot attach file to a deleted message")
 
-        if message.channel_id != channel_id:
+        # Validate message belongs to channel or direct conversation
+        if channel_id is not None and message.channel_id != channel_id:
             raise HTTPException(status_code=400, detail="Message is not in specified channel")
+        if direct_conversation_id is not None and message.direct_conversation_id != direct_conversation_id:
+            raise HTTPException(status_code=400, detail="Message is not in specified direct conversation")
     else:
         # No message_id provided - create a file-only message
         # This ensures attachments always have a message to attach to
-        created_message = Message(
-            content="",  # Empty content for file-only message
-            channel_id=channel_id,
-            author_id=user_id,
-        )
+        if direct_conversation_id:
+            created_message = Message(
+                content="",
+                direct_conversation_id=direct_conversation_id,
+                author_id=user_id,
+            )
+        else:
+            created_message = Message(
+                content="",  # Empty content for file-only message
+                channel_id=channel_id,
+                author_id=user_id,
+            )
         db.add(created_message)
         await db.flush()  # Flush to get message.id before creating attachment
         message_id = created_message.id
-        logger.info(f"Created file-only message {message_id} for channel {channel_id}")
+        logger.info(f"Created file-only message {message_id} for channel {channel_id or ('dm:'+str(direct_conversation_id))}")
     
     # Get user info for response
     result = await db.execute(select(User).where(User.id == user_id))
@@ -192,16 +214,19 @@ async def upload_file(
     username = user.username if user else None
     
     try:
+        # Determine storage channel id for path (use negative conv id for DMs)
+        storage_channel_id = channel_id if channel_id is not None else (-int(direct_conversation_id) if direct_conversation_id else 0)
+
         # Save file to storage
         sanitized_name, storage_path, file_size, mime_type = await save_upload_file(
             file=file,
-            channel_id=channel_id,
+            channel_id=storage_channel_id,
         )
         
-        # Create database record
+        # Create database record (use channel_id set to storage_channel_id for consistency)
         attachment = FileAttachment(
             message_id=message_id,
-            channel_id=channel_id,
+            channel_id=storage_channel_id,
             user_id=user_id,
             filename=sanitized_name,
             file_path=storage_path,  # Legacy field
@@ -271,7 +296,12 @@ async def upload_file(
                     await emit_message_new(channel_id, message_payload)
                 else:
                     # For existing messages, emit attachment_added
-                    await emit_attachment_added(channel_id, attachment_data)
+                    if message and message.direct_conversation_id:
+                        # Emit to DM room
+                        from app.realtime.socket import emit_attachment_added_dm
+                        await emit_attachment_added_dm(message.direct_conversation_id, attachment_data)
+                    else:
+                        await emit_attachment_added(channel_id, attachment_data)
                 
             except Exception as e:
                 # Don't fail upload if realtime emission fails
@@ -361,8 +391,14 @@ async def get_message_attachments(
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
     
-    # Check channel access
-    await check_channel_access(db, user_id, message.channel_id)
+    # Check access - channel or direct conversation
+    if message.direct_conversation_id:
+        # Verify direct convo membership
+        pr = await db.execute(select(DirectConversationParticipant).where(DirectConversationParticipant.direct_conversation_id == message.direct_conversation_id, DirectConversationParticipant.user_id == user_id))
+        if not pr.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="You are not a participant in this direct conversation")
+    else:
+        await check_channel_access(db, user_id, message.channel_id)
     
     # Get attachments
     result = await db.execute(

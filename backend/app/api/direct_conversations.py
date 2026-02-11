@@ -152,6 +152,7 @@ async def post_direct_conversation_message(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Create a message in a direct conversation. Also emits thread:reply for replies."""
     # Check membership
     r = await db.execute(select(DirectConversationParticipant).where(DirectConversationParticipant.direct_conversation_id == conv_id, DirectConversationParticipant.user_id == current_user["user_id"]))
     member = r.scalar_one_or_none()
@@ -190,6 +191,8 @@ async def post_direct_conversation_message(
     r = await db.execute(select(Message).options(selectinload(Message.reactions), selectinload(Message.author), selectinload(Message.attachments)).where(Message.id == msg.id))
     msg = r.scalar_one()
 
+    # NOTE: thread:reply emit handled below after emitting message new
+
     # Broadcast to WebSocket (non-Socket.IO) if there are websocket subscribers for room dm:{id}
     try:
         room_key = f"dm:{conv_id}"
@@ -217,7 +220,7 @@ async def post_direct_conversation_message(
 
     # Emit Socket.IO event to room dm:{conv_id}
     try:
-        from app.realtime.socket import emit_message_new
+        from app.realtime.socket import emit_message_new, emit_thread_reply_dm
         payload = {
             "id": msg.id,
             "content": msg.content,
@@ -227,6 +230,22 @@ async def post_direct_conversation_message(
             "created_at": msg.created_at.isoformat(),
         }
         await emit_message_new(0, payload, room_name=f"dm:{conv_id}")
+
+        # If this message is a reply to a parent in a DM, also emit thread:reply for DM rooms
+        if parent_msg:
+            username = msg.author.username if msg.author else f"user_{current_user['user_id']}"
+            reply_payload = {
+                "id": msg.id,
+                "content": msg.content,
+                "direct_conversation_id": conv_id,
+                "author_id": current_user["user_id"],
+                "author_username": username,
+                "parent_id": request.parent_id,
+                "created_at": msg.created_at.isoformat(),
+                "is_edited": False,
+                "reactions": [],
+            }
+            await emit_thread_reply_dm(conv_id, request.parent_id, reply_payload)
     except Exception:
         pass
 

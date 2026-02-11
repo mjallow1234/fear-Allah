@@ -23,22 +23,27 @@ describe('Login Component', () => {
 
   it('renders login form', () => {
     renderLogin();
-    expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /fear-allah/i })).toBeInTheDocument();
+    expect(screen.getByText(/email or username/i)).toBeInTheDocument();
+    expect(screen.getByText(/^password$/i)).toBeInTheDocument();
   });
 
   it('allows user to type in email field', () => {
     renderLogin();
-    const emailInput = screen.getByLabelText(/email/i);
+    // The input is labeled "Email or Username"
+    const emailInput = screen.getByRole('textbox');
     fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
     expect(emailInput).toHaveValue('test@example.com');
   });
 
   it('allows user to type in password field', () => {
     renderLogin();
-    const passwordInput = screen.getByLabelText(/password/i);
-    fireEvent.change(passwordInput, { target: { value: 'testpassword' } });
+    // Password input type="password" therefore use query by display value or by placeholder
+    // Login component has no placeholder, so query all inputs and pick the password one
+    const inputs = document.querySelectorAll('input');
+    const passwordInput = Array.from(inputs).find(i => i.type === 'password');
+    expect(passwordInput).toBeTruthy();
+    fireEvent.change(passwordInput!, { target: { value: 'testpassword' } });
     expect(passwordInput).toHaveValue('testpassword');
   });
 

@@ -10,8 +10,8 @@ let typingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 // Idle timer - stop typing after inactivity
 let typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Current channel we're tracking typing for
-let currentTypingChannelId: number | null = null;
+// Current room key we're tracking typing for (e.g., "channel:1" or "dm:1")
+let currentTypingRoomKey: string | null = null;
 
 // Debounce interval (ms) - don't spam server
 const TYPING_DEBOUNCE_MS = 500;
@@ -37,13 +37,14 @@ export function emitTypingStart(channelId: number): void {
     emitTypingStop(channelId);
   }, TYPING_IDLE_MS);
   
-  // Skip if we're already tracking this channel and within debounce window
-  if (currentTypingChannelId === channelId && typingDebounceTimer) {
+  // Skip if we're already tracking this room and within debounce window
+  const roomKey = `channel:${channelId}`;
+  if (currentTypingRoomKey === roomKey && typingDebounceTimer) {
     return;
   }
   
-  // Update current channel
-  currentTypingChannelId = channelId;
+  // Update current room key
+  currentTypingRoomKey = roomKey;
   
   // Clear previous debounce timer
   if (typingDebounceTimer) {
@@ -57,6 +58,87 @@ export function emitTypingStart(channelId: number): void {
   typingDebounceTimer = setTimeout(() => {
     typingDebounceTimer = null;
   }, TYPING_DEBOUNCE_MS);
+}
+
+// Direct conversation typing helpers
+export function emitTypingStartDirect(convId: number): void {
+  const socket = getSocket();
+  if (!socket?.connected) return;
+
+  // Clear idle timer - reuse same timers to avoid extra complexity
+  if (typingIdleTimer) {
+    clearTimeout(typingIdleTimer);
+  }
+
+  typingIdleTimer = setTimeout(() => {
+    emitTypingStopDirect(convId);
+  }, TYPING_IDLE_MS);
+
+  const roomKey = `dm:${convId}`;
+  if (currentTypingRoomKey === roomKey && typingDebounceTimer) {
+    return;
+  }
+
+  currentTypingRoomKey = roomKey;
+  if (typingDebounceTimer) {
+    clearTimeout(typingDebounceTimer);
+  }
+
+  socket.emit('typing_start', { direct_conversation_id: convId });
+
+  typingDebounceTimer = setTimeout(() => {
+    typingDebounceTimer = null;
+  }, TYPING_DEBOUNCE_MS);
+}
+
+export function emitTypingStopDirect(convId: number): void {
+  const socket = getSocket();
+
+  if (typingDebounceTimer) {
+    clearTimeout(typingDebounceTimer);
+    typingDebounceTimer = null;
+  }
+  if (typingIdleTimer) {
+    clearTimeout(typingIdleTimer);
+    typingIdleTimer = null;
+  }
+
+  const roomKey = `dm:${convId}`;
+  if (currentTypingRoomKey === roomKey) {
+    currentTypingRoomKey = null;
+    if (socket?.connected) {
+      socket.emit('typing_stop', { direct_conversation_id: convId });
+    }
+  }
+}
+
+export function subscribeToTypingDirect(
+  convId: number,
+  onTypingStart: (userId: number, username: string) => void,
+  onTypingStop: (userId: number, username: string) => void
+): () => void {
+  const socket = getSocket();
+  if (!socket) return () => {};
+
+  const handleTypingStart = (data: { user_id: number; username: string; direct_conversation_id?: number }) => {
+    if (data.direct_conversation_id === convId) {
+      onTypingStart(data.user_id, data.username);
+    }
+  };
+
+  const handleTypingStop = (data: { user_id: number; username: string; direct_conversation_id?: number }) => {
+    if (data.direct_conversation_id === convId) {
+      onTypingStop(data.user_id, data.username);
+    }
+  };
+
+  socket.on('typing:start', handleTypingStart);
+  socket.on('typing:stop', handleTypingStop);
+
+  return () => {
+    socket.off('typing:start', handleTypingStart);
+    socket.off('typing:stop', handleTypingStop);
+  };
 }
 
 /**
@@ -79,9 +161,10 @@ export function emitTypingStop(channelId: number): void {
     typingIdleTimer = null;
   }
   
-  // Only emit if we were tracking this channel
-  if (currentTypingChannelId === channelId) {
-    currentTypingChannelId = null;
+  const roomKey = `channel:${channelId}`;
+  // Only emit if we were tracking this room
+  if (currentTypingRoomKey === roomKey) {
+    currentTypingRoomKey = null;
     if (socket?.connected) {
       socket.emit('typing_stop', { channel_id: channelId });
     }
@@ -134,5 +217,5 @@ export function clearTypingState(): void {
     clearTimeout(typingIdleTimer);
     typingIdleTimer = null;
   }
-  currentTypingChannelId = null;
+  currentTypingRoomKey = null;
 }

@@ -31,3 +31,13 @@ export async function postDirectConversationMessage(convId: number, content: str
   const res = await api.post(`/api/direct-conversations/${convId}/messages`, payload)
   return res.data
 }
+
+export async function fetchDirectConversationReads(convId: number) {
+  const res = await api.get(`/api/direct-conversations/${convId}/reads`)
+  return Array.isArray(res.data) ? res.data : []
+}
+
+export async function markDirectConversationRead(convId: number, last_read_message_id: number) {
+  const res = await api.post(`/api/direct-conversations/${convId}/read`, { last_read_message_id })
+  return res.data
+}

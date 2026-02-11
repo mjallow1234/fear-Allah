@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus, FileText, Brain } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { usePresenceStore } from '../stores/presenceStore'
+import { usePresence } from '../services/useWebSocket'
 import api from '../services/api'
 import clsx from 'clsx'
 import NewDMModal from './NewDMModal'
@@ -167,6 +168,25 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     fetchChannels()
     fetchDMChannels()
   }, [fetchChannels, fetchDMChannels, fetchTeams])
+
+  // Register presence event handler so Sidebar can react to events like channel_created
+  const presence = usePresence()
+  useEffect(() => {
+    if (!presence) return
+    const unsub = presence.onEvent((data: any) => {
+      if (!data || data.type !== 'channel_created') return
+      const channel = data.channel
+      if (!channel) return
+      // Only add channel for currently selected team (if team context present)
+      setChannels((prev) => {
+        if (prev.some((c) => c.id === channel.id)) return prev
+        // If selectedTeam is present, ensure channel belongs to it
+        if (selectedTeam && channel.team_id !== selectedTeam.id) return prev
+        return [...prev, channel]
+      })
+    })
+    return () => { unsub && unsub() }
+  }, [presence, selectedTeam])
 
   // Fetch channels when team changes
   useEffect(() => {
