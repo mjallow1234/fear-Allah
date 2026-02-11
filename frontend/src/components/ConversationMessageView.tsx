@@ -556,107 +556,111 @@ export default function ConversationMessageView(props: Props) {
   }
 
   return (
-    <div className="flex flex-col flex-1">
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
-        {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
-        {messagesError && <div className="text-red-500">{messagesError}</div>}
+    <div className="flex flex-1 h-full">
+      {/* MESSAGE COLUMN */}
+      <div className="flex flex-col flex-1 min-w-0">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
+          {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
+          {messagesError && <div className="text-red-500">{messagesError}</div>}
 
-        {!loadingMessages && !messagesError && messages && messages.length === 0 && (
-          <div className="text-gray-500 text-center py-8">No messages yet. Start the conversation!</div>
-        )}
+          {!loadingMessages && !messagesError && messages && messages.length === 0 && (
+            <div className="text-gray-500 text-center py-8">No messages yet. Start the conversation!</div>
+          )}
 
-        {!loadingMessages && !messagesError && messages && messages.length > 0 && (
-          <div>
-            {hasMore && (
-              <div className="mb-4 text-center">
-                <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" onClick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Loading…' : 'Load older messages'}</button>
+          {!loadingMessages && !messagesError && messages && messages.length > 0 && (
+            <>
+              {hasMore && (
+                <div className="mb-4 text-center">
+                  <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" onClick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Loading…' : 'Load older messages'}</button>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {messages.filter(m => !m.parent_id).map((m: any) => (
+                  <Message
+                    key={m.id}
+                    message={{ ...m, author_username: m.author_username }}
+                    onClick={setSelectedThread}
+                    onToggleReaction={handleToggleReaction}
+                    currentUser={currentUser}
+                    canPin={true}
+                    onUpdate={(updated: any) => setMessages(prev => prev && prev.map(pm => pm.id === updated.id ? { ...pm, ...updated } : pm))}
+                  />
+                ))}
               </div>
-            )}
 
-            <div className="messages space-y-3">
-              {messages.filter(m => !m.parent_id).map((m: any) => (
-                <Message
-                  key={m.id}
-                  message={{ ...m, author_username: m.author_username }}
-                  onClick={setSelectedThread}
-                  onToggleReaction={handleToggleReaction}
-                  currentUser={currentUser}
-                  canPin={true}
-                  onUpdate={(updated: any) => setMessages(prev => prev && prev.map(pm => pm.id === updated.id ? { ...pm, ...updated } : pm))}
-                />
-              ))}
-            </div>
+              {/* Seen by for channel messages */}
+              {isChannel && (() => {
+                const topLevelMessages = messages.filter(m => !m.parent_id)
+                if (topLevelMessages.length === 0) return null
+                const lastMessage = topLevelMessages[topLevelMessages.length - 1]
+                if (lastMessage.author_id !== currentUser?.id) return null
+                const readByUserIds = getUsersWhoReadMessage(Number(channelId), lastMessage.id, currentUser?.id)
+                if (readByUserIds.length === 0) return null
+                const usernames = readByUserIds.map(uid => (props.memberUsernames && props.memberUsernames[uid]) ? props.memberUsernames[uid] : '')
+                const seenText = formatSeenBy(usernames)
+                if (!seenText) return null
+                return (<div className="text-xs text-gray-500 text-right mt-1 pr-2">{seenText}</div>)
+              })()}
 
-            {/* Seen by for channel messages */}
-            {isChannel && (() => {
-              const topLevelMessages = messages.filter(m => !m.parent_id)
-              if (topLevelMessages.length === 0) return null
-              const lastMessage = topLevelMessages[topLevelMessages.length - 1]
-              if (lastMessage.author_id !== currentUser?.id) return null
-              const readByUserIds = getUsersWhoReadMessage(Number(channelId), lastMessage.id, currentUser?.id)
-              if (readByUserIds.length === 0) return null
-            const usernames = readByUserIds.map(uid => (props.memberUsernames && props.memberUsernames[uid]) ? props.memberUsernames[uid] : '')
-              const seenText = formatSeenBy(usernames)
-              if (!seenText) return null
-              return (<div className="text-xs text-gray-500 text-right mt-1 pr-2">{seenText}</div>)
+              {/* Seen by for direct messages */}
+              {isDirect && (() => {
+                const topLevelMessages = messages.filter(m => !m.parent_id)
+                if (topLevelMessages.length === 0) return null
+                const lastMessage = topLevelMessages[topLevelMessages.length - 1]
+                if (lastMessage.author_id !== currentUser?.id) return null
+                const readByUserIds = getUsersWhoReadMessage(`dm:${convId}`, lastMessage.id, currentUser?.id)
+                if (readByUserIds.length === 0) return null
+                const usernames = readByUserIds.map(uid => (props.memberUsernames && props.memberUsernames[uid]) ? props.memberUsernames[uid] : '')
+                const seenText = formatSeenBy(usernames)
+                if (!seenText) return null
+                return (<div className="text-xs text-gray-500 text-right mt-1 pr-2">{seenText}</div>)
+              })()}
+
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
+
+        {/* COMPOSER */}
+        <div className="border-t border-gray-700">
+          {stagedFiles.length > 0 && (
+            <AttachmentPreview files={stagedFiles} onRemove={removeStagedFile} disabled={sending} />
+          )}
+
+          <div className="p-4">
+            {(() => {
+              let typingUsers = [] as any
+              if (isChannel && channelId) {
+                typingUsers = getTypingUsers(Number(channelId))
+              } else if (isDirect && convId) {
+                typingUsers = getTypingUsers(`dm:${convId}`)
+              }
+              const text = formatTypingIndicator(typingUsers)
+              if (!text) return null
+              return (<div className="text-sm text-gray-400 mb-2 animate-pulse">{text}</div>)
             })()}
 
-            {/* Seen by for direct messages */}
-            {isDirect && (() => {
-              const topLevelMessages = messages.filter(m => !m.parent_id)
-              if (topLevelMessages.length === 0) return null
-              const lastMessage = topLevelMessages[topLevelMessages.length - 1]
-              if (lastMessage.author_id !== currentUser?.id) return null
-              const readByUserIds = getUsersWhoReadMessage(`dm:${convId}`, lastMessage.id, currentUser?.id)
-              if (readByUserIds.length === 0) return null
-              const usernames = readByUserIds.map(uid => (props.memberUsernames && props.memberUsernames[uid]) ? props.memberUsernames[uid] : '')
-              const seenText = formatSeenBy(usernames)
-              if (!seenText) return null
-              return (<div className="text-xs text-gray-500 text-right mt-1 pr-2">{seenText}</div>)
-            })()}
+            <form onSubmit={handleSendMessage} className="flex gap-2">
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors" title={isChannel ? 'Attach files' : 'Attach files to this conversation'} disabled={sending}>
+                <Paperclip size={18} className="text-gray-400" />
+              </button>
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { handleFileSelect(e.target.files); if (e.target) e.target.value = '' }} accept={uploadLimits?.allowed_mime_types?.join(',') || '*/*'} />
 
-            <div ref={messagesEndRef} />
+              <div className="relative flex items-center">
+                <EmojiPickerTrigger ref={emojiTriggerRef} onClick={() => setEmojiOpen(true)} />
+                <EmojiPickerPopover anchorRef={emojiTriggerRef} open={emojiOpen} onClose={() => setEmojiOpen(false)} onSelect={(emoji) => { setNewMessage(prev => prev + emoji); setEmojiOpen(false); setTimeout(() => inputRef.current?.focus(), 0) }} />
+              </div>
+
+              <input type="text" value={newMessage} onChange={(e) => { setNewMessage(e.target.value); if (isChannel && channelId) { if (e.target.value.trim()) { emitTypingStart(Number(channelId)) } else { emitTypingStop(Number(channelId)) } } else if (isDirect && convId) { if (e.target.value.trim()) { emitTypingStartDirect(Number(convId)) } else { emitTypingStopDirect(Number(convId)) } } }} placeholder="Type a message..." className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled={sending} ref={inputRef} />
+
+              <button type="submit" disabled={(!newMessage.trim() && stagedFiles.filter(f => !f.error).length === 0) || sending} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"><Send size={18} />{sending ? 'Sending…' : 'Send'}</button>
+            </form>
           </div>
-        )}
-      </div>
-
-      {/* Message input area */}
-      <div className="border-t border-gray-700">
-        {stagedFiles.length > 0 && (
-          <AttachmentPreview files={stagedFiles} onRemove={removeStagedFile} disabled={sending} />
-        )}
-
-        <div className="p-4">
-          {(() => {
-            let typingUsers = [] as any
-            if (isChannel && channelId) {
-              typingUsers = getTypingUsers(Number(channelId))
-            } else if (isDirect && convId) {
-              typingUsers = getTypingUsers(`dm:${convId}`)
-            }
-            const text = formatTypingIndicator(typingUsers)
-            if (!text) return null
-            return (<div className="text-sm text-gray-400 mb-2 animate-pulse">{text}</div>)
-          })()}
-
-          <form onSubmit={handleSendMessage} className="flex gap-2">
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors" title={isChannel ? 'Attach files' : 'Attach files to this conversation'} disabled={sending}>
-              <Paperclip size={18} className="text-gray-400" />
-            </button>
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { handleFileSelect(e.target.files); if (e.target) e.target.value = '' }} accept={uploadLimits?.allowed_mime_types?.join(',') || '*/*'} />
-
-            <div className="relative flex items-center">
-              <EmojiPickerTrigger ref={emojiTriggerRef} onClick={() => setEmojiOpen(true)} />
-              <EmojiPickerPopover anchorRef={emojiTriggerRef} open={emojiOpen} onClose={() => setEmojiOpen(false)} onSelect={(emoji) => { setNewMessage(prev => prev + emoji); setEmojiOpen(false); setTimeout(() => inputRef.current?.focus(), 0) }} />
-            </div>
-
-            <input type="text" value={newMessage} onChange={(e) => { setNewMessage(e.target.value); if (isChannel && channelId) { if (e.target.value.trim()) { emitTypingStart(Number(channelId)) } else { emitTypingStop(Number(channelId)) } } else if (isDirect && convId) { if (e.target.value.trim()) { emitTypingStartDirect(Number(convId)) } else { emitTypingStopDirect(Number(convId)) } } }} placeholder="Type a message..." className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled={sending} ref={inputRef} />
-
-            <button type="submit" disabled={(!newMessage.trim() && stagedFiles.filter(f => !f.error).length === 0) || sending} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"><Send size={18} />{sending ? 'Sending…' : 'Send'}</button>
-          </form>
         </div>
       </div>
 
+      {/* THREAD PANEL (RIGHT SIDE) */}
       {selectedThread && <ThreadPanel parentMessage={selectedThread} onClose={() => setSelectedThread(null)} />}
     </div>
   )
