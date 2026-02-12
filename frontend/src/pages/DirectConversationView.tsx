@@ -36,7 +36,7 @@ export default function DirectConversationView() {
 
   return (
     <div className="flex h-full">
-      <div className="flex flex-col flex-1">
+      <div className="flex flex-col flex-1 h-full">
         <ConversationMessageView
           mode="direct"
           conversationId={convNum}
