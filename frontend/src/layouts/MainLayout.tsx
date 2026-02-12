@@ -66,7 +66,7 @@ export default function MainLayout() {
           channelId={channelId ? parseInt(channelId) : undefined}
           onMenuClick={() => setSidebarOpen(true)}
         />
-        <main className="flex-1 h-full min-h-0 overflow-x-hidden touch-scroll">
+        <main className="flex-1 min-h-0 overflow-hidden">
           {/* ChatSocketProvider mounted here once after login; it will manage the chat WebSocket lifecycle */}
           {/*
             ChatSocketProvider is intentionally NOT mounted by default in desktop-first App Shell.
