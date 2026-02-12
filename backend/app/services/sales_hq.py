@@ -1,18 +1,27 @@
 """Sales HQ helpers: ensure channel exists and post system messages to it."""
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.models import Channel, ChannelMember, Message
 from app.db.enums import ChannelType
 from app.services.notifications import get_admins_and_managers
 
 
 async def ensure_sales_hq_channel(db: AsyncSession) -> Channel:
-    """Ensure a private 'sales-hq' channel exists and add admins as members."""
-    q = select(Channel).where(Channel.name == 'sales-hq')
+    """Ensure a private 'sales-hq' channel exists and add admins as members.
+
+    Behaviors enforced:
+    - Identify channel strictly by slug (`Channel.name`) using a case-insensitive match.
+    - If the channel exists, do NOT modify its `type`, `is_private` or other visibility fields.
+    - Do NOT recreate the channel if a case-insensitive match exists; return the existing record.
+    - Only sync admin membership (add missing admin ChannelMember rows). Do not remove other members.
+    """
+    # Lookup by slug (case-insensitive) to avoid creating duplicates with different casing
+    q = select(Channel).where(func.lower(Channel.name) == 'sales-hq')
     res = await db.execute(q)
     ch = res.scalar_one_or_none()
-    # If channel exists, ensure admin membership is up-to-date (sync on every call)
+
+    # If channel exists, only sync admin membership and return it unchanged
     if ch:
         try:
             admin_ids = await get_admins_and_managers(db)
@@ -21,6 +30,7 @@ async def ensure_sales_hq_channel(db: AsyncSession) -> Channel:
                 cm_res = await db.execute(cm_q)
                 if not cm_res.scalar_one_or_none():
                     db.add(ChannelMember(channel_id=ch.id, user_id=uid))
+            # commit any membership additions, but do NOT mutate channel properties
             await db.commit()
             await db.refresh(ch)
         except Exception:
@@ -28,7 +38,7 @@ async def ensure_sales_hq_channel(db: AsyncSession) -> Channel:
             pass
         return ch
 
-    # Create channel and add admins
+    # Create channel (slug is canonical 'sales-hq') and add admins
     ch = Channel(
         name='sales-hq',
         display_name='Sales HQ',
