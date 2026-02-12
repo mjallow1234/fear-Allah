@@ -109,9 +109,10 @@ export default function SalesPage() {
   
   // Auth store for role check
   const { currentUser } = useAuthStore()
-  // Operational admin (operational_role_name === 'admin') controls Raw Materials, Inventory, Sales overview, and Transactions
-  const isAdmin = currentUser?.operational_role_name === 'admin'
-  const canManageRawMaterials = isAdmin
+  // Enforce matrix v1: revenue visible **only** to system admins (strict role check)
+  // Revenue visibility must NOT depend on API response — hard block by role here.
+  const isAdmin = currentUser?.role === 'system_admin'
+  const canManageRawMaterials = currentUser?.operational_role_name === 'admin'
   // System admin flag used to restrict certain auto-fetch calls (system-admin-only APIs)
   const isSystemAdmin = currentUser?.is_system_admin === true
   // Permissions for Sales sub-views
@@ -373,6 +374,7 @@ export default function SalesPage() {
               <AgentsTab
                 agents={agentPerformance}
                 loading={loadingAgents}
+                isAdmin={isAdmin}
               />
             ) : (
               <RestrictedSection message="Agent Performance is restricted" />
@@ -612,14 +614,14 @@ function OverviewTab({
     <div className="space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Total Revenue */}
+        {/* Total Revenue (system-admins only) */}
         <div className="bg-[#2b2d31] rounded-lg p-6 border border-[#1f2023]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[#949ba4] text-sm">Total Revenue</span>
             <DollarSign size={20} className="text-green-400" />
           </div>
           <p className="text-3xl font-bold text-white">
-            {formatGMD(summary.total_revenue)}
+            {isAdmin ? formatGMD(summary.total_revenue) : '—'}
           </p>
         </div>
         
@@ -664,7 +666,7 @@ function OverviewTab({
                   </div>
                   <div className="space-y-1">
                     <p className="text-2xl font-bold text-white">
-                      {formatGMD(data.revenue)}
+                      {isAdmin ? formatGMD(data.revenue) : '—'}
                     </p>
                     <p className="text-sm text-[#949ba4]">
                       {data.count.toLocaleString()} sales
@@ -726,10 +728,12 @@ function OverviewTab({
 // Agents Tab Component
 function AgentsTab({
   agents,
-  loading
+  loading,
+  isAdmin
 }: {
   agents: ReturnType<typeof useSalesStore.getState>['agentPerformance']
   loading: boolean
+  isAdmin: boolean
 }) {
   if (loading) {
     return (
@@ -748,8 +752,11 @@ function AgentsTab({
     )
   }
 
-  // Sort by revenue descending (with safe fallback for undefined values)
-  const sortedAgents = [...agents].sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0))
+  // Sort by revenue for admins, otherwise sort by total_sales to avoid leaking revenue info
+  const sortedAgents = [...agents].sort((a, b) => {
+    if (isAdmin) return Number(b.revenue ?? 0) - Number(a.revenue ?? 0)
+    return Number(b.total_sales ?? 0) - Number(a.total_sales ?? 0)
+  })
 
   return (
     <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
@@ -760,7 +767,9 @@ function AgentsTab({
             <th className="text-left text-[#949ba4] text-sm font-medium px-4 py-3">Agent</th>
             <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Sales</th>
             <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Units Sold</th>
-            <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Revenue</th>
+            {isAdmin && (
+              <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Revenue</th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -786,11 +795,13 @@ function AgentsTab({
               <td className="px-4 py-3 text-right text-white">
                 {Number(agent.units_sold ?? 0).toLocaleString()}
               </td>
-              <td className="px-4 py-3 text-right">
-                <span className="text-green-400 font-semibold">
-                  {formatGMD(agent.revenue)}
-                </span>
-              </td>
+              {isAdmin && (
+                <td className="px-4 py-3 text-right">
+                  <span className="text-green-400 font-semibold">
+                    {formatGMD(agent.revenue)}
+                  </span>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
