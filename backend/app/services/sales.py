@@ -438,9 +438,9 @@ async def record_sale(
             'sale_id': sale.id,
         })
 
-        # Check for low stock and trigger automation event
+        # Check for low stock and trigger automation event (pass previous stock to avoid repeated alerts)
         if SALES_AUTOMATION_ENABLED:
-            await _check_low_stock_trigger(session, inventory_item, sold_by_user_id)
+            await _check_low_stock_trigger(session, inventory_item, sold_by_user_id, previous_stock=stock_before)
     except Exception as e:
         # Side effects failing should NOT invalidate the sale
         logger.warning(f"[Sales] Side effect failed (sale still valid): {e}")
@@ -568,37 +568,50 @@ async def _check_low_stock_trigger(
     session: AsyncSession,
     inventory_item: Inventory,
     triggered_by_user_id: int,
+    previous_stock: int | None = None,
 ) -> None:
     """
     Check if inventory is below threshold and emit low stock automation event.
-    This is a hook for future notification/automation integration.
+    If `previous_stock` is provided, trigger **only** when crossing from >threshold -> <= threshold.
     """
     threshold = inventory_item.low_stock_threshold or DEFAULT_LOW_STOCK_THRESHOLD
-    
-    if inventory_item.total_stock <= threshold:
-        # Emit low stock event
-        await emit_event('inventory.low_stock', {
-            'inventory_id': inventory_item.id,
-            'product_id': inventory_item.product_id,
-            'product_name': inventory_item.product_name,
-            'current_stock': inventory_item.total_stock,
-            'threshold': threshold,
-            'triggered_by': triggered_by_user_id,
-        })
-        
-        logger.warning(
-            f"[Inventory] LOW STOCK ALERT: product_id={inventory_item.product_id}, "
-            f"stock={inventory_item.total_stock}, threshold={threshold}"
-        )
 
-        # Trigger automation task for low stock (if enabled)
-        try:
-            from app.automation.sales_triggers import SalesAutomationTriggers
-            await SalesAutomationTriggers.on_low_stock(session, inventory_item, triggered_by_user_id)
-        except ImportError:
-            pass  # Automation module not yet available
-        except Exception as e:
-            logger.warning(f"[Automation] Failed to trigger low stock automation: {e}")
+    # If previous_stock provided, only trigger when crossing from safe -> low
+    if previous_stock is not None:
+        if previous_stock <= threshold:
+            # already low before — do not retrigger
+            return
+        if inventory_item.total_stock > threshold:
+            # still above threshold — nothing to do
+            return
+    else:
+        # No previous_stock provided: keep legacy behavior (trigger whenever at/below threshold)
+        if inventory_item.total_stock > threshold:
+            return
+
+    # Emit low stock event
+    await emit_event('inventory.low_stock', {
+        'inventory_id': inventory_item.id,
+        'product_id': inventory_item.product_id,
+        'product_name': inventory_item.product_name,
+        'current_stock': inventory_item.total_stock,
+        'threshold': threshold,
+        'triggered_by': triggered_by_user_id,
+    })
+
+    logger.warning(
+        f"[Inventory] LOW STOCK ALERT: product_id={inventory_item.product_id}, "
+        f"stock={inventory_item.total_stock}, threshold={threshold}"
+    )
+
+    # Trigger automation task for low stock (if enabled)
+    try:
+        from app.automation.sales_triggers import SalesAutomationTriggers
+        await SalesAutomationTriggers.on_low_stock(session, inventory_item, triggered_by_user_id)
+    except ImportError:
+        pass  # Automation module not yet available
+    except Exception as e:
+        logger.warning(f"[Automation] Failed to trigger low stock automation: {e}")
 
 
 async def get_sale(session: AsyncSession, sale_id: int) -> Optional[Sale]:
@@ -714,6 +727,107 @@ async def get_agent_performance(
         })
     
     return performance
+
+
+async def generate_daily_sales_summary(
+    session: AsyncSession,
+    date: Optional[datetime] = None,
+) -> str:
+    """Generate a markdown-formatted daily sales summary for the given date (UTC).
+    Returns a markdown string with totals, top product, top agent, and low-stock list.
+    """
+    # Determine date range (UTC midnight -> next midnight)
+    if date is None:
+        date = datetime.utcnow()
+    start = datetime(date.year, date.month, date.day)
+    end = start + timedelta(days=1)
+
+    # Aggregated totals (reuse existing helper)
+    summary = await get_sales_summary(session, start_date=start, end_date=end)
+
+    # Top product by revenue
+    top_product = None
+    try:
+        prod_q = select(Sale.product_id, func.coalesce(func.sum(Sale.total_amount), 0).label('amount')).where(
+            Sale.created_at >= start, Sale.created_at < end
+        ).group_by(Sale.product_id).order_by(func.sum(Sale.total_amount).desc()).limit(1)
+        prod_res = await session.execute(prod_q)
+        prod_row = prod_res.one_or_none()
+        if prod_row:
+            prod_id = prod_row[0]
+            amount = float(prod_row[1] or 0)
+            # Try to resolve product name from Inventory
+            pname = None
+            try:
+                inv_q = select(Inventory).where(Inventory.product_id == prod_id)
+                inv_res = await session.execute(inv_q)
+                inv = inv_res.scalar_one_or_none()
+                if inv:
+                    pname = inv.product_name or f"Product {prod_id}"
+            except Exception:
+                pname = f"Product {prod_id}"
+            top_product = {"product_id": prod_id, "product_name": pname, "amount": amount}
+    except Exception:
+        top_product = None
+
+    # Top agent
+    top_agent = None
+    try:
+        agents = await get_agent_performance(session, start_date=start, end_date=end)
+        if agents and len(agents) > 0:
+            top = agents[0]
+            top_agent = {"user_id": top.get('user_id'), "username": top.get('username'), "display_name": top.get('display_name'), "total_amount": top.get('total_amount'), "total_quantity": top.get('total_quantity')}
+    except Exception:
+        top_agent = None
+
+    # Low stock items (simple list)
+    low_items = []
+    try:
+        li_q = select(Inventory).where(Inventory.total_stock <= Inventory.low_stock_threshold).order_by((Inventory.low_stock_threshold - Inventory.total_stock).desc()).limit(10)
+        li_res = await session.execute(li_q)
+        for inv in li_res.scalars().all():
+            shortage = inv.low_stock_threshold - inv.total_stock
+            low_items.append({"product_id": inv.product_id, "product_name": inv.product_name, "stock": inv.total_stock, "threshold": inv.low_stock_threshold, "shortage": shortage})
+    except Exception:
+        low_items = []
+
+    # Build markdown
+    lines = []
+    lines.append(f"# Daily Sales Summary — {start.date().isoformat()}")
+    lines.append("")
+    lines.append("**Totals**")
+    lines.append(f"- Sales: {summary.get('total_sales', 0)}")
+    lines.append(f"- Units sold: {summary.get('total_quantity', 0)}")
+    total_amt = summary.get('total_amount')
+    if total_amt is not None:
+        lines.append(f"- Revenue: ${float(total_amt):.2f}")
+    else:
+        lines.append(f"- Revenue: N/A")
+    lines.append("")
+
+    lines.append("**Top product**")
+    if top_product:
+        lines.append(f"- {top_product.get('product_name') or 'Unknown'} (ID: {top_product.get('product_id')}) — ${top_product.get('amount'):.2f}")
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    lines.append("**Top agent**")
+    if top_agent:
+        display = top_agent.get('display_name') or top_agent.get('username') or f"User {top_agent.get('user_id')}"
+        lines.append(f"- {display} — ${float(top_agent.get('total_amount') or 0):.2f} ({top_agent.get('total_quantity')} units)")
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    lines.append("**Low stock items**")
+    if low_items:
+        for it in low_items:
+            lines.append(f"- {it.get('product_name') or 'Product '+str(it.get('product_id'))}: {it.get('stock')} in stock (threshold {it.get('threshold')}, shortage {it.get('shortage')})")
+    else:
+        lines.append("- None")
+
+    return "\n".join(lines)
 
 
 async def classify_sale(session: AsyncSession, sale_id: int, amount_threshold: float = 10.0):

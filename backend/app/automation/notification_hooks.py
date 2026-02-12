@@ -295,6 +295,17 @@ async def on_low_stock_alert(
                 )
         
         logger.info(f"[Notification] Low stock notifications sent: inventory={inventory_id}")
+
+        # Also post an alert to Sales HQ channel
+        try:
+            from app.services.sales_hq import ensure_sales_hq_channel, post_system_message
+            ch = await ensure_sales_hq_channel(db)
+            if ch:
+                content = f"**Low Stock Alert**: {product_name} is low ({current_quantity} units, reorder level: {reorder_level})."
+                await post_system_message(db, ch.id, content)
+        except Exception as e:
+            logger.warning(f"[Notification] Failed to post low stock to Sales HQ: {e}")
+
     except Exception as e:
         logger.error(f"[Notification] Failed to send low stock notification: {e}")
 

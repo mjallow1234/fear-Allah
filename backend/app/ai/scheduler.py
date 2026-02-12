@@ -359,6 +359,15 @@ def setup_scheduler(
         name="Weekly Recommendation Cleanup",
         replace_existing=True,
     )
+
+    # Daily sales summary job (21:00 server time)
+    _scheduler.add_job(
+        run_daily_sales_summary,
+        CronTrigger(hour=21, minute=0),
+        id="daily_sales_summary",
+        name="Daily Sales Summary",
+        replace_existing=True,
+    )
     
     # Expiry check job (every hour by default)
     _scheduler.add_job(
@@ -387,6 +396,25 @@ def shutdown_scheduler():
     _scheduler_enabled = False
 
 
+async def run_daily_sales_summary() -> Dict[str, Any]:
+    """Run daily sales summary job: generate summary and post to Sales HQ channel."""
+    logger.info("[AI Scheduler] Running daily sales summary")
+    session_factory = _get_session_factory()
+    try:
+        async with session_factory() as session:
+            from app.services.sales import generate_daily_sales_summary
+            from app.services.sales_hq import ensure_sales_hq_channel, post_system_message
+
+            md = await generate_daily_sales_summary(session)
+            ch = await ensure_sales_hq_channel(session)
+            if ch and md:
+                await post_system_message(session, ch.id, md)
+        return {"status": "completed", "message": "daily summary posted"}
+    except Exception as e:
+        logger.exception(f"[AI Scheduler] Daily sales summary failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
 async def trigger_job(job_id: str) -> Dict[str, Any]:
     """
     Manually trigger a scheduled job.
@@ -403,5 +431,7 @@ async def trigger_job(job_id: str) -> Dict[str, Any]:
         return await run_weekly_cleanup()
     elif job_id == "expiry_check":
         return await run_expiry_check()
+    elif job_id == "daily_sales_summary":
+        return await run_daily_sales_summary()
     else:
         return {"status": "error", "message": f"Unknown job: {job_id}"}

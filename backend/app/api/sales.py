@@ -74,6 +74,18 @@ async def _get_user_admin_status(db: AsyncSession, user_id: int) -> tuple:
     return (is_admin, role)
 
 
+async def _is_admin_user(db: AsyncSession, user_id: int) -> bool:
+    """Return True only for system admins (matches require_admin semantics).
+
+    NOTE: intentionally strict — team_admins are NOT granted revenue visibility.
+    """
+    try:
+        is_admin, role, _ = await _get_user_info(db, user_id)
+        return bool(is_admin or role == 'system_admin')
+    except Exception:
+        return False
+
+
 async def _check_can_record_sale(db: AsyncSession, user_id: int, sale_channel: str) -> bool:
     """
     Check if user can record a sale.
@@ -356,13 +368,26 @@ async def create_sale(
             detail={"error": "internal_error", "message": "An unexpected error occurred. Please try again."}
         )
 
-    return {
-        "sale_id": sale.id, 
-        "product_id": sale.product_id, 
+    # Build response with revenue redaction for non-admins
+    is_admin = await _is_admin_user(db, current_user['user_id'])
+    resp = {
+        "sale_id": sale.id,
+        "product_id": sale.product_id,
         "quantity": sale.quantity,
-        "total_amount": sale.total_amount,
         "sale_channel": sale.sale_channel,
+        "sold_by_user_id": sale.sold_by_user_id,
+        "location": sale.location,
+        "related_order_id": sale.related_order_id,
+        "created_at": sale.created_at.isoformat() if sale.created_at else None,
     }
+    if is_admin:
+        resp["unit_price"] = float(sale.unit_price)
+        resp["total_amount"] = float(sale.total_amount)
+    else:
+        resp["unit_price"] = None
+        resp["total_amount"] = None
+
+    return resp
 
 
 @router.get("/summary")
@@ -413,7 +438,22 @@ async def sales_summary(
         user_id=filter_user_id,
         sale_channel=sale_channel,
     )
-    
+
+    # Alias for frontend convenience
+    summary['total_revenue'] = summary.get('total_amount')
+
+    # Redact revenue for non-admins
+    is_admin = await _is_admin_user(db, current_user['user_id'])
+    if not is_admin:
+        summary['total_amount'] = None
+        summary['total_revenue'] = None
+        for ch in summary.get('by_channel', []):
+            ch['amount'] = None
+            ch['revenue'] = None
+    else:
+        for ch in summary.get('by_channel', []):
+            ch['revenue'] = ch.get('amount')
+
     return summary
 
 
@@ -449,9 +489,11 @@ async def daily_sales_totals(
     ).where(Sale.created_at >= start, Sale.created_at < end)
     res = await db.execute(q)
     total_amount, total_quantity = res.one()
+    is_admin = await _is_admin_user(db, current_user['user_id'])
+    total_amt_out = float(total_amount) if is_admin else None
     return {
-        "date": start.date().isoformat(), 
-        "total_amount": float(total_amount), 
+        "date": start.date().isoformat(),
+        "total_amount": total_amt_out,
         "total_quantity": int(total_quantity)
     }
 
@@ -500,7 +542,13 @@ async def agent_performance(
                 "total_quantity": int(p.get('total_quantity') or 0),
                 "total_amount": float(p.get('total_amount') or 0.0),
             })
-        return {"agents": safe_performance}
+        # Redact revenue values for non-admins
+    is_admin = await _is_admin_user(db, current_user['user_id'])
+    if not is_admin:
+        for p in safe_performance:
+            p['total_amount'] = None
+
+    return {"agents": safe_performance}
     except Exception as e:
         sales_logger.error("Failed to fetch agent performance", error=e)
         return {"agents": []}
@@ -674,18 +722,24 @@ async def get_sale_by_id(
         if sale.sold_by_user_id != current_user['user_id']:
             raise HTTPException(status_code=403, detail="Not authorized to view this sale")
     
-    return {
+    is_admin = await _is_admin_user(db, current_user['user_id'])
+    resp = {
         "sale_id": sale.id,
         "product_id": sale.product_id,
         "quantity": sale.quantity,
-        "unit_price": sale.unit_price,
-        "total_amount": sale.total_amount,
         "sale_channel": sale.sale_channel,
         "sold_by_user_id": sale.sold_by_user_id,
         "location": sale.location,
         "related_order_id": sale.related_order_id,
         "created_at": sale.created_at.isoformat() if sale.created_at else None,
     }
+    if is_admin:
+        resp["unit_price"] = sale.unit_price
+        resp["total_amount"] = sale.total_amount
+    else:
+        resp["unit_price"] = None
+        resp["total_amount"] = None
+    return resp
 
 
 @router.get("/{sale_id}/commission")
