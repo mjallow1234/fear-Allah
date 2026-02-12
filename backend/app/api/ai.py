@@ -629,13 +629,14 @@ async def trigger_scheduler_job(
     if not await _check_admin(db, user_id):
         raise HTTPException(status_code=403, detail={"error": "permission_denied", "message": "Admin access required"})
     
-    valid_jobs = ["nightly_analysis", "weekly_cleanup", "expiry_check"]
+    valid_jobs = ["nightly_analysis", "weekly_cleanup", "expiry_check", "daily_sales_summary"]
     if job_id not in valid_jobs:
         raise HTTPException(status_code=400, detail={
             "error": "invalid_job",
             "message": f"Invalid job ID. Valid jobs: {', '.join(valid_jobs)}",
         })
     
+    # Trigger the requested job directly (daily_sales_summary is handled by trigger_job -> run_daily_sales_summary)
     result = await trigger_job(job_id)
     return result
 
