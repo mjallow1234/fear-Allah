@@ -307,10 +307,15 @@ export default function ConversationMessageView(props: Props) {
           unsubscribeUnpinned()
         }
 
-      } catch (err) {
+      } catch (err: any) {
         if (cancelled) return
         console.error('Failed to load messages', err)
-        setMessagesError('Failed to load messages')
+        // If the backend returned 403, expose a specific forbidden state for the UI
+        if (err?.response?.status === 403) {
+          setMessagesError('forbidden')
+        } else {
+          setMessagesError('Failed to load messages')
+        }
       } finally {
         if (cancelled) return
         setLoadingMessages(false)
@@ -636,7 +641,15 @@ export default function ConversationMessageView(props: Props) {
       <div className="flex flex-col flex-1 min-w-0">
         <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4">
           {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
-          {messagesError && <div className="text-red-500">{messagesError}</div>}
+          {messagesError === 'forbidden' && (
+            <div className="text-center text-red-400 py-10">
+              🔒 You do not have access to this channel.
+            </div>
+          )}
+
+          {messagesError && messagesError !== 'forbidden' && (
+            <div className="text-red-500">{messagesError}</div>
+          )}
 
           {!loadingMessages && !messagesError && messages && messages.length === 0 && (
             <div className="text-gray-500 text-center py-8">No messages yet. Start the conversation!</div>
