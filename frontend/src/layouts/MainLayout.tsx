@@ -51,7 +51,7 @@ export default function MainLayout() {
   }, [channelId])
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full">
       {/* Mobile Sidebar Backdrop */}
       <div 
         className={`sidebar-backdrop ${sidebarOpen ? 'visible' : ''} md:hidden`}
@@ -60,13 +60,13 @@ export default function MainLayout() {
       <ErrorBoundary>
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </ErrorBoundary>
-      <div className="flex flex-col flex-1 h-full min-h-0 overflow-hidden">
+      <div className="flex flex-col flex-1 h-full min-h-0">
         <TopBar 
           channelName={channelName} 
           channelId={channelId ? parseInt(channelId) : undefined}
           onMenuClick={() => setSidebarOpen(true)}
         />
-        <main className="flex-1 h-full overflow-hidden overflow-x-hidden touch-scroll">
+        <main className="flex-1 h-full min-h-0 overflow-x-hidden touch-scroll">
           {/* ChatSocketProvider mounted here once after login; it will manage the chat WebSocket lifecycle */}
           {/*
             ChatSocketProvider is intentionally NOT mounted by default in desktop-first App Shell.
