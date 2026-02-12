@@ -542,13 +542,14 @@ async def agent_performance(
                 "total_quantity": int(p.get('total_quantity') or 0),
                 "total_amount": float(p.get('total_amount') or 0.0),
             })
-        # Redact revenue values for non-admins
-    is_admin = await _is_admin_user(db, current_user['user_id'])
-    if not is_admin:
-        for p in safe_performance:
-            p['total_amount'] = None
 
-    return {"agents": safe_performance}
+        # Redact revenue values for non-admins
+        is_admin = await _is_admin_user(db, current_user['user_id'])
+        if not is_admin:
+            for p in safe_performance:
+                p['total_amount'] = None
+
+        return {"agents": safe_performance}
     except Exception as e:
         sales_logger.error("Failed to fetch agent performance", error=e)
         return {"agents": []}
