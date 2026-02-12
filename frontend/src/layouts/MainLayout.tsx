@@ -60,7 +60,7 @@ export default function MainLayout() {
       <ErrorBoundary>
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </ErrorBoundary>
-      <div className="flex flex-col flex-1 h-full overflow-hidden">
+      <div className="flex flex-col flex-1 h-full min-h-0 overflow-hidden">
         <TopBar 
           channelName={channelName} 
           channelId={channelId ? parseInt(channelId) : undefined}
