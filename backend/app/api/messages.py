@@ -552,18 +552,18 @@ async def create_reply(
         
         username = reply.author.username if reply.author else f"user_{current_user['user_id']}"
         # Re-fetch parent to ensure we have the updated last_activity_at value (if any)
-    parent_last_activity_iso = None
-    try:
-        if parent_msg:
-            p_q = select(Message).where(Message.id == parent_msg.id)
-            p_r = await db.execute(p_q)
-            refreshed_parent = p_r.scalar_one_or_none()
-            if refreshed_parent and refreshed_parent.last_activity_at:
-                parent_last_activity_iso = refreshed_parent.last_activity_at.isoformat()
-    except Exception:
         parent_last_activity_iso = None
+        try:
+            if parent_msg:
+                p_q = select(Message).where(Message.id == parent_msg.id)
+                p_r = await db.execute(p_q)
+                refreshed_parent = p_r.scalar_one_or_none()
+                if refreshed_parent and refreshed_parent.last_activity_at:
+                    parent_last_activity_iso = refreshed_parent.last_activity_at.isoformat()
+        except Exception:
+            parent_last_activity_iso = None
 
-    reply_payload = {
+        reply_payload = {
             "id": reply.id,
             "content": reply.content,
             "channel_id": reply.channel_id,
