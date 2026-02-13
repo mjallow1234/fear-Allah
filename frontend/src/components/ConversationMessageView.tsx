@@ -203,7 +203,7 @@ export default function ConversationMessageView(props: Props) {
 
             // Determine whether user is near bottom before adding
             const container = messagesContainerRef.current
-            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 50 : true
+            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 80 : true
 
             setSortedMessages((prev: MessageType[] | null) => prev ? [...prev, data] : [data])
 
@@ -226,7 +226,7 @@ export default function ConversationMessageView(props: Props) {
             seenMessageIdsRef.current.add(data.id)
 
             const container = messagesContainerRef.current
-            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 50 : true
+            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 80 : true
 
             setSortedMessages((prev: MessageType[] | null) => prev ? [...prev, data] : [data])
 
@@ -469,7 +469,7 @@ export default function ConversationMessageView(props: Props) {
     const container = messagesContainerRef.current
     if (!container) return
     const handleScroll = () => {
-      const isNear = (container.scrollHeight - container.scrollTop - container.clientHeight) < 50
+      const isNear = (container.scrollHeight - container.scrollTop - container.clientHeight) < 80
       if (isNear) {
         // mark channel as read when user returns to bottom
         markAsReadIfAtBottom()
