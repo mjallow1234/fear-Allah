@@ -52,13 +52,12 @@ export default function ConversationMessageView(props: Props) {
   }
 
   // Helper that always sets messages sorted by created_at (oldest first)
+  // Setter that accepts an updater but does NOT reorder the array —
+  // backend returns messages already ordered by last_activity_at DESC.
   const setSortedMessages = useCallback((updater: MessageType[] | ((prev: MessageType[] | null) => MessageType[] | null)) => {
     setMessages((prev: MessageType[] | null) => {
       const next = typeof updater === 'function' ? (updater as (p: MessageType[] | null) => MessageType[] | null)(prev) : updater
-      if (!next) return next as any
-      const arr = Array.isArray(next) ? [...next] : (next as MessageType[])
-      arr.sort((a: MessageType, b: MessageType) => new Date((a.created_at || '')).getTime() - new Date((b.created_at || '')).getTime())
-      return arr as any
+      return Array.isArray(next) ? [...next] : (next as MessageType[] | null)
     })
   }, [setMessages])
 
