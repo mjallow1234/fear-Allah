@@ -69,6 +69,8 @@ export default function ConversationMessageView(props: Props) {
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const shouldScrollToBottom = useRef(true)
   const scrollRestoreInfo = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+  // Per-channel saved scroll positions: { key -> { scrollTop, wasAtBottom } }
+  const scrollPositionsRef = useRef<Record<string, { scrollTop: number; wasAtBottom: boolean }>>({})
 
   // Thread
   const [selectedThread, setSelectedThread] = useState<any | null>(null)
@@ -158,6 +160,24 @@ export default function ConversationMessageView(props: Props) {
           setHasMore(has_more)
           seenMessageIdsRef.current = new Set((list || []).map((m: any) => m.id))
 
+          // Restore per-channel scroll position if we saved one previously
+          try {
+            const key = `channel:${channelId}`
+            const saved = scrollPositionsRef.current[key]
+            const container = messagesContainerRef.current
+            if (saved && container) {
+              // restore exact scrollTop and respect previous 'wasAtBottom' flag
+              container.scrollTop = saved.scrollTop
+              shouldScrollToBottom.current = !!saved.wasAtBottom
+              if (saved.wasAtBottom && messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
+                // if user was at bottom previously, bring them to bottom now
+                messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
+              }
+            }
+          } catch (err) {
+            /* ignore */
+          }
+
           // Join channel room
           joinChannel(channelId)
 
@@ -175,6 +195,22 @@ export default function ConversationMessageView(props: Props) {
           setSortedMessages((prev: MessageType[] | null) => mergeMessagesById(prev, list))
           setHasMore(has_more)
           seenMessageIdsRef.current = new Set((list || []).map((m: any) => m.id))
+
+          // Restore per-conversation scroll position if we saved one previously
+          try {
+            const key = `dm:${convId}`
+            const saved = scrollPositionsRef.current[key]
+            const container = messagesContainerRef.current
+            if (saved && container) {
+              container.scrollTop = saved.scrollTop
+              shouldScrollToBottom.current = !!saved.wasAtBottom
+              if (saved.wasAtBottom && messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
+                messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
+              }
+            }
+          } catch (err) {
+            /* ignore */
+          }
 
           // Join DM room
           const room = `dm:${convId}`
@@ -401,6 +437,18 @@ export default function ConversationMessageView(props: Props) {
     loadMessages()
 
     return () => {
+      // Save current scrollTop + whether user was at bottom for this channel/DM
+      try {
+        const container = messagesContainerRef.current
+        const key = isChannel && channelId ? `channel:${channelId}` : isDirect && convId ? `dm:${convId}` : null
+        if (container && key) {
+          const wasAtBottom = (container.scrollHeight - container.scrollTop - container.clientHeight) < 80
+          scrollPositionsRef.current[key] = { scrollTop: container.scrollTop, wasAtBottom }
+        }
+      } catch (err) {
+        /* ignore */
+      }
+
       cancelled = true
       if (socketCleanup) socketCleanup()
     }
