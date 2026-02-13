@@ -131,7 +131,7 @@ async def get_direct_conversation_messages(
         # Allow slight timestamp jitter (server-default timestamps may be second-precision)
         from datetime import timedelta
         q = q.where(Message.created_at >= (join_ts - timedelta(seconds=1)))
-    q = q.order_by(Message.created_at.desc()).offset(skip).limit(limit)
+    q = q.order_by(Message.last_activity_at.desc(), Message.created_at.desc()).offset(skip).limit(limit)
     r = await db.execute(q)
     msgs = r.scalars().all()
 

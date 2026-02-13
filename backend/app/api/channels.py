@@ -558,15 +558,17 @@ async def get_channel_messages_v34(
     from sqlalchemy import desc
 
     cursor_time = None
+    cursor_created_at = None
     if before is not None:
-        # Look up the message to get its created_at
+        # Look up the message to get its last_activity_at (fallback to created_at)
         m_q = select(Message).where(Message.id == before)
         m_r = await db.execute(m_q)
         m_obj = m_r.scalar_one_or_none()
         if m_obj:
-            cursor_time = m_obj.created_at
+            cursor_time = m_obj.last_activity_at or m_obj.created_at
+            cursor_created_at = m_obj.created_at
 
-    # Fetch messages in descending order (newest first) with limit+1 to determine has_more
+    # Fetch messages in descending order by activity (newest activity first) with limit+1 to determine has_more
     base_q = (
         select(Message)
         .options(selectinload(Message.author), selectinload(Message.reactions), selectinload(Message.attachments))
@@ -574,7 +576,16 @@ async def get_channel_messages_v34(
     )
 
     if cursor_time is not None:
-        base_q = base_q.where(Message.created_at < cursor_time)
+        # Use last_activity_at + created_at tie-breaker to keep cursor deterministic
+        base_q = base_q.where(
+            or_(
+                Message.last_activity_at < cursor_time,
+                and_(
+                    Message.last_activity_at == cursor_time,
+                    Message.created_at < cursor_created_at
+                )
+            )
+        )
 
     # Apply public/member lower bound to avoid showing messages older than join/user creation
     # Fetch user to apply must_change_password check and lower bound
@@ -588,7 +599,7 @@ async def get_channel_messages_v34(
     if join_timestamp:
         base_q = base_q.where(Message.created_at >= join_timestamp)
 
-    base_q = base_q.order_by(desc(Message.created_at)).limit(limit + 1)
+    base_q = base_q.order_by(desc(Message.last_activity_at), desc(Message.created_at)).limit(limit + 1)
 
     result = await db.execute(base_q)
     rows = result.scalars().all()
