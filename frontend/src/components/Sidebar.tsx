@@ -8,6 +8,8 @@ import api from '../services/api'
 import clsx from 'clsx'
 import NewDMModal from './NewDMModal'
 import CreateChannelModal from './CreateChannelModal'
+import { onSocketEvent } from '../realtime'
+import { useReadReceiptStore } from '../stores/readReceiptStore'
 
 
 interface Team {
@@ -25,6 +27,9 @@ interface Channel {
   description: string | null
   type: string
   team_id: number | null
+  // optional activity/unread fields (populated by server or realtime updates)
+  last_activity_at?: string
+  unread_count?: number
 }
 
 
@@ -168,6 +173,80 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     fetchChannels()
     fetchDMChannels()
   }, [fetchChannels, fetchDMChannels, fetchTeams])
+
+  // Real-time sidebar updates: listen for message:new and thread:reply to update channel activity/unread state
+  useEffect(() => {
+    const handleMessageNew = (msg: any) => {
+      try {
+        if (!msg || !msg.channel_id) return
+        const incomingChannelId = Number(msg.channel_id)
+
+        // Determine active channel id from location
+        const path = location.pathname || ''
+        const activeChannelId = path.startsWith('/channels/') ? Number(path.split('/')[2]) : null
+        if (incomingChannelId === activeChannelId) return
+
+        const currentUserId = user?.id
+        const reads = useReadReceiptStore.getState().getChannelReads(incomingChannelId)
+        const lastRead = currentUserId ? (reads[currentUserId] || 0) : 0
+
+        // Only treat as unread if message id is newer than lastRead
+        const messageId = msg.id || 0
+        const isUnreadForCurrent = messageId > (lastRead || 0)
+
+        const newLastActivity = msg.created_at || new Date().toISOString()
+
+        setChannels((prev) => {
+          const idx = prev.findIndex(c => c.id === incomingChannelId)
+          if (idx === -1) return prev
+          const ch = prev[idx]
+          const updated = { ...ch, last_activity_at: newLastActivity, unread_count: (ch.unread_count || 0) + (isUnreadForCurrent ? 1 : 0) }
+          // Move updated channel to top
+          return [updated, ...prev.filter(c => c.id !== incomingChannelId)]
+        })
+      } catch (err) {
+        console.error('Sidebar: failed to handle message:new', err)
+      }
+    }
+
+    const handleThreadReply = (data: any) => {
+      try {
+        if (!data || !data.channel_id) return
+        const incomingChannelId = Number(data.channel_id)
+        const path = location.pathname || ''
+        const activeChannelId = path.startsWith('/channels/') ? Number(path.split('/')[2]) : null
+        if (incomingChannelId === activeChannelId) return
+
+        const currentUserId = user?.id
+        const reads = useReadReceiptStore.getState().getChannelReads(incomingChannelId)
+        const lastRead = currentUserId ? (reads[currentUserId] || 0) : 0
+
+        const replyId = data.id || 0
+        const isUnreadForCurrent = replyId > (lastRead || 0)
+
+        // Prefer parent_last_activity_at if provided by server
+        const newLastActivity = data.parent_last_activity_at || data.created_at || new Date().toISOString()
+
+        setChannels((prev) => {
+          const idx = prev.findIndex(c => c.id === incomingChannelId)
+          if (idx === -1) return prev
+          const ch = prev[idx]
+          const updated = { ...ch, last_activity_at: newLastActivity, unread_count: (ch.unread_count || 0) + (isUnreadForCurrent ? 1 : 0) }
+          return [updated, ...prev.filter(c => c.id !== incomingChannelId)]
+        })
+      } catch (err) {
+        console.error('Sidebar: failed to handle thread:reply', err)
+      }
+    }
+
+    const unsubMsg = onSocketEvent<any>('message:new', handleMessageNew)
+    const unsubThread = onSocketEvent<any>('thread:reply', handleThreadReply)
+
+    return () => {
+      try { unsubMsg && unsubMsg() } catch (e) { /* ignore */ }
+      try { unsubThread && unsubThread() } catch (e) { /* ignore */ }
+    }
+  }, [location.pathname, user?.id])
 
   // Register presence event handler so Sidebar can react to events like channel_created
   const presence = usePresence()
