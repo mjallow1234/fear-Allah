@@ -209,6 +209,9 @@ export default function ConversationMessageView(props: Props) {
 
             if (isNearBottom) {
               shouldScrollToBottom.current = true
+              if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
+                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+              }
               // mark read will be handled by scroll handler shortly
             } else {
               // user scrolled up — show new messages indicator
@@ -232,6 +235,9 @@ export default function ConversationMessageView(props: Props) {
 
             if (isNearBottom) {
               shouldScrollToBottom.current = true
+              if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
+                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+              }
             } else {
               setNewMessagesCount(n => n + 1)
             }
@@ -400,14 +406,7 @@ export default function ConversationMessageView(props: Props) {
     }
   }, [props, channelId, convId, isChannel, isDirect, currentUser?.id])
 
-  // Scroll to bottom when new messages arrive (if appropriate)
-  useEffect(() => {
-    if (shouldScrollToBottom.current) {
-      if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-      }
-    }
-  }, [messages, markAsReadIfAtBottom, isChannel])
+
 
   // Ensure composer autosize runs on mount and when channel/direct conversation changes
   useEffect(() => {
@@ -448,13 +447,11 @@ export default function ConversationMessageView(props: Props) {
           markDirectConversationRead(convId, parent.id)
         }
 
-        // Scroll to and briefly highlight the parent message
+        // Briefly highlight the parent message (do NOT auto-scroll from a messages-effect)
         setTimeout(() => {
           const el = document.querySelector(`[data-message-id="${parentId}"]`) as HTMLElement | null
           if (!el) return
-          if (typeof el.scrollIntoView === 'function') {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
+          // do NOT call scrollIntoView here (per new scroll rules)
           el.classList.add('ring-2', 'ring-blue-400', 'rounded-lg')
           setTimeout(() => el.classList.remove('ring-2', 'ring-blue-400', 'rounded-lg'), 1600)
         }, 100)
