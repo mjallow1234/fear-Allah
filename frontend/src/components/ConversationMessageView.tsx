@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import { useLocation } from 'react-router-dom'
+import type { Message as WSMessage } from '../services/useWebSocket'
 import Message from './Chat/Message'
 import ThreadPanel from '../components/ThreadPanel'
 import { Send, Paperclip } from 'lucide-react'
@@ -36,17 +37,28 @@ export default function ConversationMessageView(props: Props) {
   const [hasMore, setHasMore] = useState<boolean>(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
-  const [isAtBottom, setIsAtBottom] = useState(true)
   const seenMessageIdsRef = useRef<Set<number>>(new Set())
 
+  // Strongly-typed message shape used in this component
+  type MessageType = WSMessage & {
+    id: number
+    created_at?: string
+    author_username?: string
+    parent_id?: number | null
+    thread_count?: number
+    reactions?: any[]
+    attachments?: any[]
+    _highlight?: boolean
+  }
+
   // Helper that always sets messages sorted by created_at (oldest first)
-  const setSortedMessages = useCallback((updater: any) => {
-    setMessages((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater
-      if (!next) return next
-      const arr = Array.isArray(next) ? [...next] : next
-      arr.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      return arr
+  const setSortedMessages = useCallback((updater: MessageType[] | ((prev: MessageType[] | null) => MessageType[] | null)) => {
+    setMessages((prev: MessageType[] | null) => {
+      const next = typeof updater === 'function' ? (updater as (p: MessageType[] | null) => MessageType[] | null)(prev) : updater
+      if (!next) return next as any
+      const arr = Array.isArray(next) ? [...next] : (next as MessageType[])
+      arr.sort((a: MessageType, b: MessageType) => new Date((a.created_at || '')).getTime() - new Date((b.created_at || '')).getTime())
+      return arr as any
     })
   }, [setMessages])
 
@@ -142,7 +154,7 @@ export default function ConversationMessageView(props: Props) {
         if (isChannel && channelId !== undefined) {
           const { messages: list, has_more } = await fetchChannelMessages(channelId)
           if (cancelled) return
-          setSortedMessages(prev => mergeMessagesById(prev, list))
+          setSortedMessages((prev: MessageType[] | null) => mergeMessagesById(prev, list))
           setHasMore(has_more)
           seenMessageIdsRef.current = new Set((list || []).map((m: any) => m.id))
 
@@ -193,7 +205,7 @@ export default function ConversationMessageView(props: Props) {
             const container = messagesContainerRef.current
             const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 50 : true
 
-            setSortedMessages(prev => prev ? [...prev, data] : [data])
+            setSortedMessages((prev: MessageType[] | null) => prev ? [...prev, data] : [data])
 
             if (isNearBottom) {
               shouldScrollToBottom.current = true
@@ -216,7 +228,7 @@ export default function ConversationMessageView(props: Props) {
             const container = messagesContainerRef.current
             const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 50 : true
 
-            setSortedMessages(prev => prev ? [...prev, data] : [data])
+            setSortedMessages((prev: MessageType[] | null) => prev ? [...prev, data] : [data])
 
             if (isNearBottom) {
               shouldScrollToBottom.current = true
@@ -420,7 +432,7 @@ export default function ConversationMessageView(props: Props) {
           parent = res.data
           if (!parent) return
           // Merge parent into current messages so it appears in the list
-          setSortedMessages(p => mergeMessagesById(p, [parent]))
+          setSortedMessages((p: MessageType[] | null) => mergeMessagesById(p, [parent]))
         }
 
         // Ensure this parent belongs to this view (channel or direct)
@@ -458,7 +470,6 @@ export default function ConversationMessageView(props: Props) {
     if (!container) return
     const handleScroll = () => {
       const isNear = (container.scrollHeight - container.scrollTop - container.clientHeight) < 50
-      setIsAtBottom(isNear)
       if (isNear) {
         // mark channel as read when user returns to bottom
         markAsReadIfAtBottom()
