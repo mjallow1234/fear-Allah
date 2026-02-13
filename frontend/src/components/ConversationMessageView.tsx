@@ -172,7 +172,7 @@ export default function ConversationMessageView(props: Props) {
         } else if (isDirect && convId !== undefined) {
           const { messages: list, has_more } = await fetchDirectConversationMessages(convId)
           if (cancelled) return
-          setMessages(prev => mergeMessagesById(prev, list))
+          setSortedMessages((prev: MessageType[] | null) => mergeMessagesById(prev, list))
           setHasMore(has_more)
           seenMessageIdsRef.current = new Set((list || []).map((m: any) => m.id))
 
@@ -679,8 +679,8 @@ export default function ConversationMessageView(props: Props) {
             if (fileMessage) setMessages(prev => prev ? [...prev, fileMessage] : [fileMessage])
           } catch (err) {
             console.error('Failed to fetch file-only message:', err)
-            if (channelId !== undefined) fetchChannelMessages(Number(channelId)).then(({ messages: list }) => setMessages(prev => mergeMessagesById(prev, list)))
-            else if (isDirect && convId !== undefined) fetchDirectConversationMessages(convId).then(({ messages: list }) => setMessages(prev => mergeMessagesById(prev, list)))
+            if (channelId !== undefined) fetchChannelMessages(Number(channelId)).then(({ messages: list }) => setSortedMessages((prev: MessageType[] | null) => mergeMessagesById(prev, list)))
+            else if (isDirect && convId !== undefined) fetchDirectConversationMessages(convId).then(({ messages: list }) => setSortedMessages((prev: MessageType[] | null) => mergeMessagesById(prev, list)))
           }
         }
         setTimeout(() => setStagedFiles(prev => prev.filter(f => !('completed' in f && f.completed))), 500)
