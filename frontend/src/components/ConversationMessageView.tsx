@@ -56,8 +56,18 @@ export default function ConversationMessageView(props: Props) {
 
   // Emoji picker
   const [emojiOpen, setEmojiOpen] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const emojiTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  // Composer autosize helper
+  const adjustComposerHeight = useCallback((el?: HTMLTextAreaElement | null) => {
+    const ta = el || inputRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    // add 2px padding buffer to avoid clipping on some browsers
+    ta.style.height = `${Math.min(ta.scrollHeight + 2, 400)}px`
+  }, [])
+
 
   // Helper to get numeric id and mode checks
   const isChannel = props.mode === 'channel'
@@ -339,6 +349,11 @@ export default function ConversationMessageView(props: Props) {
     }
   }, [messages, markAsReadIfAtBottom, isChannel])
 
+  // Ensure composer autosize runs on mount and when channel/direct conversation changes
+  useEffect(() => {
+    adjustComposerHeight()
+  }, [channelId, convId, adjustComposerHeight])
+
   // Open thread panel automatically when ?message={parent_id} present in URL
   const location = useLocation()
   useEffect(() => {
@@ -552,6 +567,8 @@ export default function ConversationMessageView(props: Props) {
           if (msg?.id) seenMessageIdsRef.current.add(msg.id)
         }
         setNewMessage('')
+        // Reset composer height after clearing
+        adjustComposerHeight()
       }
 
       // Handle file uploads for channels and direct conversations
@@ -740,7 +757,24 @@ export default function ConversationMessageView(props: Props) {
                 <EmojiPickerPopover anchorRef={emojiTriggerRef} open={emojiOpen} onClose={() => setEmojiOpen(false)} onSelect={(emoji) => { setNewMessage(prev => prev + emoji); setEmojiOpen(false); setTimeout(() => inputRef.current?.focus(), 0) }} />
               </div>
 
-              <input type="text" value={newMessage} onChange={(e) => { setNewMessage(e.target.value); if (isChannel && channelId) { if (e.target.value.trim()) { emitTypingStart(Number(channelId)) } else { emitTypingStop(Number(channelId)) } } else if (isDirect && convId) { if (e.target.value.trim()) { emitTypingStartDirect(Number(convId)) } else { emitTypingStopDirect(Number(convId)) } } }} placeholder="Type a message..." className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled={sending} ref={inputRef} />
+              <textarea
+                value={newMessage}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setNewMessage(v)
+                  adjustComposerHeight(e.target)
+                  if (isChannel && channelId) {
+                    if (v.trim()) { emitTypingStart(Number(channelId)) } else { emitTypingStop(Number(channelId)) }
+                  } else if (isDirect && convId) {
+                    if (v.trim()) { emitTypingStartDirect(Number(convId)) } else { emitTypingStopDirect(Number(convId)) }
+                  }
+                }}
+                placeholder="Type a message..."
+                className="flex-1 px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-hidden"
+                disabled={sending}
+                ref={inputRef}
+                rows={1}
+              />
 
               <button type="submit" disabled={(!newMessage.trim() && stagedFiles.filter(f => !f.error).length === 0) || sending} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"><Send size={18} />{sending ? 'Sending…' : 'Send'}</button>
             </form>
