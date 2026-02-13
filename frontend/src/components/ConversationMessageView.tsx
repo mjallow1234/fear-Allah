@@ -27,7 +27,7 @@ export type Props =
 export default function ConversationMessageView(props: Props) {
   const currentUser = useAuthStore((s) => s.user)
   const { addTypingUser, removeTypingUser, getTypingUsers, clearChannel } = useTypingStore()
-  const { getUsersWhoReadMessage } = useReadReceiptStore()
+  const { getUsersWhoReadMessage, getChannelReads } = useReadReceiptStore()
 
   // Message lists and state
   const [messages, setMessages] = useState<any[] | null>(null)
@@ -35,7 +35,20 @@ export default function ConversationMessageView(props: Props) {
   const [messagesError, setMessagesError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState<boolean>(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const [newMessagesCount, setNewMessagesCount] = useState(0)
+  const [isAtBottom, setIsAtBottom] = useState(true)
   const seenMessageIdsRef = useRef<Set<number>>(new Set())
+
+  // Helper that always sets messages sorted by created_at (oldest first)
+  const setSortedMessages = useCallback((updater: any) => {
+    setMessages((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      if (!next) return next
+      const arr = Array.isArray(next) ? [...next] : next
+      arr.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      return arr
+    })
+  }, [setMessages])
 
   // Composer state
   const [newMessage, setNewMessage] = useState('')
@@ -129,7 +142,7 @@ export default function ConversationMessageView(props: Props) {
         if (isChannel && channelId !== undefined) {
           const { messages: list, has_more } = await fetchChannelMessages(channelId)
           if (cancelled) return
-          setMessages(prev => mergeMessagesById(prev, list))
+          setSortedMessages(prev => mergeMessagesById(prev, list))
           setHasMore(has_more)
           seenMessageIdsRef.current = new Set((list || []).map((m: any) => m.id))
 
@@ -175,8 +188,20 @@ export default function ConversationMessageView(props: Props) {
             if (data.author_id === currentUserId) return
             if (seenMessageIdsRef.current.has(data.id)) return
             seenMessageIdsRef.current.add(data.id)
-            shouldScrollToBottom.current = true
-            setMessages(prev => prev ? [...prev, data] : [data])
+
+            // Determine whether user is near bottom before adding
+            const container = messagesContainerRef.current
+            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 50 : true
+
+            setSortedMessages(prev => prev ? [...prev, data] : [data])
+
+            if (isNearBottom) {
+              shouldScrollToBottom.current = true
+              // mark read will be handled by scroll handler shortly
+            } else {
+              // user scrolled up — show new messages indicator
+              setNewMessagesCount(n => n + 1)
+            }
             return
           }
 
@@ -187,8 +212,17 @@ export default function ConversationMessageView(props: Props) {
             if (data.author_id === currentUserId) return
             if (seenMessageIdsRef.current.has(data.id)) return
             seenMessageIdsRef.current.add(data.id)
-            shouldScrollToBottom.current = true
-            setMessages(prev => prev ? [...prev, data] : [data])
+
+            const container = messagesContainerRef.current
+            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 50 : true
+
+            setSortedMessages(prev => prev ? [...prev, data] : [data])
+
+            if (isNearBottom) {
+              shouldScrollToBottom.current = true
+            } else {
+              setNewMessagesCount(n => n + 1)
+            }
             return
           }
         })
@@ -198,7 +232,20 @@ export default function ConversationMessageView(props: Props) {
           // thread:reply usually includes channel_id; if present, filter similarly
           if (isChannel && data.channel_id !== channelId) return
           if (isDirect && data.direct_conversation_id !== convId) return
-          setMessages(prev => prev && prev.map(m => m.id === data.parent_id ? { ...m, thread_count: (m.thread_count || 0) + 1 } : m))
+
+          // Promote parent message to bottom and highlight it briefly
+          setMessages(prev => {
+            if (!prev) return prev
+            const idx = prev.findIndex(m => m.id === data.parent_id)
+            if (idx === -1) return prev.map(m => m.id === data.parent_id ? { ...m, thread_count: (m.thread_count || 0) + 1 } : m)
+
+            const parent = { ...prev[idx], thread_count: (prev[idx].thread_count || 0) + 1, _highlight: true }
+            const next = [...prev.slice(0, idx), ...prev.slice(idx + 1), parent]
+
+            // remove highlight after 1.6s
+            setTimeout(() => setMessages(cur => cur && cur.map(msg => msg.id === parent.id ? { ...msg, _highlight: false } : msg)), 1600)
+            return next
+          })
         })
 
         const unsubscribeAttachment = onSocketEvent<any>('message:attachment_added', (data) => {
@@ -373,7 +420,7 @@ export default function ConversationMessageView(props: Props) {
           parent = res.data
           if (!parent) return
           // Merge parent into current messages so it appears in the list
-          setMessages(p => mergeMessagesById(p, [parent]))
+          setSortedMessages(p => mergeMessagesById(p, [parent]))
         }
 
         // Ensure this parent belongs to this view (channel or direct)
@@ -381,6 +428,13 @@ export default function ConversationMessageView(props: Props) {
         if (isDirect && parent.direct_conversation_id !== convId) return
 
         setSelectedThread(parent)
+
+        // Mark parent as read when thread is opened
+        if (isChannel && channelId) {
+          markChannelRead(Number(channelId), parent.id)
+        } else if (isDirect && convId) {
+          markDirectConversationRead(convId, parent.id)
+        }
 
         // Scroll to and briefly highlight the parent message
         setTimeout(() => {
@@ -398,11 +452,19 @@ export default function ConversationMessageView(props: Props) {
     })()
   }, [messages, location.search, channelId, convId, isChannel, isDirect])
 
-  // Mark as read on scroll
+  // Mark as read on scroll and track whether user is near bottom
   useEffect(() => {
     const container = messagesContainerRef.current
     if (!container) return
-    const handleScroll = () => markAsReadIfAtBottom()
+    const handleScroll = () => {
+      const isNear = (container.scrollHeight - container.scrollTop - container.clientHeight) < 50
+      setIsAtBottom(isNear)
+      if (isNear) {
+        // mark channel as read when user returns to bottom
+        markAsReadIfAtBottom()
+        setNewMessagesCount(0)
+      }
+    }
     container.addEventListener('scroll', handleScroll, { passive: true })
     return () => container.removeEventListener('scroll', handleScroll)
   }, [markAsReadIfAtBottom])
@@ -681,18 +743,45 @@ export default function ConversationMessageView(props: Props) {
                 </div>
               )}
 
+              {/* New messages indicator when user is scrolled up */}
+              {newMessagesCount > 0 && (
+                <div className="fixed left-1/2 transform -translate-x-1/2 bottom-28 z-40">
+                  <button onClick={() => {
+                    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+                    setNewMessagesCount(0)
+                    // mark as read when user clicks
+                    if (isChannel && channelId) {
+                      const topLevel = messages?.filter(m => !m.parent_id) || []
+                      const lastId = topLevel.length ? topLevel[topLevel.length - 1].id : undefined
+                      if (lastId) markChannelRead(Number(channelId), lastId)
+                    } else if (isDirect && convId) {
+                      const topLevel = messages?.filter(m => !m.parent_id) || []
+                      const lastId = topLevel.length ? topLevel[topLevel.length - 1].id : undefined
+                      if (lastId) markDirectConversationRead(convId, lastId)
+                    }
+                  }} className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg">New Messages ↓</button>
+                </div>
+              )}
+
               <div className="space-y-3">
-                {messages.filter(m => !m.parent_id).map((m: any) => (
-                  <Message
-                    key={m.id}
-                    message={{ ...m, author_username: m.author_username }}
-                    onClick={setSelectedThread}
-                    onToggleReaction={handleToggleReaction}
-                    currentUser={currentUser}
-                    canPin={true}
-                    onUpdate={(updated: any) => setMessages(prev => prev && prev.map(pm => pm.id === updated.id ? { ...pm, ...updated } : pm))}
-                  />
-                ))}
+                {messages.filter(m => !m.parent_id).map((m: any) => {
+                  const roomKey = isChannel ? Number(channelId) : `dm:${convId}`
+                  const reads = getChannelReads(roomKey)
+                  const lastRead = currentUser ? (reads[currentUser.id] || 0) : 0
+                  const isUnread = m.id > lastRead
+                  return (
+                    <Message
+                      key={m.id}
+                      message={{ ...m, author_username: m.author_username }}
+                      onClick={setSelectedThread}
+                      onToggleReaction={handleToggleReaction}
+                      currentUser={currentUser}
+                      canPin={true}
+                      onUpdate={(updated: any) => setMessages(prev => prev && prev.map(pm => pm.id === updated.id ? { ...pm, ...updated } : pm))}
+                      is_unread={isUnread}
+                    />
+                  )
+                })}
               </div>
 
               {/* Seen by for channel messages */}

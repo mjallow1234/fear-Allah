@@ -16,6 +16,7 @@ interface MessageProps {
   isSystemAdmin?: boolean
   canPin?: boolean
   onUpdate?: (updated: any) => void
+  is_unread?: boolean
 }
 
 export default function Message({ 
@@ -126,8 +127,12 @@ export default function Message({
           <span>{message.author_username || message.author}</span>
         </div>
         {message.created_at && (
-          <div className="text-xs text-gray-500 ml-2">
-            {new Date(message.created_at).toLocaleString()}
+          <div className="text-xs text-gray-500 ml-2 flex items-center gap-2">
+            <span>{new Date(message.created_at).toLocaleString()}</span>
+            {/** unread indicator for this user */}
+            {typeof (message as any).is_unread !== 'undefined' && (message as any).is_unread && (
+              <span className="w-2 h-2 rounded-full bg-blue-400 inline-block ml-1" title="Unread" />
+            )}
           </div>
         )}
       </div>
