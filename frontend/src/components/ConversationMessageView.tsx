@@ -653,9 +653,9 @@ export default function ConversationMessageView(props: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* MESSAGE COLUMN */}
-      <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex flex-col flex-1 min-h-0 min-w-0">
         <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 pb-24">
           {loadingMessages && <div className="text-gray-400">Loading messages…</div>}
           {messagesError === 'forbidden' && (
