@@ -596,7 +596,8 @@ async def get_channel_messages_v34(
 
     # Determine join timestamp
     join_timestamp = membership.created_at if membership else (user.created_at if user else None)
-    if join_timestamp:
+    # Apply join lower-bound only when a cursor is supplied (do not filter initial page)
+    if join_timestamp and before is not None:
         base_q = base_q.where(Message.created_at >= join_timestamp)
 
     base_q = base_q.order_by(desc(Message.last_activity_at), desc(Message.created_at)).limit(limit + 1)
