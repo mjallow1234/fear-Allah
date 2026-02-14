@@ -9,7 +9,6 @@ import clsx from 'clsx'
 import NewDMModal from './NewDMModal'
 import CreateChannelModal from './CreateChannelModal'
 import { onSocketEvent } from '../realtime'
-import { useReadReceiptStore } from '../stores/readReceiptStore'
 
 
 interface Team {
