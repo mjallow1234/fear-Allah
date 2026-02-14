@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, update
 from pydantic import BaseModel
 from typing import Optional, List, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from app.db.database import get_db
@@ -16,6 +16,19 @@ from app.permissions.constants import Permission
 from app.permissions.dependencies import require_permission
 
 router = APIRouter()
+
+
+def _to_aware(dt):
+    """Return a timezone-aware datetime in UTC, or None if dt is None.
+
+    - If `dt` is naive, attach UTC tzinfo (dt.replace(tzinfo=timezone.utc)).
+    - If `dt` is already timezone-aware, return as-is.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class ChannelCreateRequest(BaseModel):
@@ -153,6 +166,8 @@ async def list_channels(
         )
         last_res = await db.execute(last_q)
         last_val = last_res.scalar_one_or_none()
+        # Normalize to timezone-aware UTC if DB returned a naive datetime
+        last_val = _to_aware(last_val)
         last_iso = last_val.isoformat() if last_val else None
 
         # Determine the channel member's last_read_at (Slack model)
@@ -160,6 +175,8 @@ async def list_channels(
         mem_res = await db.execute(mem_q)
         mem = mem_res.scalar_one_or_none()
         last_read_at = mem.last_read_at if mem else None
+        # Defensive: normalize last_read_at to timezone-aware UTC before comparison
+        last_read_at = _to_aware(last_read_at)
 
         # Compute unread count COUNTing ALL messages (includes replies)
         unread_q = select(func.count(Message.id)).where(Message.channel_id == ch.id, Message.is_deleted == False)
@@ -181,7 +198,7 @@ async def list_channels(
         })
 
     # Server-side ordering: sort by last_activity_at (newest first)
-    enriched.sort(key=lambda c: c.get('_last_activity_dt') or datetime.min, reverse=True)
+    enriched.sort(key=lambda c: c.get('_last_activity_dt') or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     for c in enriched:
         c.pop('_last_activity_dt', None)
 
@@ -634,8 +651,8 @@ async def get_channel_messages_v34(
         m_r = await db.execute(m_q)
         m_obj = m_r.scalar_one_or_none()
         if m_obj:
-            cursor_time = m_obj.last_activity_at or m_obj.created_at
-            cursor_created_at = m_obj.created_at
+            cursor_time = _to_aware(m_obj.last_activity_at or m_obj.created_at)
+            cursor_created_at = _to_aware(m_obj.created_at)
 
     # Fetch messages in descending order by activity (newest activity first) with limit+1 to determine has_more
     base_q = (
