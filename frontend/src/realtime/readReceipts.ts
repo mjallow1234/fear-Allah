@@ -138,6 +138,13 @@ export function markChannelRead(channelId: number, lastMessageId?: number, chann
           pending.messageId
         );
       }
+
+      // Also notify UI to refresh channel list immediately (server is authoritative)
+      try {
+        window.dispatchEvent(new CustomEvent('channels:refetch', { detail: { channel_id: pending.channelId } }))
+      } catch (err) {
+        /* ignore - non-browser environments */
+      }
     } catch (error) {
       console.error('Failed to mark channel as read:', error);
     } finally {

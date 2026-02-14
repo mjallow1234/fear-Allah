@@ -209,12 +209,24 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       }
     }
 
+    const handleMarkRead = (data: any) => {
+      try {
+        // Server is authoritative for unread counts — refresh the channel list
+        fetchChannels().catch((err) => console.error('Sidebar: failed to refetch channels after read update', err))
+      } catch (err) {
+        console.error('Sidebar: failed to handle receipt:update', err)
+      }
+    }
+
     const unsubMsg = onSocketEvent<any>('message:new', handleMessageNew)
     const unsubThread = onSocketEvent<any>('thread:reply', handleThreadReply)
+    // Backend emits `receipt:update` (Socket.IO) for read receipts — listen and refetch channels.
+    const unsubReceipt = onSocketEvent<any>('receipt:update', handleMarkRead)
 
     return () => {
       try { unsubMsg && unsubMsg() } catch (e) { /* ignore */ }
       try { unsubThread && unsubThread() } catch (e) { /* ignore */ }
+      try { unsubReceipt && unsubReceipt() } catch (e) { /* ignore */ }
     }
   }, [location.pathname, user?.id, fetchChannels])
 
@@ -223,19 +235,32 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   useEffect(() => {
     if (!presence) return
     const unsub = presence.onEvent((data: any) => {
-      if (!data || data.type !== 'channel_created') return
-      const channel = data.channel
-      if (!channel) return
-      // Only add channel for currently selected team (if team context present)
-      setChannels((prev) => {
-        if (prev.some((c) => c.id === channel.id)) return prev
-        // If selectedTeam is present, ensure channel belongs to it
-        if (selectedTeam && channel.team_id !== selectedTeam.id) return prev
-        return [...prev, channel]
-      })
+      if (!data) return
+
+      // Channel created -> append to sidebar list
+      if (data.type === 'channel_created') {
+        const channel = data.channel
+        if (!channel) return
+        setChannels((prev) => {
+          if (prev.some((c) => c.id === channel.id)) return prev
+          if (selectedTeam && channel.team_id !== selectedTeam.id) return prev
+          return [...prev, channel]
+        })
+        return
+      }
+
+      // Unread update (per-user) -> server is authoritative for unread_count; refetch
+      if (data.type === 'unread_update') {
+        try {
+          fetchChannels().catch((err) => console.error('Sidebar: failed to refetch channels after unread_update', err))
+        } catch (err) {
+          console.error('Sidebar: failed to handle unread_update', err)
+        }
+        return
+      }
     })
     return () => { unsub && unsub() }
-  }, [presence, selectedTeam])
+  }, [presence, selectedTeam, fetchChannels])
 
   // Fetch channels when team changes
   useEffect(() => {
@@ -259,6 +284,19 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   useEffect(() => {
     fetchTeamMembers()
   }, [fetchTeamMembers])
+
+  // Listen for imperative refetch requests (e.g. mark-read completed)
+  useEffect(() => {
+    const handler = (ev: any) => {
+      try {
+        fetchChannels().catch((err) => console.error('Sidebar: channels:refetch handler failed', err))
+      } catch (err) {
+        console.error('Sidebar: channels:refetch handler failed', err)
+      }
+    }
+    window.addEventListener('channels:refetch', handler)
+    return () => { window.removeEventListener('channels:refetch', handler) }
+  }, [fetchChannels])
 
   const handleSelectTeam = (team: Team) => {
     setSelectedTeam(team)

@@ -549,8 +549,42 @@ async def create_reply(
     # Socket.IO emit for real-time thread reply
     try:
         from app.realtime.socket import emit_thread_reply, emit_thread_reply_dm
-        
+        from app.api.ws import manager, create_mention_notifications
+        from app.services.unread import get_unread_count
+
         username = reply.author.username if reply.author else f"user_{current_user['user_id']}"
+
+        # Create mention notifications for replies (same behavior as top-level messages)
+        try:
+            if reply.channel_id and reply.content:
+                await create_mention_notifications(
+                    db, request.content, current_user["user_id"], username, reply.channel_id, reply.id
+                )
+        except Exception:
+            logger.exception('Failed to create mention notifications for reply')
+
+        # Emit per-user unread_update for channel members (so sidebar can rely on server-calculated unread_count)
+        try:
+            if reply.channel_id:
+                members_q = select(ChannelMember).where(ChannelMember.channel_id == reply.channel_id)
+                members_res = await db.execute(members_q)
+                members = members_res.scalars().all()
+                for m in members:
+                    if m.user_id == current_user["user_id"]:
+                        continue
+                    try:
+                        unread = await get_unread_count(db, reply.channel_id, m.user_id)
+                        await manager.send_to_user(m.user_id, {
+                            "type": "unread_update",
+                            "channel_id": reply.channel_id,
+                            "unread_count": unread,
+                        })
+                    except Exception:
+                        # Non-fatal for individual member notification
+                        logger.exception('Failed to send unread_update for reply')
+        except Exception:
+            logger.exception('Failed to compute/send unread updates for reply')
+
         # Re-fetch parent to ensure we have the updated last_activity_at value (if any)
         parent_last_activity_iso = None
         try:

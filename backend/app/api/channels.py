@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, update
+from sqlalchemy import select, and_, or_, func, update, desc
 from pydantic import BaseModel
 from typing import Optional, List, Literal
 from datetime import datetime, timezone
@@ -150,38 +150,46 @@ async def list_channels(
     else:
         query = select(Channel).where(Channel.team_id.is_(None), Channel.type != ChannelType.direct)
     
+    # Order channels in SQL by last activity (newest first). Use a correlated scalar subquery
+    # so the DB is authoritative for ordering and we avoid Python comparisons of datetimes.
+    from app.db.models import Message, ChannelMember
+
+    # Execute channel query ordered by last_activity (NULLs last)
+    last_activity_expr = (
+        select(func.max(func.coalesce(Message.last_activity_at, Message.created_at)))
+        .where(Message.channel_id == Channel.id, Message.is_deleted == False, Message.parent_id.is_(None))
+        .scalar_subquery()
+    )
+
+    query = query.order_by(desc(last_activity_expr).nulls_last())
     result = await db.execute(query)
     channels = result.scalars().all()
 
-    # Enrich channels with server-side Slack-model unread_count and last_activity_at
-    from app.db.models import Message, ChannelMember
-
     enriched = []
     for ch in channels:
-        # Compute last activity timestamp for top-level messages in this channel
+        # Retrieve last_activity_at for this channel (same logic as the ordering subquery)
         last_q = select(func.max(func.coalesce(Message.last_activity_at, Message.created_at))).where(
             Message.channel_id == ch.id,
             Message.is_deleted == False,
             Message.parent_id.is_(None)
         )
         last_res = await db.execute(last_q)
-        last_val = last_res.scalar_one_or_none()
-        # Normalize to timezone-aware UTC if DB returned a naive datetime
-        last_val = _to_aware(last_val)
+        last_val = _to_aware(last_res.scalar_one_or_none())
         last_iso = last_val.isoformat() if last_val else None
 
-        # Determine the channel member's last_read_at (Slack model)
-        mem_q = select(ChannelMember).where(ChannelMember.channel_id == ch.id, ChannelMember.user_id == current_user["user_id"])
-        mem_res = await db.execute(mem_q)
-        mem = mem_res.scalar_one_or_none()
-        last_read_at = mem.last_read_at if mem else None
-        # Defensive: normalize last_read_at to timezone-aware UTC before comparison
-        last_read_at = _to_aware(last_read_at)
-
-        # Compute unread count COUNTing ALL messages (includes replies)
-        unread_q = select(func.count(Message.id)).where(Message.channel_id == ch.id, Message.is_deleted == False)
-        if last_read_at:
-            unread_q = unread_q.where(Message.created_at > last_read_at)
+        # Compute unread count entirely in SQL. If ChannelMember.last_read_at IS NULL,
+        # count all messages; otherwise count messages where created_at > last_read_at.
+        cm = ChannelMember
+        unread_q = (
+            select(func.count(Message.id))
+            .select_from(Message)
+            .outerjoin(cm, and_(cm.channel_id == ch.id, cm.user_id == current_user["user_id"]))
+            .where(
+                Message.channel_id == ch.id,
+                Message.is_deleted == False,
+                or_(cm.last_read_at.is_(None), Message.created_at > cm.last_read_at),
+            )
+        )
         unread_res = await db.execute(unread_q)
         unread = unread_res.scalar_one() or 0
 
@@ -193,14 +201,8 @@ async def list_channels(
             "type": ch.type,
             "team_id": ch.team_id,
             "last_activity_at": last_iso,
-            "_last_activity_dt": last_val,
             "unread_count": int(unread or 0),
         })
-
-    # Server-side ordering: sort by last_activity_at (newest first)
-    enriched.sort(key=lambda c: c.get('_last_activity_dt') or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-    for c in enriched:
-        c.pop('_last_activity_dt', None)
 
     return enriched
 
@@ -487,12 +489,18 @@ async def mark_channel_read(
 
         return {"ok": True}
 
-    # Legacy: Timestamp-based tracking
-    from datetime import datetime
-    membership.last_read_at = datetime.utcnow()
-    db.add(membership)
+    # Legacy: Timestamp-based tracking — perform UPDATE at the DB level so the
+    # stored `last_read_at` is set to the DB current timestamp (timezone-aware)
+    await db.execute(
+        update(ChannelMember)
+        .where(ChannelMember.channel_id == channel_id, ChannelMember.user_id == current_user["user_id"])
+        .values(last_read_at=func.now())
+    )
     await db.commit()
-    await db.refresh(membership)
+
+    # Re-fetch membership so we can return the updated last_read_at value
+    from app.db.crud import get_channel_member
+    membership = await get_channel_member(db, channel_id, current_user["user_id"])
 
     # Emit unread_update with zero for this user
     try:
@@ -507,7 +515,7 @@ async def mark_channel_read(
 
     return {
         "channel_id": channel_id,
-        "last_read_at": membership.last_read_at.isoformat() + "Z"
+        "last_read_at": membership.last_read_at.isoformat() if membership and membership.last_read_at else None
     }
 
 
