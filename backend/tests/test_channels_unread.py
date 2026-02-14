@@ -1,6 +1,6 @@
 import pytest
 from httpx import AsyncClient
-from datetime import datetime
+from datetime import datetime, timezone
 
 pytestmark = pytest.mark.integration
 
@@ -171,7 +171,7 @@ async def test_channels_list_sorted_by_last_activity(client: AsyncClient, test_s
 
     # Ensure overall list is sorted by last_activity_at (newest first)
     def _parse(dt):
-        return datetime.fromisoformat(dt) if dt else datetime.min
+            return datetime.fromisoformat(dt) if dt else datetime.min.replace(tzinfo=timezone.utc)
     lasts = [_parse(c.get('last_activity_at')) for c in data]
     assert lasts == sorted(lasts, reverse=True)
 
