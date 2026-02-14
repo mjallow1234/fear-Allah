@@ -209,7 +209,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       }
     }
 
-    const handleMarkRead = (data: any) => {
+    const handleMarkRead = (_: any) => {
       try {
         // Server is authoritative for unread counts — refresh the channel list
         fetchChannels().catch((err) => console.error('Sidebar: failed to refetch channels after read update', err))
@@ -287,7 +287,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
   // Listen for imperative refetch requests (e.g. mark-read completed)
   useEffect(() => {
-    const handler = (ev: any) => {
+    const handler = (_ev: any) => {
       try {
         fetchChannels().catch((err) => console.error('Sidebar: channels:refetch handler failed', err))
       } catch (err) {
