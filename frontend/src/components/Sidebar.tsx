@@ -181,29 +181,13 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         if (!msg || !msg.channel_id) return
         const incomingChannelId = Number(msg.channel_id)
 
-        // Determine active channel id from location
+        // If the incoming message is for the currently-open channel, ignore
         const path = location.pathname || ''
         const activeChannelId = path.startsWith('/channels/') ? Number(path.split('/')[2]) : null
         if (incomingChannelId === activeChannelId) return
 
-        const currentUserId = user?.id
-        const reads = useReadReceiptStore.getState().getChannelReads(incomingChannelId)
-        const lastRead = currentUserId ? (reads[currentUserId] || 0) : 0
-
-        // Only treat as unread if message id is newer than lastRead
-        const messageId = msg.id || 0
-        const isUnreadForCurrent = messageId > (lastRead || 0)
-
-        const newLastActivity = msg.created_at || new Date().toISOString()
-
-        setChannels((prev) => {
-          const idx = prev.findIndex(c => c.id === incomingChannelId)
-          if (idx === -1) return prev
-          const ch = prev[idx]
-          const updated = { ...ch, last_activity_at: newLastActivity, unread_count: (ch.unread_count || 0) + (isUnreadForCurrent ? 1 : 0) }
-          // Move updated channel to top
-          return [updated, ...prev.filter(c => c.id !== incomingChannelId)]
-        })
+        // Server now provides authoritative unread_count — refetch the channels list
+        fetchChannels().catch((err) => console.error('Sidebar: failed to refetch channels after message:new', err))
       } catch (err) {
         console.error('Sidebar: failed to handle message:new', err)
       }
@@ -213,27 +197,14 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       try {
         if (!data || !data.channel_id) return
         const incomingChannelId = Number(data.channel_id)
+
+        // If user is viewing the channel, ignore
         const path = location.pathname || ''
         const activeChannelId = path.startsWith('/channels/') ? Number(path.split('/')[2]) : null
         if (incomingChannelId === activeChannelId) return
 
-        const currentUserId = user?.id
-        const reads = useReadReceiptStore.getState().getChannelReads(incomingChannelId)
-        const lastRead = currentUserId ? (reads[currentUserId] || 0) : 0
-
-        const replyId = data.id || 0
-        const isUnreadForCurrent = replyId > (lastRead || 0)
-
-        // Prefer parent_last_activity_at if provided by server
-        const newLastActivity = data.parent_last_activity_at || data.created_at || new Date().toISOString()
-
-        setChannels((prev) => {
-          const idx = prev.findIndex(c => c.id === incomingChannelId)
-          if (idx === -1) return prev
-          const ch = prev[idx]
-          const updated = { ...ch, last_activity_at: newLastActivity, unread_count: (ch.unread_count || 0) + (isUnreadForCurrent ? 1 : 0) }
-          return [updated, ...prev.filter(c => c.id !== incomingChannelId)]
-        })
+        // Server provides authoritative unread_count and last_activity — refetch channels
+        fetchChannels().catch((err) => console.error('Sidebar: failed to refetch channels after thread:reply', err))
       } catch (err) {
         console.error('Sidebar: failed to handle thread:reply', err)
       }
@@ -246,7 +217,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       try { unsubMsg && unsubMsg() } catch (e) { /* ignore */ }
       try { unsubThread && unsubThread() } catch (e) { /* ignore */ }
     }
-  }, [location.pathname, user?.id])
+  }, [location.pathname, user?.id, fetchChannels])
 
   // Register presence event handler so Sidebar can react to events like channel_created
   const presence = usePresence()
@@ -407,6 +378,11 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             >
               <Hash size={18} />
               <span>{channel.display_name || channel.name}</span>
+              {channel.unread_count && channel.unread_count > 0 && (
+                <span data-testid={`channel-unread-${channel.id}`} className="ml-2 rounded-full bg-red-500 text-white text-xs px-2 py-0.5">
+                  {channel.unread_count}
+                </span>
+              )}
             </Link>
           ))
         )}

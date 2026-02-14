@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func, update
 from pydantic import BaseModel
 from typing import Optional, List, Literal
 from datetime import datetime
@@ -33,6 +33,8 @@ class ChannelResponse(BaseModel):
     description: Optional[str]
     type: str
     team_id: Optional[int]
+    last_activity_at: Optional[str] = None
+    unread_count: int = 0
 
     class Config:
         from_attributes = True
@@ -137,7 +139,53 @@ async def list_channels(
     
     result = await db.execute(query)
     channels = result.scalars().all()
-    return channels
+
+    # Enrich channels with server-side Slack-model unread_count and last_activity_at
+    from app.db.models import Message, ChannelMember
+
+    enriched = []
+    for ch in channels:
+        # Compute last activity timestamp for top-level messages in this channel
+        last_q = select(func.max(func.coalesce(Message.last_activity_at, Message.created_at))).where(
+            Message.channel_id == ch.id,
+            Message.is_deleted == False,
+            Message.parent_id.is_(None)
+        )
+        last_res = await db.execute(last_q)
+        last_val = last_res.scalar_one_or_none()
+        last_iso = last_val.isoformat() if last_val else None
+
+        # Determine the channel member's last_read_at (Slack model)
+        mem_q = select(ChannelMember).where(ChannelMember.channel_id == ch.id, ChannelMember.user_id == current_user["user_id"])
+        mem_res = await db.execute(mem_q)
+        mem = mem_res.scalar_one_or_none()
+        last_read_at = mem.last_read_at if mem else None
+
+        # Compute unread count COUNTing ALL messages (includes replies)
+        unread_q = select(func.count(Message.id)).where(Message.channel_id == ch.id, Message.is_deleted == False)
+        if last_read_at:
+            unread_q = unread_q.where(Message.created_at > last_read_at)
+        unread_res = await db.execute(unread_q)
+        unread = unread_res.scalar_one() or 0
+
+        enriched.append({
+            "id": ch.id,
+            "name": ch.name,
+            "display_name": ch.display_name,
+            "description": ch.description,
+            "type": ch.type,
+            "team_id": ch.team_id,
+            "last_activity_at": last_iso,
+            "_last_activity_dt": last_val,
+            "unread_count": int(unread or 0),
+        })
+
+    # Server-side ordering: sort by last_activity_at (newest first)
+    enriched.sort(key=lambda c: c.get('_last_activity_dt') or datetime.min, reverse=True)
+    for c in enriched:
+        c.pop('_last_activity_dt', None)
+
+    return enriched
 
 
 class DMCreateRequest(BaseModel):
@@ -346,7 +394,8 @@ async def mark_channel_read(
     # Phase 4.4: Message-based read receipts
     if request and request.last_read_message_id:
         from app.db.models import ChannelRead, Message
-        
+        from app.api.ws import manager
+
         # Verify message exists and belongs to this channel
         msg_query = select(Message).where(
             Message.id == request.last_read_message_id,
@@ -356,7 +405,7 @@ async def mark_channel_read(
         msg = msg_result.scalar_one_or_none()
         if not msg:
             raise HTTPException(status_code=404, detail="Message not found in this channel")
-        
+
         # Upsert channel read
         read_query = select(ChannelRead).where(
             ChannelRead.user_id == user_id,
@@ -364,9 +413,9 @@ async def mark_channel_read(
         )
         read_result = await db.execute(read_query)
         channel_read = read_result.scalar_one_or_none()
-        
+
         should_emit = False
-        
+
         if channel_read:
             # Only update if new message_id is greater
             if channel_read.last_read_message_id is None or request.last_read_message_id > channel_read.last_read_message_id:
@@ -382,9 +431,19 @@ async def mark_channel_read(
             )
             db.add(channel_read)
             should_emit = True
-        
+
+        # Also update ChannelMember.last_read_at to now (Slack-style)
+        try:
+            await db.execute(
+                update(ChannelMember)
+                .where(ChannelMember.channel_id == channel_id, ChannelMember.user_id == user_id)
+                .values(last_read_at=func.now())
+            )
+        except Exception:
+            pass
+
         await db.commit()
-        
+
         # Emit receipt:update via Socket.IO
         if should_emit:
             try:
@@ -398,7 +457,17 @@ async def mark_channel_read(
             except Exception:
                 import logging
                 logging.exception("Failed to emit receipt:update")
-        
+
+        # Also send an unread_update (zero) to the user so UI can refresh
+        try:
+            await manager.send_to_user(user_id, {
+                "type": "unread_update",
+                "channel_id": channel_id,
+                "unread_count": 0,
+            })
+        except Exception:
+            pass
+
         return {"ok": True}
 
     # Legacy: Timestamp-based tracking
