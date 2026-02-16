@@ -90,16 +90,30 @@ export function markChannelRead(channelId: number, lastMessageId?: number, chann
     return;
   }
 
-  // Skip if no valid message ID provided
-  if (!lastMessageId || typeof lastMessageId !== 'number' || lastMessageId <= 0) {
-    return;
-  }
-
   // Skip if no valid channel ID
   if (!channelId || typeof channelId !== 'number' || channelId <= 0) {
     return;
   }
 
+  // If no message id provided, use timestamp-based mark-read (immediate POST)
+  if (!lastMessageId || typeof lastMessageId !== 'number' || lastMessageId <= 0) {
+    (async () => {
+      try {
+        await api.post(`/api/channels/${channelId}/read`)
+        // Notify UI to refresh channel list (server is authoritative)
+        try {
+          window.dispatchEvent(new CustomEvent('channels:refetch', { detail: { channel_id: channelId } }))
+        } catch (err) {
+          /* ignore - non-browser environments */
+        }
+      } catch (err) {
+        console.error('Failed to mark channel as read (timestamp):', err)
+      }
+    })()
+    return
+  }
+
+  // Message-based read receipt (debounced)
   // Skip if we're already pending the same or higher message
   if (
     pendingMarkRead &&

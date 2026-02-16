@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { markChannelRead } from '../realtime/readReceipts'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus, FileText, Brain } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
@@ -172,6 +173,24 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     fetchChannels()
     fetchDMChannels()
   }, [fetchChannels, fetchDMChannels, fetchTeams])
+
+  // When the active channel changes, auto-mark it read if server reports unread_count > 0
+  useEffect(() => {
+    const path = location.pathname || ''
+    const activeChannelId = path.startsWith('/channels/') ? Number(path.split('/')[2]) : null
+    if (!activeChannelId) return
+
+    const ch = channels.find((c) => c.id === activeChannelId)
+    if (!ch) return
+
+    if (ch.unread_count && ch.unread_count > 0) {
+      try {
+        markChannelRead(activeChannelId)
+      } catch (err) {
+        console.error('Failed to auto mark channel read on switch', err)
+      }
+    }
+  }, [location.pathname, channels])
 
   // Real-time sidebar updates: listen for message:new and thread:reply to update channel activity/unread state
   useEffect(() => {
