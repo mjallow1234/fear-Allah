@@ -378,8 +378,14 @@ async def get_channel_messages(
     if user and getattr(user, 'must_change_password', False):
         raise HTTPException(status_code=403, detail="Password change required")
 
-    # Privacy guard: determine lower-bound timestamp. If membership exists use membership.created_at; otherwise use user.created_at (public channel rule)
-    join_timestamp = membership.created_at if membership else (user.created_at if user else None)
+    # Privacy guard: determine lower-bound timestamp.
+    # For PUBLIC channels we show full history (no lower-bound). Private/DM channels
+    # keep the join-timestamp rule to prevent showing messages from before a user joined.
+    if channel.type == 'public':
+        join_timestamp = None
+    else:
+        # If membership exists use membership.created_at; otherwise use user.created_at
+        join_timestamp = membership.created_at if membership else (user.created_at if user else None)
 
     # Only get top-level messages (no parent_id) for the main channel view
     query = (

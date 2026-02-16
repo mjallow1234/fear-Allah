@@ -17,7 +17,7 @@ async def test_non_admin_cannot_add_or_remove_member(client, test_session):
 
     # Create channel as admin
     from app.core.security import create_access_token
-    await test_session.flush()
+    await test_session.commit()
     admin_token = create_access_token({'sub': str(admin.id), 'username': admin.username})
     create = await client.post('/api/channels/', json={'name': 'manage-test', 'display_name': 'Manage Test'}, headers={'Authorization': f'Bearer {admin_token}'})
     assert create.status_code == 201
@@ -37,7 +37,8 @@ async def test_non_admin_cannot_add_or_remove_member(client, test_session):
 
     resp2 = await client.delete(f'/api/channels/{channel_id}/members/{bob.id}', headers={'Authorization': f'Bearer {alice_token}'})
     assert resp2.status_code == 403
-    assert resp2.json().get('detail') == "You do not have permission to manage this channel."
+    # require_permission now reports the missing granular permission
+    assert resp2.json().get('detail') in ("You do not have permission to manage this channel.", "Missing permission: kick_member")
 
 
 @pytest.mark.anyio
@@ -47,7 +48,15 @@ async def test_admin_can_add_and_remove_member(client, test_session):
     u1 = User(username='u1', email='u1@example.com', hashed_password='x')
     u2 = User(username='u2', email='u2@example.com', hashed_password='x')
     test_session.add_all([admin, u1, u2])
-    await test_session.flush()
+    await test_session.commit()
+
+    # Grant a system 'admin' Role so require_permission grants channel-level perms
+    from app.db.models import Role, UserRole
+    role = Role(name='admin', scope='system')
+    test_session.add(role)
+    await test_session.commit()
+    test_session.add(UserRole(user_id=admin.id, role_id=role.id))
+    await test_session.commit()
 
     admin_token = create_access_token({'sub': str(admin.id), 'username': admin.username})
     create = await client.post('/api/channels/', json={'name': 'admin-manage', 'display_name': 'Admin Manage'}, headers={'Authorization': f'Bearer {admin_token}'})
@@ -68,7 +77,7 @@ async def test_non_admin_cannot_change_channel_privacy(client, test_session):
     admin.is_system_admin = True
     alice = User(username='alice2', email='alice2@example.com', hashed_password='x')
     test_session.add_all([admin, alice])
-    await test_session.flush()
+    await test_session.commit()
 
     admin_token = create_access_token({'sub': str(admin.id), 'username': admin.username})
     create = await client.post('/api/channels/', json={'name': 'priv-toggle', 'display_name': 'Priv Toggle'}, headers={'Authorization': f'Bearer {admin_token}'})
@@ -88,7 +97,7 @@ async def test_dm_visibility_and_creation(client, test_session):
     b = User(username='dm_b', email='b@ex', hashed_password='x')
     c = User(username='dm_c', email='c@ex', hashed_password='x')
     test_session.add_all([a,b,c])
-    await test_session.flush()
+    await test_session.commit()
 
     a_token = create_access_token({'sub': str(a.id), 'username': a.username})
     b_token = create_access_token({'sub': str(b.id), 'username': b.username})

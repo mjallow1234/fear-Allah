@@ -101,8 +101,11 @@ async def lifespan(app: FastAPI):
         await create_tables()
         await seed_default_data()
         # Seed demo RBAC channel roles (dev-only)
-        from app.permissions.demo_seeder import run_demo_seeder
-        await run_demo_seeder()
+        # IMPORTANT: only run demo seeder in development environment to avoid
+        # auto-adding ChannelMember rows in staging/production.
+        if settings.APP_ENV == "development":
+            from app.permissions.demo_seeder import run_demo_seeder
+            await run_demo_seeder()
 
         # Run assignment backfill to resolve legacy placeholder assignments (foreman/delivery)
         # NOTE: Backfill is potentially destructive for current data - only run when explicitly

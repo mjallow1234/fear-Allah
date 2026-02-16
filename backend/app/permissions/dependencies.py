@@ -17,13 +17,13 @@ def require_permission(
     async def dependency(
         db: AsyncSession = Depends(get_db),
         user=Depends(get_current_user),
-        **kwargs,
+        channel_id: int | None = None,
     ):
         system_roles = await get_system_roles(db, user["user_id"])
 
         channel_roles = None
         if channel_param:
-            channel_id = kwargs.get(channel_param)
+            # FastAPI will inject the path param by name; accept `channel_id` explicitly
             if channel_id is not None:
                 channel_roles = await get_channel_roles(
                     db, user["user_id"], channel_id

@@ -15,6 +15,7 @@ from app.api.deps import get_current_user
 from app.core.security import get_current_user as jwt_get_current_user
 from app.core.rate_limiter import check_rate_limit, get_client_ip
 from app.core.rate_limit_config import AUTH_LIMITS, rate_limit_settings
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -197,8 +198,11 @@ async def register(
     await db.refresh(user)
     
     # DEV-only: auto-onboard new user to all demo channels
-    from app.permissions.demo_onboarding import maybe_onboard_demo_user
-    await maybe_onboard_demo_user(user.id, db)
+    # IMPORTANT: only run demo onboarding in development to avoid auto-membership
+    # of users into private or direct channels in non-dev environments.
+    if settings.APP_ENV == "development":
+        from app.permissions.demo_onboarding import maybe_onboard_demo_user
+        await maybe_onboard_demo_user(user.id, db)
 
     # Ensure the user is a member of the default 'general' channel so they have a readable channel after first login.
     # Prefer existing channel 'general', otherwise create it as public.
