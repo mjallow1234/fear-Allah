@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Role, ChannelRoleAssignment, ChannelMember
+from app.db.enums import ChannelType
 from app.permissions.roles import ChannelRole
 from app.core.config import settings, logger
 
@@ -55,6 +56,13 @@ async def onboard_demo_user(user_id: int, db: AsyncSession) -> dict:
     member_role_id = member_role.id
     
     for channel in channels:
+        # IMPORTANT: Auto-membership is restricted to PUBLIC channels only.
+        # Private and Direct channels must have explicit membership.
+        if channel.type != ChannelType.public.value:
+            stats["skipped"] += 1
+            logger.debug(f"[DemoOnboarding] Skipping auto-membership for non-public channel {channel.name} (type={channel.type})")
+            continue
+
         # --- Add ChannelMember if not exists ---
         result = await db.execute(
             select(ChannelMember).where(
@@ -71,7 +79,7 @@ async def onboard_demo_user(user_id: int, db: AsyncSession) -> dict:
             stats["memberships_created"] += 1
         else:
             stats["skipped"] += 1
-        
+
         # --- Add ChannelRoleAssignment if not exists ---
         result = await db.execute(
             select(ChannelRoleAssignment).where(

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.models import User, Channel, Role, ChannelRoleAssignment, ChannelMember
+from app.db.enums import ChannelType
 from app.permissions.roles import ChannelRole
 from app.core.config import settings, logger
 
@@ -91,6 +92,12 @@ async def seed_channel_roles(db: AsyncSession) -> dict:
     first_user = users[0]
     
     for channel in channels:
+        # IMPORTANT: Auto-membership is restricted to PUBLIC channels only.
+        # Private and Direct channels must have explicit membership.
+        if channel.type != ChannelType.public.value:
+            logger.debug(f"[DemoSeeder] Skipping auto-membership/role assignment for non-public channel: {channel.name} (type={channel.type})")
+            continue
+
         for user in users:
             # --- Ensure ChannelMember exists (required for channel access) ---
             result = await db.execute(
@@ -100,7 +107,7 @@ async def seed_channel_roles(db: AsyncSession) -> dict:
                 )
             )
             existing_membership = result.scalar_one_or_none()
-            
+
             if not existing_membership:
                 membership = ChannelMember(
                     user_id=user.id,
@@ -109,11 +116,11 @@ async def seed_channel_roles(db: AsyncSession) -> dict:
                 db.add(membership)
                 stats["memberships_created"] += 1
                 logger.debug(f"[DemoSeeder] Added membership: {user.username} → #{channel.name}")
-            
+
             # --- Assign RBAC role ---
             # First user gets owner, others get member
             role_id = owner_role_id if user.id == first_user.id else member_role_id
-            
+
             # Check if assignment exists
             result = await db.execute(
                 select(ChannelRoleAssignment).where(
@@ -123,11 +130,11 @@ async def seed_channel_roles(db: AsyncSession) -> dict:
                 )
             )
             existing = result.scalar_one_or_none()
-            
+
             if existing:
                 stats["skipped"] += 1
                 continue
-            
+
             # Create assignment
             assignment = ChannelRoleAssignment(
                 user_id=user.id,
@@ -136,7 +143,7 @@ async def seed_channel_roles(db: AsyncSession) -> dict:
             )
             db.add(assignment)
             stats["assignments_created"] += 1
-            
+
             role_name = ChannelRole.OWNER.value if role_id == owner_role_id else ChannelRole.MEMBER.value
             logger.debug(f"[DemoSeeder] Assigned {user.username} → {role_name} on #{channel.name}")
     
