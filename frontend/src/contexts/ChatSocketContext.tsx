@@ -26,9 +26,8 @@ export function useChatSocket() {
   return ctx
 }
 
-export const ChatSocketProvider: FC<{ children: ReactNode; channelId?: number | null }> = ({ children, channelId }) => {
+export const ChatSocketProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const token = useAuthStore((s) => s.token)
-  const user = useAuthStore((s) => s.user)
   const channelRef = useRef<number | null>(null)
   const listenersRef = useRef<Set<MessageHandler>>(new Set())
   const [wsStatus, setWsStatus] = useState<WSStatus>('disconnected')
@@ -45,6 +44,12 @@ export const ChatSocketProvider: FC<{ children: ReactNode; channelId?: number | 
     const sock = connectSocket()
     if (sock && isSocketConnected()) setWsStatus('connected')
     else setWsStatus('connecting')
+
+    // Log the socket id for runtime verification
+    try {
+      const realSock = getSocket()
+      console.log('[ChatSocketContext] using socket id', realSock?.id)
+    } catch (err) { /* ignore */ }
 
     const onConnect = () => setWsStatus('connected')
     const onDisconnect = () => setWsStatus('disconnected')

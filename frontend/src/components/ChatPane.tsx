@@ -49,6 +49,26 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
 
   const channelIdNum = parseInt(channelId) || 1
 
+  // Debugging instrumentation
+  useEffect(() => {
+    console.log('[ChatPane] mounted for channel', channelId)
+    // Also subscribe to the global Socket.IO message:new purely for verification (no UI mutation here)
+    const unsub = (() => {
+      try {
+        const { onSocketEvent } = require('../realtime')
+        return onSocketEvent('message:new', (data: any) => {
+          console.log('[ChatPane] message:new received (raw socket)', data)
+        })
+      } catch (err) {
+        return () => {}
+      }
+    })()
+
+    return () => {
+      try { unsub && unsub() } catch (e) { /* ignore */ }
+    }
+  }, [channelId])
+
 
   // Handle new message from WebSocket - only add if it belongs to current channel
   const handleMessage = useCallback((data: any) => {
