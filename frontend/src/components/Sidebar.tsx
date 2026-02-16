@@ -434,7 +434,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             >
               <Hash size={18} />
               <span>{channel.display_name || channel.name}</span>
-              {channel.unread_count && channel.unread_count > 0 && (
+              {(channel.unread_count ?? 0) > 0 && (
                 <span data-testid={`channel-unread-${channel.id}`} className="ml-2 rounded-full bg-red-500 text-white text-xs px-2 py-0.5">
                   {channel.unread_count}
                 </span>
