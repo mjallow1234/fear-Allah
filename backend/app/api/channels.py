@@ -130,8 +130,27 @@ async def list_channels(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    # Use a local import so we don't change top-level imports
+    from sqlalchemy import exists
+
+    # Visibility rules:
+    # - Public channels: always visible
+    # - Private channels: visible only if current user is a ChannelMember
+    # - Direct channels: never included in this listing (handled separately via include_dms)
     if team_id:
-        query = select(Channel).where(Channel.team_id == team_id, Channel.type != ChannelType.direct)
+        query = select(Channel).where(
+            Channel.team_id == team_id,
+            or_(
+                Channel.type == ChannelType.public,
+                and_(
+                    Channel.type == ChannelType.private,
+                    exists().where(
+                        ChannelMember.channel_id == Channel.id,
+                        ChannelMember.user_id == current_user["user_id"]
+                    )
+                )
+            )
+        )
     elif include_dms:
         # Get DM channels where user is a member, but exclude ones that have been migrated
         from app.db.models import LegacyDMMigration
@@ -148,7 +167,19 @@ async def list_channels(
         result = await db.execute(dm_query)
         return result.scalars().all()
     else:
-        query = select(Channel).where(Channel.team_id.is_(None), Channel.type != ChannelType.direct)
+        query = select(Channel).where(
+            Channel.team_id.is_(None),
+            or_(
+                Channel.type == ChannelType.public,
+                and_(
+                    Channel.type == ChannelType.private,
+                    exists().where(
+                        ChannelMember.channel_id == Channel.id,
+                        ChannelMember.user_id == current_user["user_id"]
+                    )
+                )
+            )
+        )
     
     # Order channels in SQL by last activity (newest first). Use a correlated scalar subquery
     # so the DB is authoritative for ordering and we avoid Python comparisons of datetimes.
