@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode, type FC } from 'react'
 import { useAuthStore } from '../stores/authStore'
+import { connectSocket, getSocket, onSocketEvent, joinChannel as socketJoinChannel, leaveChannel as socketLeaveChannel, isSocketConnected } from '../realtime'
 
 type WSStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -28,208 +29,150 @@ export function useChatSocket() {
 export const ChatSocketProvider: FC<{ children: ReactNode; channelId?: number | null }> = ({ children, channelId }) => {
   const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
-  const wsRef = useRef<WebSocket | null>(null)
   const channelRef = useRef<number | null>(null)
   const listenersRef = useRef<Set<MessageHandler>>(new Set())
-  const heartbeatRef = useRef<number | null>(null)
-  const reconnectTimeoutRef = useRef<number | null>(null)
-  const reconnectAttemptsRef = useRef<number>(0)
   const [wsStatus, setWsStatus] = useState<WSStatus>('disconnected')
   const [typingUsers, setTypingUsers] = useState<Array<{ id: number; name: string }>>([])
   const typingTimeoutRef = useRef<Map<number, number>>(new Map())
 
-  const connect = useCallback((channelId: number) => {
-    const currentUser = user
-    const currentToken = token
-    if (!channelId || !currentUser || !currentToken) return
-
-    // Guard: if ws exists and channel unchanged, do nothing
-    if (wsRef.current && channelRef.current === channelId && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('[ChatSocket] existing ws open and channel unchanged; not reconnecting')
-      return
-    }
-
-    // Close existing if channel changes
-    if (wsRef.current) {
-      try {
-        wsRef.current.close()
-      } catch (e) {}
-      wsRef.current = null
-    }
-
-    channelRef.current = channelId
-
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
-    if (!import.meta.env.VITE_API_URL) {
-      console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
-    }
-    const wsBase = apiBase.replace(/^http/, 'ws')
-    const wsUrl = `${wsBase}/ws/chat/${channelId}?token=${encodeURIComponent(currentToken)}`
-
-    console.log('[ChatSocket] connect ->', wsUrl)
-    setWsStatus('connecting')
-
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      console.log('[ChatSocket] onopen for channel', channelId)
-      setWsStatus('connected')
-      reconnectAttemptsRef.current = 0
-
-      // heartbeat every 25s
-      heartbeatRef.current = window.setInterval(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          try { wsRef.current.send(JSON.stringify({ type: 'heartbeat' })) } catch (e) {}
-        }
-      }, 25000)
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        // Internal handling for typing users (so consumers can read typingUsers from context)
-        if (data.type === 'typing_start' && data.user_id && data.username) {
-          setTypingUsers((prev) => {
-            if (prev.some((u) => u.id === data.user_id)) return prev
-            return [...prev, { id: data.user_id, name: data.username }]
-          })
-
-          // clear existing timeout and set new one
-          const existing = typingTimeoutRef.current.get(data.user_id)
-          if (existing) clearTimeout(existing)
-          const t = window.setTimeout(() => {
-            setTypingUsers((prev) => prev.filter((u) => u.id !== data.user_id))
-            typingTimeoutRef.current.delete(data.user_id)
-          }, 3000) as unknown as number
-          typingTimeoutRef.current.set(data.user_id, t)
-        }
-
-        if (data.type === 'typing_stop' && data.user_id) {
-          setTypingUsers((prev) => prev.filter((u) => u.id !== data.user_id))
-          const existing = typingTimeoutRef.current.get(data.user_id)
-          if (existing) {
-            clearTimeout(existing)
-            typingTimeoutRef.current.delete(data.user_id)
-          }
-        }
-
-        // Dispatch to listeners
-        listenersRef.current.forEach((h) => {
-          try { h(data) } catch (e) { console.error('Chat listener error', e) }
-        })
-      } catch (e) {
-        console.error('Failed to parse ws message', e)
-      }
-    }
-
-    ws.onclose = (evt) => {
-      console.log('[ChatSocket] onclose code=', (evt as CloseEvent).code)
-      setWsStatus('disconnected')
-
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current)
-        heartbeatRef.current = null
-      }
-
-      // schedule reconnect unless channel changed or token missing
-      if (channelRef.current === channelId && token) {
-        const attempts = reconnectAttemptsRef.current
-        const base = 3000
-        const maxDelay = 60000
-        const delay = Math.min(base * (2 ** attempts), maxDelay) + Math.floor(Math.random() * 1000)
-        reconnectAttemptsRef.current = attempts + 1
-        reconnectTimeoutRef.current = window.setTimeout(() => {
-          connect(channelId)
-        }, delay) as unknown as number
-      }
-    }
-
-    ws.onerror = (err) => {
-      console.error('[ChatSocket] ws error', err)
-      setWsStatus('error')
-    }
-  }, [token, user])
-
-  const disconnect = useCallback((reason?: string) => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current)
-      reconnectTimeoutRef.current = null
-    }
-    if (heartbeatRef.current) {
-      clearInterval(heartbeatRef.current)
-      heartbeatRef.current = null
-    }
-    if (wsRef.current) {
-      try { wsRef.current.close() } catch (e) {}
-      wsRef.current = null
-    }
-    channelRef.current = null
-    setWsStatus('disconnected')
-    if (reason) console.log('[ChatSocket] disconnected:', reason)
-  }, [])
-
-  // connect/disconnect on logout
+  // Ensure Socket.IO is connected and mirror connection status
   useEffect(() => {
     if (!token) {
-      disconnect('logout or token removed')
-    }
-  }, [token, disconnect])
-
-  // API
-  const connectChannel = useCallback((channelId: number | null) => {
-    if (!channelId) {
-      // no-op
+      setWsStatus('disconnected')
       return
     }
-    // If same channel and ws open -> nothing
-    if (wsRef.current && channelRef.current === channelId && wsRef.current.readyState === WebSocket.OPEN) return
-    connect(channelId)
-  }, [connect])
 
-  // optional prop-driven channel auto-connect. Only runs when WS runtime flag is enabled.
-  useEffect(() => {
+    const sock = connectSocket()
+    if (sock && isSocketConnected()) setWsStatus('connected')
+    else setWsStatus('connecting')
+
+    const onConnect = () => setWsStatus('connected')
+    const onDisconnect = () => setWsStatus('disconnected')
+    const onError = () => setWsStatus('error')
+
     try {
-      const enabled = typeof window !== 'undefined' && !!(window as any).__ENABLE_WEBSOCKETS__
-      if (!enabled) return
-    } catch (e) {
-      return
+      const realSock = getSocket()
+      realSock?.on('connect', onConnect)
+      realSock?.on('disconnect', onDisconnect)
+      realSock?.on('connect_error', onError)
+    } catch (err) {
+      /* ignore */
     }
 
-    if (channelId) {
-      connectChannel(channelId)
-      return () => {
-        disconnect('channel prop removed or provider unmounted')
+    return () => {
+      try {
+        const realSock = getSocket()
+        realSock?.off('connect', onConnect)
+        realSock?.off('disconnect', onDisconnect)
+        realSock?.off('connect_error', onError)
+      } catch (err) {
+        /* ignore */
       }
     }
-  }, [channelId, connectChannel, disconnect])
+  }, [token])
+
+  // Subscribe to global Socket.IO events and dispatch into local listeners
+  useEffect(() => {
+    // message:new -> normalize to WS-like { type: 'message', ...payload } for onMessage handlers
+    const unsubMsgNew = onSocketEvent<any>('message:new', (data) => {
+      // deliver to listeners only if it matches current channel
+      if (channelRef.current && data.channel_id === channelRef.current) {
+        listenersRef.current.forEach(h => {
+          try { h({ type: 'message', ...data }) } catch (e) { console.error('Chat listener error', e) }
+        })
+      }
+    })
+
+    // typing events update typingUsers (global)
+    const unsubTypingStart = onSocketEvent<any>('typing_start', (data) => {
+      if (!data?.user_id) return
+      setTypingUsers((prev) => {
+        if (prev.some((u) => u.id === data.user_id)) return prev
+        return [...prev, { id: data.user_id, name: data.username || '' }]
+      })
+      const existing = typingTimeoutRef.current.get(data.user_id)
+      if (existing) clearTimeout(existing)
+      const t = window.setTimeout(() => {
+        setTypingUsers((prev) => prev.filter((u) => u.id !== data.user_id))
+        typingTimeoutRef.current.delete(data.user_id)
+      }, 3000) as unknown as number
+      typingTimeoutRef.current.set(data.user_id, t)
+    })
+
+    const unsubTypingStop = onSocketEvent<any>('typing_stop', (data) => {
+      if (!data?.user_id) return
+      setTypingUsers((prev) => prev.filter((u) => u.id !== data.user_id))
+      const existing = typingTimeoutRef.current.get(data.user_id)
+      if (existing) {
+        clearTimeout(existing)
+        typingTimeoutRef.current.delete(data.user_id)
+      }
+    })
+
+    // Dispatch other Socket.IO message events into listeners so components using onMessage get a uniform stream
+    const unsubMsgUpdated = onSocketEvent<any>('message:updated', (data) => {
+      listenersRef.current.forEach(h => { try { h({ type: 'message:updated', ...data }) } catch (e) { console.error(e) } })
+    })
+    const unsubMsgDeleted = onSocketEvent<any>('message:deleted', (data) => {
+      listenersRef.current.forEach(h => { try { h({ type: 'message:deleted', ...data }) } catch (e) { console.error(e) } })
+    })
+
+    return () => {
+      try { unsubMsgNew() } catch (e) { /* ignore */ }
+      try { unsubTypingStart() } catch (e) { /* ignore */ }
+      try { unsubTypingStop() } catch (e) { /* ignore */ }
+      try { unsubMsgUpdated() } catch (e) { /* ignore */ }
+      try { unsubMsgDeleted() } catch (e) { /* ignore */ }
+    }
+  }, [])
+
+  const connectChannel = useCallback((channelId: number | null) => {
+    if (!channelId) return
+    channelRef.current = channelId
+    // Ensure Socket.IO connected
+    connectSocket()
+    // Join the channel room on Socket.IO server
+    socketJoinChannel(channelId)
+    // reflect status
+    if (isSocketConnected()) setWsStatus('connected')
+    else setWsStatus('connecting')
+  }, [])
 
   const reconnect = useCallback(() => {
-    if (!channelRef.current) return
-    // Force immediate reconnect by closing and calling connect()
-    if (wsRef.current) {
-      try { wsRef.current.close() } catch (e) {}
-      wsRef.current = null
-    }
-    connect(channelRef.current)
-  }, [connect])
+    // Force reconnect of Socket.IO
+    const sock = getSocket()
+    if (!sock) return
+    try { sock.disconnect(); } catch (e) {}
+    connectSocket()
+  }, [])
 
   const sendMessage = useCallback((content: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'message', content, timestamp: new Date().toISOString() }))
+    const sock = getSocket()
+    if (!sock || !channelRef.current) return
+    try {
+      sock.emit('message', { channel_id: channelRef.current, content, timestamp: new Date().toISOString() })
+    } catch (err) {
+      console.warn('Failed to emit message via socket:', err)
     }
   }, [])
 
   const sendTyping = useCallback((isTyping: boolean) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: isTyping ? 'typing_start' : 'typing_stop' }))
+    const sock = getSocket()
+    if (!sock || !channelRef.current) return
+    try {
+      sock.emit(isTyping ? 'typing_start' : 'typing_stop', { channel_id: channelRef.current })
+    } catch (err) {
+      console.warn('Failed to emit typing via socket:', err)
     }
   }, [])
 
   const sendReaction = useCallback((messageId: number, emoji: string, action: 'add' | 'remove') => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: action === 'add' ? 'reaction_add' : 'reaction_remove', message_id: messageId, emoji }))
+    const sock = getSocket()
+    if (!sock || !channelRef.current) return
+    try {
+      sock.emit(action === 'add' ? 'reaction_add' : 'reaction_remove', { channel_id: channelRef.current, message_id: messageId, emoji })
+    } catch (err) {
+      console.warn('Failed to emit reaction via socket:', err)
     }
   }, [])
 
@@ -238,12 +181,14 @@ export const ChatSocketProvider: FC<{ children: ReactNode; channelId?: number | 
     return () => { listenersRef.current.delete(handler) }
   }, [])
 
-  // clean up on unmount
+  // cleanup: leave joined channel when provider unmounts
   useEffect(() => {
     return () => {
-      disconnect('provider unmount')
+      if (channelRef.current) {
+        try { socketLeaveChannel(channelRef.current) } catch (e) { /* ignore */ }
+      }
     }
-  }, [disconnect])
+  }, [])
 
   const value: ChatSocketContextValue = {
     currentChannel: channelRef.current,
