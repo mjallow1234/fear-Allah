@@ -55,6 +55,7 @@ services:
       JWT_SECRET: change-me-for-local
       APP_ENV: production
       WS_ENABLED: "true"
+      AUTOMATIONS_ENABLED: "true"
     # backend is accessed by other containers on the internal network; no host port published by default
     depends_on:
       postgres:
