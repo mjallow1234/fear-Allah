@@ -9,7 +9,7 @@ import MarkdownContent from './MarkdownContent'
 import MessageAttachments from './MessageAttachments'
 import { notifyNewMessage, notifyMention } from '../utils/notifications'
 import { mergeMessagesById } from '../utils/mergeMessages'
-
+import { onSocketEvent } from '../realtime'
 interface ChatPaneProps {
   channelId: string
 }
@@ -172,10 +172,20 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     }
 
     const unsubscribe = onMessage(handler)
+
+    // Also subscribe to Socket.IO `message:new` in environments using Socket.IO
+    const unsubSocketIo = onSocketEvent<any>('message:new', (data) => {
+      // If message belongs to the active channel, append immediately
+      if (data && data.channel_id === channelIdNum) {
+        handleMessage(data)
+      }
+    })
+
     return () => {
       unsubscribe()
+      try { unsubSocketIo && unsubSocketIo() } catch (e) { /* ignore */ }
     }
-  }, [onMessage, handleMessage, handleReaction])
+  }, [onMessage, handleMessage, handleReaction, channelIdNum])
 
   // Connect to the chat socket for this channel; provider handles guards
   useEffect(() => {
