@@ -53,6 +53,7 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       JWT_SECRET: change-me-for-local
+      APP_ENV: production
     # backend is accessed by other containers on the internal network; no host port published by default
     depends_on:
       postgres:
