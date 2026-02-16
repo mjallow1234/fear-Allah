@@ -84,6 +84,11 @@ export function connectSocket(): Socket | null {
     reconnectionDelayMax: 5000,
     transports: ['polling', 'websocket'],  // Start with polling for reliability
   })
+
+  // Instrumentation: report that a Socket.IO instance was created
+  try {
+    console.log('[SocketContext] socket instance created', socket?.id)
+  } catch (err) { /* ignore */ }
   
   socket.on('connect', () => {
     console.log('[Socket.IO] Connected, sid:', socket?.id)

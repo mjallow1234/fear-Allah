@@ -71,6 +71,10 @@ export default function ConversationMessageView(props: Props) {
   // Per-channel saved scroll positions: { key -> { scrollTop, wasAtBottom } }
   const scrollPositionsRef = useRef<Record<string, { scrollTop: number; wasAtBottom: boolean }>>({})
 
+  // One-time first-unread scroll helpers (keyed by channel/dm)
+  const firstUnreadHandledRef = useRef<Record<string, boolean>>({})
+  const firstUnreadTargetRef = useRef<Record<string, number | null>>({})
+
   // Thread
   const [selectedThread, setSelectedThread] = useState<any | null>(null)
   const isThreadOpen = Boolean(selectedThread)
@@ -175,11 +179,10 @@ export default function ConversationMessageView(props: Props) {
               }
 
             } else if (container) {
-              // No saved position for this channel — apply intelligent initial scroll:
-              // 1) if the current user has unread messages in this channel, scroll to the first unread
-              // 2) otherwise scroll to bottom
+              // No saved position for this channel — compute whether we should scroll to the first-unread
+              // or bottom. Do NOT manipulate DOM here; instead record the first-unread target and let a
+              // separate effect perform the scroll once messages are rendered.
               try {
-                // Ensure read receipts have been loaded so we can determine "first unread"
                 await fetchChannelReads(Number(channelId))
               } catch (err) {
                 /* ignore - best-effort */
@@ -188,37 +191,25 @@ export default function ConversationMessageView(props: Props) {
               try {
                 const reads = getChannelReads(Number(channelId))
                 const lastRead = currentUser ? (reads[currentUser.id] || 0) : 0
+                const key = `channel:${channelId}`
+
+                // reset first-unread handling flag for this key
+                firstUnreadHandledRef.current[key] = false
+                firstUnreadTargetRef.current[key] = null
 
                 if (lastRead && lastRead > 0) {
-                  // find the earliest top-level message with id > lastRead
                   const firstUnread = (list || []).find((m: any) => !m.parent_id && m.id > lastRead)
                   if (firstUnread) {
-                    // wait for DOM paint then scroll that message into view
-                    setTimeout(() => {
-                      const el = document.querySelector(`[data-message-id="${firstUnread.id}"]`) as HTMLElement | null
-                      if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth' })
-                    }, 50)
-                    // do not auto-scroll to bottom after this
+                    // record the target id and avoid auto-bottom scroll
+                    firstUnreadTargetRef.current[key] = firstUnread.id
                     shouldScrollToBottom.current = false
                   } else {
-                    // fallback to bottom
-                    if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-                      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-                    }
                     shouldScrollToBottom.current = true
                   }
                 } else {
-                  // No unread — default to bottom
-                  if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-                    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-                  }
                   shouldScrollToBottom.current = true
                 }
               } catch (err) {
-                // if anything goes wrong, just scroll to bottom
-                if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-                  messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-                }
                 shouldScrollToBottom.current = true
               }
             }
@@ -257,7 +248,7 @@ export default function ConversationMessageView(props: Props) {
               }
 
             } else if (container) {
-              // No saved DM scroll position — attempt to scroll to first unread (if any), otherwise bottom
+              // No saved DM scroll position — determine first-unread target (if any) and defer scrolling
               try {
                 const reads = await fetchDirectConversationReads(Number(convId))
                 useReadReceiptStore.getState().setInitialReads(`dm:${convId}`, reads as any)
@@ -268,30 +259,23 @@ export default function ConversationMessageView(props: Props) {
               try {
                 const readsMap = getChannelReads(`dm:${convId}`)
                 const lastRead = currentUser ? (readsMap[currentUser.id] || 0) : 0
+                const key = `dm:${convId}`
+
+                firstUnreadHandledRef.current[key] = false
+                firstUnreadTargetRef.current[key] = null
+
                 if (lastRead && lastRead > 0) {
                   const firstUnread = (list || []).find((m: any) => !m.parent_id && m.id > lastRead)
                   if (firstUnread) {
-                    setTimeout(() => {
-                      const el = document.querySelector(`[data-message-id="${firstUnread.id}"]`) as HTMLElement | null
-                      if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth' })
-                    }, 50)
+                    firstUnreadTargetRef.current[key] = firstUnread.id
                     shouldScrollToBottom.current = false
                   } else {
-                    if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-                      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-                    }
                     shouldScrollToBottom.current = true
                   }
                 } else {
-                  if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-                    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-                  }
                   shouldScrollToBottom.current = true
                 }
               } catch (err) {
-                if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-                  messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-                }
                 shouldScrollToBottom.current = true
               }
             }
@@ -709,18 +693,38 @@ export default function ConversationMessageView(props: Props) {
   // - When channel/conv changes or messages.length changes, scroll to bottom if the user
   //   should be at bottom (shouldScrollToBottom.current === true).
   // - When entering a channel/conv and the current user has unread messages, scroll to
-  //   the first unread message instead of the top.
+  //   the first unread message exactly once (per-channel) instead of the top.
   useEffect(() => {
     if (!messages || messages.length === 0) return
+
+    const key = isChannel && channelId ? `channel:${channelId}` : isDirect && convId ? `dm:${convId}` : null
+    if (!key) return
+
+    // If we've already handled first-unread/bottom for this key, do nothing
+    if (firstUnreadHandledRef.current[key]) return
+
+    // If there is a recorded first-unread target, scroll to it once
+    const targetId = firstUnreadTargetRef.current[key]
+    if (targetId) {
+      const el = document.querySelector(`[data-message-id="${targetId}"]`) as HTMLElement | null
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth' })
+        firstUnreadHandledRef.current[key] = true
+        return
+      }
+      // If target not in DOM yet, defer until DOM settles; return without marking handled
+      return
+    }
 
     // Respect explicit user scroll state
     if (!shouldScrollToBottom.current) return
 
-    // Scroll to bottom smoothly
+    // Scroll to bottom smoothly and mark handled so we don't repeat on subsequent renders
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      firstUnreadHandledRef.current[key] = true
     }
-  }, [messages?.length, channelId, convId])
+  }, [messages, channelId, convId])
 
   async function loadOlder() {
     if (!messages || messages.length === 0) return
