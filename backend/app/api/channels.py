@@ -183,7 +183,7 @@ async def list_channels(
     
     # Order channels in SQL by last activity (newest first). Use a correlated scalar subquery
     # so the DB is authoritative for ordering and we avoid Python comparisons of datetimes.
-    from app.db.models import Message, ChannelMember
+    from app.db.models import Message
 
     # Execute channel query ordered by last_activity (NULLs last)
     last_activity_expr = (
