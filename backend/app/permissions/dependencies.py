@@ -19,6 +19,17 @@ def require_permission(
         user=Depends(get_current_user),
         channel_id: int | None = None,
     ):
+        # Allow DB-flagged system administrators to bypass RBAC checks here.
+        # This ensures `is_system_admin` users can perform admin actions even
+        # if they don't have explicit Role/ChannelRoleAssignment rows.
+        from sqlalchemy import select
+        from app.db.models import User as DBUser
+
+        result = await db.execute(select(DBUser).where(DBUser.id == user["user_id"]))
+        db_user = result.scalar_one_or_none()
+        if db_user and getattr(db_user, 'is_system_admin', False):
+            return True
+
         system_roles = await get_system_roles(db, user["user_id"])
 
         channel_roles = None
