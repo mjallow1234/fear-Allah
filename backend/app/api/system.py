@@ -28,7 +28,7 @@ import secrets
 import json
 
 from app.db.database import get_db
-from app.db.models import User, AuditLog, Role, PermissionModel, RolePermission, UserOperationalRole
+from app.db.models import User, AuditLog, Role, PermissionModel, RolePermission, UserOperationalRole, Channel, ChannelMember, Message, Form, RawMaterial
 from app.db.enums import UserRole
 from app.core.security import (
     get_current_user,
@@ -251,15 +251,87 @@ async def require_system_admin(
     return user
 
 
-# === User Management ===
+@router.delete("/admin/hard-delete/{model}/{id}")
+async def admin_hard_delete(
+    model: str,
+    id: int,
+    confirm: bool = Query(..., description="Must be true to confirm hard delete"),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_system_admin),
+):
+    """Maintenance endpoint — superadmin-only hard delete for whitelisted models.
 
-@router.get("/users", response_model=UserListResponse)
-async def list_system_users(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
-    search: Optional[str] = None,
-    role: Optional[str] = None,
-    status: Optional[str] = None,
+    - model: one of (channel, channel_member, message, form, raw_material, role, user)
+    - id: int (Integer primary key used with db.get())
+    - confirm (query param) must be true
+
+    Safety: user deletion prevents self-deletion and protects last-admin.
+    """
+    model_lower = model.lower()
+    allowed = {
+        "channel": Channel,
+        "channel_member": ChannelMember,
+        "message": Message,
+        "form": Form,
+        "raw_material": RawMaterial,
+        "role": Role,
+        "user": User,
+    }
+
+    # confirm required
+    if confirm is not True:
+        raise HTTPException(status_code=400, detail="confirm query parameter must be true")
+
+    ModelClass = allowed.get(model_lower)
+    if not ModelClass:
+        raise HTTPException(status_code=400, detail="Model not allowed for hard delete")
+
+    # Fetch via db.get()
+    obj = await db.get(ModelClass, id)
+    if not obj:
+        raise HTTPException(status_code=404, detail=f"{model} not found")
+
+    # Special safety checks for users
+    if model_lower == "user":
+        # Prevent self-deletion
+        ensure_not_self_action(admin.id, getattr(obj, "id", None), action_name="hard delete")
+        # Ensure not removing last system admin
+        await ensure_not_last_admin(db, exclude_user_id=obj.id)
+
+    # Perform hard delete
+    await db.delete(obj)
+    await db.commit()
+
+    # Audit log (best-effort)
+    try:
+        action = f"admin.{model_lower}.hard_delete"
+        target_type = model_lower
+        # Prefer canonical audit target type constants where available
+        if model_lower == "user":
+            target_type = AuditTargetTypes.USER
+        elif model_lower == "role":
+            target_type = AuditTargetTypes.ROLE
+        elif model_lower == "message":
+            target_type = AuditTargetTypes.MESSAGE
+        elif model_lower == "channel":
+            target_type = AuditTargetTypes.CHANNEL
+
+        await log_audit(
+            db=db,
+            action=action,
+            target_type=target_type,
+            target_id=getattr(obj, "id", None),
+            description=f"Hard-deleted {model_lower} id={getattr(obj, 'id', None)}",
+            user_id=admin.id,
+            username=admin.username,
+        )
+    except Exception:
+        # Non-fatal — audit best-effort
+        pass
+
+    return {"status": "deleted", "model": model_lower, "id": str(id)}
+
+
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_system_admin),
 ):
