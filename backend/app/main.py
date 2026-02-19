@@ -98,7 +98,6 @@ async def lifespan(app: FastAPI):
     # connecting to external databases during app startup. Tests use their own test engine/fixtures
     # (see backend/tests/conftest.py) and seed DB state explicitly where needed.
     if not settings.TESTING:
-        await create_tables()
         await seed_default_data()
         # Seed demo RBAC channel roles (dev-only)
         # IMPORTANT: only run demo seeder in development environment to avoid
