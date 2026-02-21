@@ -397,8 +397,7 @@ async def admin_hard_delete(
                 is_banned=u.is_banned,
                 is_muted=u.is_muted,
                 created_at=u.created_at,
-            )
-            for u in users
+            ) for u in users
         ],
         total=total,
         page=page,
