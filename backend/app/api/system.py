@@ -362,12 +362,16 @@ async def list_system_users(
         except ValueError:
             pass
     
-    if status == "active":
-        query = query.where(User.is_active == True, User.is_banned == False)
-    elif status == "inactive":
-        query = query.where(User.is_active == False)
-    elif status == "banned":
-        query = query.where(User.is_banned == True)
+    if status == "deleted":
+        query = query.where(User.deleted_at.is_not(None))
+    else:
+        query = query.where(User.deleted_at.is_(None))
+        if status == "active":
+            query = query.where(User.is_active == True, User.is_banned == False)
+        elif status == "inactive":
+            query = query.where(User.is_active == False)
+        elif status == "banned":
+            query = query.where(User.is_banned == True)
     
     # Get total count
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))

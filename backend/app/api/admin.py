@@ -695,6 +695,11 @@ async def delete_user(
     if user.is_system_admin:
         raise HTTPException(status_code=400, detail="Cannot delete a system admin")
     
+    # mark soft‑deleted
+    from datetime import datetime, timezone as dt_timezone
+    user.deleted_at = datetime.now(dt_timezone.utc)
+    user.deleted_by_id = admin.id
+    # preserve existing flags for compatibility
     user.is_active = False
     user.is_banned = True
     user.ban_reason = "Account deleted by admin"

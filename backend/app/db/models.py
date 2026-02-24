@@ -49,6 +49,11 @@ class User(Base):
     # User preferences (Phase 2.5)
     # Use generic JSON to remain compatible with SQLite tests and Postgres
     preferences = Column(SAJSON, nullable=True, default=None)
+
+    # Soft-delete bookkeeping
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
     # Relationships
     messages = relationship("Message", back_populates="author", foreign_keys="[Message.author_id]")
     team_memberships = relationship("TeamMember", back_populates="user")
