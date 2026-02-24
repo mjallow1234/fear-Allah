@@ -235,18 +235,20 @@ class AuditLogResponse(BaseModel):
 async def require_system_admin(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-) -> User:
+):
     """
     Dependency that requires the user to be a system admin.
     More strict than require_admin - checks is_system_admin flag specifically.
     """
     user = await require_admin(db, current_user)
-    
+
     if not user.is_system_admin:
         raise HTTPException(
             status_code=403,
-            detail="System admin access required"
+            detail="System admin access required",
         )
+
+    return user
     
     return user
 
@@ -332,6 +334,13 @@ async def admin_hard_delete(
     return {"status": "deleted", "model": model_lower, "id": str(id)}
 
 
+@router.get("/users", response_model=UserListResponse)
+async def list_system_users(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    search: Optional[str] = None,
+    role: Optional[str] = None,
+    status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_system_admin),
 ):
