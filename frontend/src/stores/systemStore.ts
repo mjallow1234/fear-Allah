@@ -383,6 +383,18 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       throw err
     }
   },
+
+  // Phase 8.5.3: Delete user endpoint (soft/hard delete via admin endpoint)
+  deleteUser: async (userId) => {
+    try {
+      await api.delete(`/api/admin/users/${userId}`)
+      await get().fetchUsers(true)
+      await get().fetchStats(true)
+    } catch (err) {
+      console.error('[SystemStore] Failed to delete user:', err)
+      throw err
+    }
+  },
   
   // Phase 8.5.3: Assign role to user via new endpoint
   assignUserRole: async (userId, roleId) => {

@@ -49,6 +49,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useSystemStore, SystemUser, RoleInfo, PermissionInfo } from '../stores/systemStore'
 import { usePermissions, PERMISSIONS } from '../hooks/usePermissions'
 import { extractAxiosError } from '../utils/errorUtils'
+import { useNotificationContext } from '../contexts/NotificationProvider'
 import api from '../services/api'
 
 // === Tab Types ===
@@ -572,7 +573,58 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
 
 function UserRow({ user }: { user: SystemUser }) {
   const [showMenu, setShowMenu] = useState(false)
-  
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const currentUser = useAuthStore(s => s.user)
+  const isSelf = currentUser?.id === user.id
+  const { deleteUser } = useSystemStore()
+  const { showNotification } = useNotificationContext()
+
+  const handleDelete = async () => {
+    if (isSelf) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteUser(user.id)
+      showNotification({
+        id: Date.now(),
+        type: 'system',
+        title: 'User deleted successfully',
+        content: `${user.username} has been deleted.`,
+        channel_id: null,
+        message_id: null,
+        task_id: null,
+        order_id: null,
+        sender_id: currentUser?.id ?? null,
+        sender_username: currentUser?.username ?? null,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+      setConfirmDelete(false)
+    } catch (err: unknown) {
+      setDeleteError('Failed to delete user')
+      console.error(err)
+      showNotification({
+        id: Date.now(),
+        type: 'system',
+        title: 'Delete failed',
+        content: 'Unable to delete user. Please try again.',
+        channel_id: null,
+        message_id: null,
+        task_id: null,
+        order_id: null,
+        sender_id: currentUser?.id ?? null,
+        sender_username: currentUser?.username ?? null,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <tr className="border-b border-gray-700/50 hover:bg-gray-800/30">
       <td className="px-4 py-3">
@@ -638,6 +690,19 @@ function UserRow({ user }: { user: SystemUser }) {
         {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
       </td>
       <td className="px-4 py-3 relative">
+        {!isSelf && (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleting}
+            className={clsx(
+              'p-1.5 hover:bg-red-700 rounded text-red-400 hover:text-red-200 mr-1',
+              deleting && 'opacity-50 cursor-not-allowed'
+            )}
+            title="Delete user"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
         <button
           onClick={() => setShowMenu(!showMenu)}
           className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
@@ -645,6 +710,25 @@ function UserRow({ user }: { user: SystemUser }) {
           <MoreVertical size={16} />
         </button>
         {showMenu && <UserActionMenu user={user} onClose={() => setShowMenu(false)} />}
+
+        {confirmDelete && (
+          <div className="absolute right-0 top-full mt-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-3">
+            <p className="text-sm text-gray-200 mb-2">Are you sure you want to delete this user?</p>
+            {deleteError && <p className="text-xs text-red-400 mb-2">{deleteError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={deleting}
+              >Cancel</button>
+              <button
+                onClick={handleDelete}
+                className="flex-1 px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-sm text-white"
+                disabled={deleting}
+              >{deleting ? 'Deleting...' : 'Confirm'}</button>
+            </div>
+          </div>
+        )}
       </td>
     </tr>
   )
@@ -1051,6 +1135,17 @@ function UsersTab() {
     usersLoading, setUsersPage, setUserFilters, clearUserFilters, fetchUsers
   } = useSystemStore()
   const [searchInput, setSearchInput] = useState(userFilters.search || '')
+  const [view, setView] = useState<'active' | 'deleted'>('active')
+  const { showNotification } = useNotificationContext()
+
+  // Sync view with status filter
+  useEffect(() => {
+    if (view === 'deleted') {
+      setUserFilters({ status: 'deleted' })
+    } else {
+      setUserFilters({ status: '' })
+    }
+  }, [view, setUserFilters])
   
   // Phase 8.6: Permission check for user management
   const { hasPermission } = usePermissions()
@@ -1092,6 +1187,26 @@ function UsersTab() {
               Read-only
             </span>
           )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setView('active')}
+            className={clsx(
+              'px-3 py-1 text-sm rounded-lg font-medium',
+              view === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700'
+            )}
+          >
+            Active Users
+          </button>
+          <button
+            onClick={() => setView('deleted')}
+            className={clsx(
+              'px-3 py-1 text-sm rounded-lg font-medium',
+              view === 'deleted' ? 'bg-blue-600 text-white' : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700'
+            )}
+          >
+            Deleted Users
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1143,13 +1258,17 @@ function UsersTab() {
         
         <select
           value={userFilters.status || ''}
-          onChange={(e) => setUserFilters({ status: e.target.value })}
+          onChange={(e) => {
+            setUserFilters({ status: e.target.value })
+            setView(e.target.value === 'deleted' ? 'deleted' : 'active')
+          }}
           className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
         >
           <option value="">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
           <option value="banned">Banned</option>
+          <option value="deleted">Deleted</option>
         </select>
         
         {(userFilters.search || userFilters.role || userFilters.status) && (
