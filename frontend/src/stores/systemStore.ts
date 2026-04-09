@@ -275,7 +275,11 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     get().fetchUsers(true)  // Force refresh on filter clear
   },
   
-  fetchUsers: async (force = false) => {
+  fetchUsers: async (force = false, filters?: UserFilters) => {
+    if (filters) {
+      set({ userFilters: { ...get().userFilters, ...filters } })
+    }
+
     const { _usersFetched, _fetchingUsers, rateLimited } = get()
     
     // Skip if rate limited
@@ -360,8 +364,9 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   setUserStatus: async (userId, active) => {
     try {
       const response = await api.patch(`/api/system/users/${userId}/status`, { active })
-      // Refresh user list and stats
-      await get().fetchUsers(true)
+      // Refresh user list and stats using current filters
+      const currentFilters = get().userFilters
+      await get().fetchUsers(true, currentFilters)
       await get().fetchStats(true)
       return { changed: response.data.changed, message: response.data.message }
     } catch (err) {

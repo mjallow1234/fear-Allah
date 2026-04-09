@@ -30,10 +30,13 @@ function Toast({ notification, onDismiss, duration = 5000 }: ToastProps) {
     switch (notification.type) {
       case 'task_step_completed':
       case 'task_completed':
+      case 'success':
         return <CheckCircle className="w-5 h-5 text-green-400" />
       case 'task_assigned':
       case 'task_overdue':
         return <AlertTriangle className="w-5 h-5 text-yellow-400" />
+      case 'error':
+        return <AlertTriangle className="w-5 h-5 text-red-400" />
       case 'order_created':
       case 'order_completed':
         return <ShoppingCart className="w-5 h-5 text-blue-400" />

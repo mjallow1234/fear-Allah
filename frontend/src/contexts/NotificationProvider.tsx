@@ -25,6 +25,7 @@ interface Notification {
 
 interface NotificationContextType {
   showNotification: (notification: Notification) => void
+  addToast: (toast: { type: string; title: string; body?: string }) => void
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null)
@@ -226,8 +227,22 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     return () => unsubscribe()
   }, [showNotification])
 
+  // Listen for global 403 Forbidden events from API interceptor
+  useEffect(() => {
+    const handleForbidden = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      addToast({
+        type: 'error',
+        title: 'Permission Denied',
+        body: detail?.message || "You don't have permission to perform this action.",
+      })
+    }
+    window.addEventListener('api:forbidden', handleForbidden)
+    return () => window.removeEventListener('api:forbidden', handleForbidden)
+  }, [addToast])
+
   return (
-    <NotificationContext.Provider value={{ showNotification }}>
+    <NotificationContext.Provider value={{ showNotification, addToast }}>
       {children}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </NotificationContext.Provider>

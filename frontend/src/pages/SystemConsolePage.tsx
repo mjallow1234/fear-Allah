@@ -35,6 +35,7 @@ import {
   Eye,
   Plus,
   Trash2,
+  RotateCw,
   Edit,
   ShieldAlert,
   ShieldCheck,
@@ -48,6 +49,7 @@ import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
 import { useSystemStore, SystemUser, RoleInfo, PermissionInfo } from '../stores/systemStore'
 import { usePermissions, PERMISSIONS } from '../hooks/usePermissions'
+import { useUICapabilities } from '../permissions/uiPermissions'
 import { extractAxiosError } from '../utils/errorUtils'
 import { useNotificationContext } from '../contexts/NotificationProvider'
 import api from '../services/api'
@@ -186,14 +188,14 @@ function OverviewTab() {
 function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => void }) {
   const { setUserStatus, setUserAdmin, resetUserPassword, forceLogoutUser, stats } = useSystemStore()
   const currentUser = useAuthStore(s => s.user)
+  const { addToast } = useNotificationContext()
   const [tempPassword, setTempPassword] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<string | null>(null)
   
   // Phase 8.6: Permission check
-  const { hasPermission } = usePermissions()
-  const canManageUsers = hasPermission(PERMISSIONS.MANAGE_USERS)
+  const { canManageUsers, canBanUsers } = useUICapabilities()
   
   const isSelf = currentUser?.id === user.id
   const isLastAdmin = stats?.users.admins === 1 && user.is_system_admin
@@ -207,6 +209,7 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
     setError(null)
     try {
       await setUserStatus(user.id, !user.is_active)
+      addToast({ type: 'success', title: user.is_active ? 'User deactivated' : 'User activated', body: `${user.username} has been ${user.is_active ? 'deactivated' : 'activated'}.` })
       onClose()
     } catch (err: unknown) {
       setError(extractAxiosError(err, 'Failed to update user status'))
@@ -225,6 +228,7 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
     setError(null)
     try {
       await setUserAdmin(user.id, !user.is_system_admin)
+      addToast({ type: 'success', title: user.is_system_admin ? 'Admin removed' : 'Admin granted', body: `${user.username} admin status updated.` })
       onClose()
     } catch (err: unknown) {
       setError(extractAxiosError(err, 'Failed to update admin status'))
@@ -261,6 +265,7 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
     setError(null)
     try {
       await forceLogoutUser(user.id)
+      addToast({ type: 'success', title: 'User logged out', body: `${user.username} has been forced out of all sessions.` })
       onClose()
     } catch (err: unknown) {
       setError(extractAxiosError(err, 'Failed to force logout'))
@@ -571,16 +576,20 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
   )
 }
 
-function UserRow({ user }: { user: SystemUser }) {
+function UserRow({ user, view, onRestoreSuccess }: { user: SystemUser, view: 'active' | 'deleted', onRestoreSuccess?: () => void }) {
   const [showMenu, setShowMenu] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmRestore, setConfirmRestore] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
 
   const currentUser = useAuthStore(s => s.user)
   const isSelf = currentUser?.id === user.id
-  const { deleteUser } = useSystemStore()
-  const { showNotification } = useNotificationContext()
+  const { deleteUser, setUserStatus } = useSystemStore()
+  const { addToast } = useNotificationContext()
+  const { canManageUsers } = useUICapabilities()
 
   const handleDelete = async () => {
     if (isSelf) return
@@ -588,40 +597,39 @@ function UserRow({ user }: { user: SystemUser }) {
     setDeleteError(null)
     try {
       await deleteUser(user.id)
-      showNotification({
-        id: Date.now(),
-        type: 'system',
-        title: 'User deleted successfully',
-        content: `${user.username} has been deleted.`,
-        channel_id: null,
-        message_id: null,
-        task_id: null,
-        order_id: null,
-        sender_id: currentUser?.id ?? null,
-        sender_username: currentUser?.username ?? null,
-        is_read: false,
-        created_at: new Date().toISOString(),
-      })
+      addToast({ type: 'success', title: 'User deleted', body: `${user.username} has been deleted.` })
       setConfirmDelete(false)
     } catch (err: unknown) {
       setDeleteError('Failed to delete user')
       console.error(err)
-      showNotification({
-        id: Date.now(),
-        type: 'system',
-        title: 'Delete failed',
-        content: 'Unable to delete user. Please try again.',
-        channel_id: null,
-        message_id: null,
-        task_id: null,
-        order_id: null,
-        sender_id: currentUser?.id ?? null,
-        sender_username: currentUser?.username ?? null,
-        is_read: false,
-        created_at: new Date().toISOString(),
-      })
+      addToast({ type: 'error', title: 'Delete failed', body: 'Unable to delete user. Please try again.' })
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleRestore = async () => {
+    console.log('RESTORE CLICKED', user.id)
+    // Note: we don't allow self-restore (no-op) but still move through flow to keep behavior consistent.
+    if (isSelf) {
+      setRestoreError('You cannot restore yourself')
+      setRestoring(false)
+      return
+    }
+
+    setRestoring(true)
+    setRestoreError(null)
+    try {
+      await setUserStatus(user.id, true)
+      addToast({ type: 'success', title: 'User restored', body: `${user.username} has been restored and moved to active users.` })
+      setConfirmRestore(false)
+      onRestoreSuccess?.()
+    } catch (err: unknown) {
+      setRestoreError('Failed to restore user')
+      console.error(err)
+      addToast({ type: 'error', title: 'Restore failed', body: 'Unable to restore user. Please try again.' })
+    } finally {
+      setRestoring(false)
     }
   }
 
@@ -671,16 +679,20 @@ function UserRow({ user }: { user: SystemUser }) {
               Admin
             </span>
           )}
-          {user.is_active && !user.is_banned ? (
-            <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-xs">
-              Active
+          {user.deleted_at ? (
+            <span className="px-2 py-0.5 rounded bg-gray-500/20 text-gray-300 text-xs font-semibold">
+              Deleted
             </span>
           ) : user.is_banned ? (
-            <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-xs">
+            <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-xs font-semibold">
               Banned
             </span>
+          ) : user.is_active ? (
+            <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-xs font-semibold">
+              Active
+            </span>
           ) : (
-            <span className="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs">
+            <span className="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-semibold">
               Inactive
             </span>
           )}
@@ -690,17 +702,36 @@ function UserRow({ user }: { user: SystemUser }) {
         {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
       </td>
       <td className="px-4 py-3 relative">
-        {!isSelf && (
+        {view === 'active' && (
           <button
             onClick={() => setConfirmDelete(true)}
-            disabled={deleting}
+            disabled={!canManageUsers || deleting || isSelf || user.is_system_admin}
             className={clsx(
-              'p-1.5 hover:bg-red-700 rounded text-red-400 hover:text-red-200 mr-1',
-              deleting && 'opacity-50 cursor-not-allowed'
+              'p-1.5 rounded mr-1 transition-colors',
+              deleting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-700 text-red-400 hover:text-red-200',
+              (!canManageUsers || isSelf || user.is_system_admin) && 'opacity-50 cursor-not-allowed hover:bg-transparent hover:text-red-400'
             )}
-            title="Delete user"
+            title={
+              !canManageUsers ? 'You don\'t have permission to delete users' :
+              isSelf ? 'You cannot delete yourself' :
+              user.is_system_admin ? 'Cannot delete system admin' :
+              'Delete user'
+            }
           >
             <Trash2 size={16} />
+          </button>
+        )}
+        {view === 'deleted' && (
+          <button
+            onClick={() => setConfirmRestore(true)}
+            disabled={!canManageUsers || restoring}
+            className={clsx(
+              'p-1.5 hover:bg-green-700 rounded text-green-400 hover:text-green-200 mr-1',
+              (!canManageUsers || restoring) && 'opacity-50 cursor-not-allowed'
+            )}
+            title={!canManageUsers ? "You don't have permission to restore users" : "Restore user"}
+          >
+            <RotateCw size={16} />
           </button>
         )}
         <button
@@ -726,6 +757,24 @@ function UserRow({ user }: { user: SystemUser }) {
                 className="flex-1 px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-sm text-white"
                 disabled={deleting}
               >{deleting ? 'Deleting...' : 'Confirm'}</button>
+            </div>
+          </div>
+        )}
+        {confirmRestore && (
+          <div className="absolute right-0 top-full mt-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-3">
+            <p className="text-sm text-gray-200 mb-2">Restore this user?</p>
+            {restoreError && <p className="text-xs text-red-400 mb-2">{restoreError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmRestore(false)}
+                className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={restoring}
+              >Cancel</button>
+              <button
+                onClick={handleRestore}
+                className="flex-1 px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-sm text-white"
+                disabled={restoring}
+              >{restoring ? 'Restoring...' : 'Confirm'}</button>
             </div>
           </div>
         )}
@@ -1148,8 +1197,7 @@ function UsersTab() {
   }, [view, setUserFilters])
   
   // Phase 8.6: Permission check for user management
-  const { hasPermission } = usePermissions()
-  const canManageUsers = hasPermission(PERMISSIONS.MANAGE_USERS)
+  const { canManageUsers } = useUICapabilities()
   
   // Phase 8.5.5: Create user modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -1217,16 +1265,21 @@ function UsersTab() {
           >
             <RefreshCw size={18} className={clsx(usersLoading && 'animate-spin')} />
           </button>
-          {/* Phase 8.6: Only show Create User button if has permission */}
-          {canManageUsers && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium flex items-center gap-2"
-            >
-              <UserPlus size={16} />
-              Create User
-            </button>
-          )}
+          {/* Phase 8.6: Disable Create User button if no permission */}
+          <button
+            onClick={() => canManageUsers && setShowCreateModal(true)}
+            disabled={!canManageUsers}
+            title={!canManageUsers ? "You don't have permission to create users" : "Create a new user"}
+            className={clsx(
+              'px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2',
+              canManageUsers
+                ? 'bg-blue-600 hover:bg-blue-700'
+                : 'bg-blue-600/50 opacity-50 cursor-not-allowed'
+            )}
+          >
+            <UserPlus size={16} />
+            Create User
+          </button>
         </div>
       </div>
       
@@ -1300,7 +1353,16 @@ function UsersTab() {
             </thead>
             <tbody>
               {users.map(user => (
-                <UserRow key={user.id} user={user} />
+                <UserRow
+                  key={user.id}
+                  user={user}
+                  view={view}
+                  onRestoreSuccess={() => {
+                    setView('active')
+                    setUserFilters({ status: '' })
+                    fetchUsers(true)
+                  }}
+                />
               ))}
               {users.length === 0 && (
                 <tr>
@@ -2191,6 +2253,7 @@ export default function SystemConsolePage() {
   
   // Phase 8.6: Permission enforcement
   const { hasPermission, isSystemAdmin, isLoaded: permissionsLoaded } = usePermissions()
+  const { canViewSystemConsole } = useUICapabilities()
   
   // Phase 8.6: Filter tabs based on permissions
   const availableTabs = useMemo(() => {
@@ -2224,12 +2287,12 @@ export default function SystemConsolePage() {
     return () => clearInterval(interval)
   }, [rateLimited, rateLimitRetryAt])
   
-  // Check admin access - system admins always allowed, others need at least one permission
+  // Check admin access - system admins and team_admins allowed, others need at least one permission
   useEffect(() => {
-    if (!isSystemAdmin && permissionsLoaded && availableTabs.length <= 1) {
+    if (!canViewSystemConsole && permissionsLoaded && availableTabs.length <= 1) {
       navigate('/')
     }
-  }, [isSystemAdmin, navigate, permissionsLoaded, availableTabs])
+  }, [canViewSystemConsole, navigate, permissionsLoaded, availableTabs])
   
   // Phase 8.6: If active tab is no longer available, switch to first available
   useEffect(() => {
@@ -2250,8 +2313,8 @@ export default function SystemConsolePage() {
     )
   }
   
-  // Access denied for non-admins with no permissions
-  if (!isSystemAdmin && availableTabs.length <= 1) {
+  // Access denied for users without system console access
+  if (!canViewSystemConsole && availableTabs.length <= 1) {
     return (
       <div className="flex items-center justify-center h-full bg-gray-900">
         <div className="text-center">

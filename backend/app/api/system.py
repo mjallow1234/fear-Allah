@@ -35,9 +35,9 @@ from app.core.security import (
     require_admin,
     get_password_hash,
     ROLE_PERMISSIONS,
-    Permission as PermissionConst,
 )
 from app.core.config import settings
+from app.permissions.constants import Permission
 from app.core.rate_limit_config import (
     AUTH_LIMITS,
     API_LIMITS,
@@ -143,6 +143,11 @@ class UserUpdateRequest(BaseModel):
 class UserStatusRequest(BaseModel):
     """Request body for PATCH /users/{id}/status"""
     active: bool = Field(..., description="Whether the user should be active")
+
+
+class UserBanRequest(BaseModel):
+    """Request body for POST /users/{id}/ban"""
+    ban_reason: Optional[str] = Field(None, description="Reason for banning the user")
 
 
 class UserAdminRequest(BaseModel):
@@ -253,6 +258,24 @@ async def require_system_admin(
     return user
 
 
+async def require_manage_user_permission(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    # Load user from DB and check MANAGE_USERS permission via role mapping
+    from app.core.security import has_permission as _has_permission
+    result = await db.execute(select(User).where(User.id == current_user["user_id"]))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_banned:
+        raise HTTPException(status_code=403, detail="User is banned")
+    role = user.role.value if user.role else "member"
+    if not _has_permission(role, Permission.MANAGE_USERS.value, user.is_system_admin):
+        raise HTTPException(status_code=403, detail="Permission denied: manage_users required")
+    return user
+
+
 @router.delete("/admin/hard-delete/{model}/{id}")
 async def admin_hard_delete(
     model: str,
@@ -342,7 +365,7 @@ async def list_system_users(
     role: Optional[str] = None,
     status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_system_admin),
+    admin: User = Depends(require_manage_user_permission),
 ):
     """List all users with filters for system management."""
     query = select(User)
@@ -683,9 +706,13 @@ async def update_user_status(
     - Cannot deactivate yourself
     - Cannot deactivate the last active admin
     """
+    print(f"RESTORE DEBUG: update_user_status called for user_id={user_id}, active={request.active}")
+
     user = await get_user_or_404(db, user_id)
     before_state = serialize_user_state(user)
-    
+
+    print(f"RESTORE DEBUG: query=UPDATE users SET is_active={request.active} WHERE id={user_id}")
+
     # Safety checks
     if not request.active:
         ensure_not_self_action(admin.id, user_id, "deactivate")
@@ -695,17 +722,31 @@ async def update_user_status(
             await ensure_not_last_admin(db, exclude_user_id=user_id)
     
     # No change needed
-    if user.is_active == request.active:
+    if user.is_active == request.active and not (request.active and user.deleted_at is not None):
         return {
             "message": f"User {user.username} is already {'active' if request.active else 'inactive'}",
             "changed": False,
         }
     
+    # Handle restore from deleted state
+    if request.active and user.deleted_at is not None:
+        user.deleted_at = None
+        user.deleted_by_id = None
+        user.is_banned = False
+        user.ban_reason = None
+        user.banned_at = None
+
     # Apply change
     user.is_active = request.active
     await db.commit()
     await db.refresh(user)
-    
+
+    rows_affected = 1
+    print(f"RESTORE DEBUG: rows_affected={rows_affected}")
+
+    user_after = await get_user_or_404(db, user_id)
+    print(f"RESTORE DEBUG: user_after deleted_at={user_after.deleted_at}, is_active={user_after.is_active}")
+
     after_state = serialize_user_state(user)
     action = "user.activate" if request.active else "user.deactivate"
     
@@ -733,6 +774,223 @@ async def update_user_status(
             "username": user.username,
             "is_active": user.is_active,
         },
+    }
+
+
+@router.delete("/users/{user_id}")
+async def soft_delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_manage_user_permission),
+):
+    user = await get_user_or_404(db, user_id)
+    ensure_not_self_action(admin.id, user_id, "delete")
+    if user.is_system_admin:
+        await ensure_not_last_admin(db, exclude_user_id=user_id)
+
+    before_state = serialize_user_state(user)
+
+    user.deleted_at = datetime.utcnow()
+    user.deleted_by_id = admin.id
+    user.is_active = False
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.delete",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Deleted user {user.username}",
+        meta={"before": before_state, "after": after_state, "actor": admin.username},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} deleted successfully",
+        "changed": True,
+        "user": {"id": user.id, "username": user.username, "is_active": user.is_active},
+    }
+
+
+@router.post("/users/{user_id}/restore")
+async def restore_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_manage_user_permission),
+):
+    user = await get_user_or_404(db, user_id)
+    before_state = serialize_user_state(user)
+
+    user.deleted_at = None
+    user.deleted_by_id = None
+    user.is_active = True
+    user.is_banned = False
+    user.ban_reason = None
+    user.banned_at = None
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.restore",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Restored user {user.username}",
+        meta={"before": before_state, "after": after_state, "actor": admin.username},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} restored successfully",
+        "changed": True,
+        "user": {"id": user.id, "username": user.username, "is_active": user.is_active},
+    }
+
+
+@router.patch("/users/{user_id}/activate")
+async def activate_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_manage_user_permission),
+):
+    user = await get_user_or_404(db, user_id)
+    before_state = serialize_user_state(user)
+
+    user.is_active = True
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.activate",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Activated user {user.username}",
+        meta={"before": before_state, "after": after_state, "actor": admin.username},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} activated successfully",
+        "changed": True,
+        "user": {"id": user.id, "username": user.username, "is_active": user.is_active},
+    }
+
+
+@router.patch("/users/{user_id}/deactivate")
+async def deactivate_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_manage_user_permission),
+):
+    user = await get_user_or_404(db, user_id)
+    ensure_not_self_action(admin.id, user_id, "deactivate")
+    if user.is_system_admin:
+        await ensure_not_last_admin(db, exclude_user_id=user_id)
+
+    before_state = serialize_user_state(user)
+    user.is_active = False
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.deactivate",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Deactivated user {user.username}",
+        meta={"before": before_state, "after": after_state, "actor": admin.username},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} deactivated successfully",
+        "changed": True,
+        "user": {"id": user.id, "username": user.username, "is_active": user.is_active},
+    }
+
+
+@router.post("/users/{user_id}/ban")
+async def ban_user(
+    user_id: int,
+    request: UserBanRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_system_admin),
+):
+    user = await get_user_or_404(db, user_id)
+    before_state = serialize_user_state(user)
+
+    user.is_banned = True
+    user.ban_reason = request.ban_reason
+    user.banned_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.ban",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Banned user {user.username}",
+        meta={"before": before_state, "after": after_state, "actor": admin.username},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} banned successfully",
+        "changed": True,
+        "user": {"id": user.id, "username": user.username, "is_banned": user.is_banned},
+    }
+
+
+@router.post("/users/{user_id}/unban")
+async def unban_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_system_admin),
+):
+    user = await get_user_or_404(db, user_id)
+    before_state = serialize_user_state(user)
+
+    user.is_banned = False
+    user.ban_reason = None
+    user.banned_at = None
+
+    await db.commit()
+    await db.refresh(user)
+
+    after_state = serialize_user_state(user)
+    await log_audit(
+        db=db,
+        action="user.unban",
+        target_type=AuditTargetTypes.USER,
+        target_id=user_id,
+        description=f"Unbanned user {user.username}",
+        meta={"before": before_state, "after": after_state, "actor": admin.username},
+        user_id=admin.id,
+        username=admin.username,
+    )
+
+    return {
+        "message": f"User {user.username} unbanned successfully",
+        "changed": True,
+        "user": {"id": user.id, "username": user.username, "is_banned": user.is_banned},
     }
 
 

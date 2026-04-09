@@ -128,6 +128,7 @@ ROLE_PERMISSIONS = {
     ],
     "team_admin": [
         Permission.VIEW_USERS,
+        Permission.MANAGE_USERS,
         Permission.MUTE_USERS,
         Permission.CREATE_CHANNELS,
         Permission.ARCHIVE_CHANNELS,

@@ -207,11 +207,11 @@ app.add_middleware(RequestContextMiddleware)
 # CORS middleware - MUST run FIRST to handle OPTIONS preflight
 # Added LAST so it runs FIRST (LIFO order)
 # Phase 8.4.3 - Explicit headers for preflight
+from app.core.config import settings
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://app.sidrahsalaam.com",
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

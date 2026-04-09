@@ -27,6 +27,11 @@ api.interceptors.response.use(
       useAuthStore.getState().logout()
       window.location.href = '/login'
     }
+    if (error.response?.status === 403) {
+      window.dispatchEvent(new CustomEvent('api:forbidden', {
+        detail: { message: error.response?.data?.detail || 'You don\'t have permission to perform this action.' },
+      }))
+    }
     return Promise.reject(error)
   }
 )

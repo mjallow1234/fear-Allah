@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useTaskStore } from '../stores/taskStore'
 import { useOrderStore } from '../stores/orderStore'
 import useOperationalPermissions from '../permissions/useOperationalPermissions'
+import { useUICapabilities } from '../permissions/uiPermissions'
 
 import { Hash, Users, Search, Settings, ClipboardList, ShoppingCart, DollarSign, FileText, Cog, Menu } from 'lucide-react'
 import SearchModal from './SearchModal'
@@ -45,7 +46,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
 
   // Permissions for click-time checks — authoritative single source
   const perms = useOperationalPermissions()
-  const isSystemAdmin = currentUser?.is_system_admin === true
+  const { canViewSystemConsole } = useUICapabilities()
   const handleTabNavigate = (path: string, tabKey: 'orders' | 'sales' | 'tasks') => {
     // Only allow navigation when tab is explicitly permitted
     if (!perms.tabs.includes(tabKey)) {
@@ -152,8 +153,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             </button>
           )}
           
-          {/* Audit Log - admin only, navigates to /system/audit */}
-          {isSystemAdmin && (
+          {/* Audit Log - visible to system console users */}
+          {canViewSystemConsole && (
             <button
               onClick={() => navigate('/system/audit')}
               className="p-2 transition-colors"
@@ -164,8 +165,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             </button>
           )}
           
-          {/* System Console (admin only) */}
-          {isSystemAdmin && (
+          {/* System Console */}
+          {canViewSystemConsole && (
             <button
               onClick={() => navigate('/system')}
               className="p-2 text-purple-400 hover:text-purple-300 transition-colors"

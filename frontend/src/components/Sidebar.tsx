@@ -3,6 +3,7 @@ import { markChannelRead } from '../realtime/readReceipts'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus, FileText, Brain } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import { useUICapabilities } from '../permissions/uiPermissions'
 import { usePresenceStore } from '../stores/presenceStore'
 import { usePresence } from '../services/useWebSocket'
 import api from '../services/api'
@@ -51,8 +52,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const token = useAuthStore((state) => state.token)
-  // System admins only for administration UI in sidebar
-  const isSystemAdmin = user?.is_system_admin === true
+  const { canViewSystemConsole, canCreateChannels } = useUICapabilities()
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
@@ -393,10 +393,10 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           </span>
           <button 
             onClick={() => setShowCreateChannelModal(true)}
-            className={clsx('p-1 transition-colors', isSystemAdmin ? 'hover:opacity-100' : 'opacity-50 cursor-not-allowed')}
+            className={clsx('p-1 transition-colors', canCreateChannels ? 'hover:opacity-100' : 'opacity-50 cursor-not-allowed')}
             style={{ color: 'var(--text-secondary)' }}
-            title={isSystemAdmin ? 'Add Channel' : 'Only admins can create channels'}
-            disabled={!isSystemAdmin}
+            title={canCreateChannels ? 'Add Channel' : 'Only admins can create channels'}
+            disabled={!canCreateChannels}
           >
             <Plus size={14} />
           </button>
@@ -545,8 +545,8 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             })
         )}
 
-        {/* Admin Section - Only visible to system admins */}
-        {isSystemAdmin && (
+        {/* Admin Section - Only visible to users with system console access */}
+        {canViewSystemConsole && (
           <>
             <div className="px-2 mt-6 mb-2">
               <span className="text-xs font-semibold uppercase tracking-wide px-2" style={{ color: 'var(--text-secondary)' }}>
