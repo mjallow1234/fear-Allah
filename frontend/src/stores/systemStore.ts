@@ -24,6 +24,7 @@ export interface SystemUser {
   is_banned: boolean
   is_muted: boolean
   created_at: string | null
+  deleted_at?: string | null
 }
 
 // Phase 8.5.2: Updated RoleInfo with full backend model
@@ -156,7 +157,8 @@ interface SystemState {
   setUsersPage: (page: number) => void
   setUserFilters: (filters: Partial<UserFilters>) => void
   clearUserFilters: () => void
-  fetchUsers: (force?: boolean) => Promise<void>
+  fetchUsers: (force?: boolean, filters?: UserFilters) => Promise<void>
+  deleteUser: (userId: number) => Promise<void>
   updateUser: (userId: number, data: { is_active?: boolean; is_system_admin?: boolean; role?: string }) => Promise<void>
   resetUserPassword: (userId: number) => Promise<string>
   forceLogoutUser: (userId: number) => Promise<void>
@@ -390,7 +392,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   },
 
   // Phase 8.5.3: Delete user endpoint (soft/hard delete via admin endpoint)
-  deleteUser: async (userId) => {
+  deleteUser: async (userId: number) => {
     try {
       await api.delete(`/api/admin/users/${userId}`)
       await get().fetchUsers(true)

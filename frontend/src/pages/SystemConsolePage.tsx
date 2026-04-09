@@ -195,7 +195,7 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
   const [confirmAction, setConfirmAction] = useState<string | null>(null)
   
   // Phase 8.6: Permission check
-  const { canManageUsers, canBanUsers } = useUICapabilities()
+  const { canManageUsers } = useUICapabilities()
   
   const isSelf = currentUser?.id === user.id
   const isLastAdmin = stats?.users.admins === 1 && user.is_system_admin
@@ -1185,7 +1185,6 @@ function UsersTab() {
   } = useSystemStore()
   const [searchInput, setSearchInput] = useState(userFilters.search || '')
   const [view, setView] = useState<'active' | 'deleted'>('active')
-  const { showNotification } = useNotificationContext()
 
   // Sync view with status filter
   useEffect(() => {
@@ -2252,7 +2251,7 @@ export default function SystemConsolePage() {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   
   // Phase 8.6: Permission enforcement
-  const { hasPermission, isSystemAdmin, isLoaded: permissionsLoaded } = usePermissions()
+  const { hasPermission, isLoaded: permissionsLoaded } = usePermissions()
   const { canViewSystemConsole } = useUICapabilities()
   
   // Phase 8.6: Filter tabs based on permissions
