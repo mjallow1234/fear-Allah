@@ -143,16 +143,15 @@ class FormSubmissionService:
 
 async def handle_sales_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission for sales service."""
-    from app.services.sales import SalesService
+    from app.services.sales import record_sale
     
-    sale = await SalesService.record_sale(
-        db=db,
+    sale = await record_sale(
+        session=db,
         product_id=data.get("product_id"),
         quantity=data.get("quantity"),
-        amount=data.get("amount"),
-        channel=data.get("channel", "direct"),
-        notes=data.get("notes"),
-        recorded_by=user_id,
+        unit_price=data.get("unit_price"),
+        sale_channel=data.get("channel", "direct"),
+        sold_by_user_id=user_id,
         # Optional fields from forms extension
         reference=data.get("reference"),
         customer_name=data.get("customer_name"),
