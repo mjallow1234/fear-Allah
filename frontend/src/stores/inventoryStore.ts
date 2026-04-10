@@ -27,6 +27,11 @@ export interface InventoryTransaction {
   product_name: string
   change: number // positive = add, negative = subtract
   reason: 'sale' | 'restock' | 'adjustment' | 'return' | string
+  created_by?: {
+    id: number
+    username: string
+    display_name: string
+  } | null
   created_at: string
   notes?: string
 }
@@ -150,6 +155,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
         product_name: tx.product_name as string || `Product ${tx.product_id}`,
         change: tx.change as number || tx.quantity_change as number || 0,
         reason: tx.reason as string || tx.type as string || 'unknown',
+        created_by: tx.created_by as InventoryTransaction['created_by'],
         created_at: tx.created_at as string || new Date().toISOString(),
         notes: tx.notes as string | undefined
       }))

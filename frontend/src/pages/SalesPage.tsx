@@ -985,6 +985,7 @@ function TransactionsTab({
             <th className="text-left text-[#949ba4] text-sm font-medium px-4 py-3">Product</th>
             <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Change</th>
             <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Reason</th>
+            <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">By</th>
             <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Date</th>
           </tr>
         </thead>
@@ -1019,6 +1020,9 @@ function TransactionsTab({
                 )}>
                   {tx.reason}
                 </span>
+              </td>
+              <td className="px-4 py-3 text-center text-[#949ba4] text-sm">
+                {tx.created_by?.display_name || tx.created_by?.username || 'System'}
               </td>
               <td className="px-4 py-3 text-right text-[#949ba4] text-sm">
                 {formatDateTime(tx.created_at)}
