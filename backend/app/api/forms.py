@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
-from app.db.models import Form, FormField, FormVersion, FormSubmission, User
+from app.db.models import Form, FormField, FormVersion, FormSubmission, User, Inventory
 from app.db.enums import FormFieldType, FormCategory, UserRole
 from app.core.security import get_current_user, require_admin
 
@@ -225,6 +225,20 @@ def _field_to_response(field: FormField) -> FormFieldResponse:
         order_index=field.order_index,
         field_group=field.field_group,
     )
+
+
+async def _resolve_dynamic_options(db: AsyncSession, fields: List[FormFieldResponse]):
+    """Resolve options_source fields by querying the database for live data."""
+    for field in fields:
+        if field.options_source == "products":
+            query = select(Inventory).order_by(Inventory.product_name)
+            result = await db.execute(query)
+            items = result.scalars().all()
+            field.options = [
+                {"label": item.product_name, "value": item.product_id}
+                for item in items
+                if item.product_name
+            ]
 
 
 def _form_to_response(form: Form, include_fields: bool = True) -> FormResponse:
@@ -1102,7 +1116,10 @@ async def get_form_by_slug(
     # Get full response then filter fields
     response = _form_to_response(form)
     response.fields = _filter_fields_by_role(response.fields, user_role)
-    
+
+    # Resolve dynamic options (e.g. products from inventory)
+    await _resolve_dynamic_options(db, response.fields)
+
     return response
 
 

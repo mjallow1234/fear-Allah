@@ -145,11 +145,22 @@ async def handle_sales_submission(db: AsyncSession, data: dict, user_id: int, su
     """Handle form submission for sales service."""
     from app.services.sales import record_sale
     
+    # HTML select values arrive as strings — coerce to expected types
+    product_id = data.get("product_id")
+    if product_id is not None:
+        product_id = int(product_id)
+    quantity = data.get("quantity")
+    if quantity is not None:
+        quantity = int(quantity)
+    unit_price = data.get("unit_price")
+    if unit_price is not None:
+        unit_price = float(unit_price)
+
     sale = await record_sale(
         session=db,
-        product_id=data.get("product_id"),
-        quantity=data.get("quantity"),
-        unit_price=data.get("unit_price"),
+        product_id=product_id,
+        quantity=quantity,
+        unit_price=unit_price,
         sale_channel=data.get("channel", "direct"),
         sold_by_user_id=user_id,
         # Optional fields from forms extension
