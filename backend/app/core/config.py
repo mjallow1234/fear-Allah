@@ -39,7 +39,12 @@ class Settings(BaseSettings):
     MAX_UPLOAD_MB: int = 50
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1"]
+    CORS_ORIGINS: List[str] = [
+        "https://app.sidrahsalaam.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+    ]
 
     # Environment + feature flags
     APP_ENV: str = os.getenv("APP_ENV", "development")  # development | staging | production
