@@ -618,10 +618,15 @@ async def inventory_transactions(product_id: Optional[int] = None, limit: int = 
     if not await _check_can_view_inventory(db, current_user['user_id']):
         raise HTTPException(status_code=403, detail="Not authorized to view inventory transactions")
 
-    from app.db.models import InventoryTransaction
-    q = select(InventoryTransaction).order_by(InventoryTransaction.created_at.desc()).limit(limit)
+    from app.db.models import InventoryTransaction, Inventory
+    from sqlalchemy.orm import selectinload
+    _opts = [
+        selectinload(InventoryTransaction.inventory_item),
+        selectinload(InventoryTransaction.performed_by),
+    ]
+    q = select(InventoryTransaction).options(*_opts).order_by(InventoryTransaction.created_at.desc()).limit(limit)
     if product_id:
-        q = select(InventoryTransaction).where(InventoryTransaction.inventory_item_id == product_id).order_by(InventoryTransaction.created_at.desc()).limit(limit)
+        q = select(InventoryTransaction).options(*_opts).where(InventoryTransaction.inventory_item_id == product_id).order_by(InventoryTransaction.created_at.desc()).limit(limit)
     res = await db.execute(q)
     rows = res.scalars().all()
 
@@ -629,10 +634,17 @@ async def inventory_transactions(product_id: Optional[int] = None, limit: int = 
         {
             "id": r.id,
             "inventory_item_id": r.inventory_item_id,
+            "product_id": r.inventory_item.product_id if r.inventory_item else None,
+            "product_name": r.inventory_item.product_name if r.inventory_item else None,
             "change": r.change,
             "reason": r.reason,
             "related_sale_id": r.related_sale_id,
             "performed_by_id": r.performed_by_id,
+            "created_by": {
+                "id": r.performed_by.id,
+                "username": r.performed_by.username,
+                "display_name": r.performed_by.display_name,
+            } if r.performed_by else None,
             "notes": r.notes,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }

@@ -540,11 +540,18 @@ async def list_transactions(
             {
                 "id": t.id,
                 "inventory_item_id": t.inventory_item_id,
+                "product_id": t.inventory_item.product_id if t.inventory_item else None,
+                "product_name": t.inventory_item.product_name if t.inventory_item else None,
                 "change": t.change,
                 "reason": t.reason,
                 "related_sale_id": t.related_sale_id,
                 "related_order_id": t.related_order_id,
                 "performed_by_id": t.performed_by_id,
+                "created_by": {
+                    "id": t.performed_by.id,
+                    "username": t.performed_by.username,
+                    "display_name": t.performed_by.display_name,
+                } if t.performed_by else None,
                 "notes": t.notes,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }

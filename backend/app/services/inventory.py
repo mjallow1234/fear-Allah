@@ -328,7 +328,10 @@ async def get_inventory_transactions(
     Returns:
         List of InventoryTransaction records
     """
-    query = select(InventoryTransaction)
+    query = select(InventoryTransaction).options(
+        selectinload(InventoryTransaction.inventory_item),
+        selectinload(InventoryTransaction.performed_by),
+    )
     
     if inventory_id:
         query = query.where(InventoryTransaction.inventory_item_id == inventory_id)
