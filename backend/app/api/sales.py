@@ -645,6 +645,7 @@ async def inventory_transactions(product_id: Optional[int] = None, limit: int = 
                 "username": r.performed_by.username,
                 "display_name": r.performed_by.display_name,
             } if r.performed_by else None,
+            "reference_transaction_id": r.reference_transaction_id,
             "notes": r.notes,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }

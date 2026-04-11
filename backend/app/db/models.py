@@ -553,6 +553,7 @@ class InventoryTransaction(Base):
     related_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
     related_batch_id = Column(Integer, ForeignKey("processing_batches.id"), nullable=True)
     performed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reference_transaction_id = Column(Integer, ForeignKey("inventory_transactions.id"), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -562,6 +563,7 @@ class InventoryTransaction(Base):
     related_order = relationship("Order")
     related_batch = relationship("ProcessingBatch", back_populates="inventory_transaction")
     performed_by = relationship("User")
+    reference_transaction = relationship("InventoryTransaction", remote_side="InventoryTransaction.id", foreign_keys=[reference_transaction_id])
 
 
 # ------------------ Raw Materials (Forms Extension) ------------------

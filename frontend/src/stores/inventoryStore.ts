@@ -26,12 +26,13 @@ export interface InventoryTransaction {
   product_id: number
   product_name: string
   change: number // positive = add, negative = subtract
-  reason: 'sale' | 'restock' | 'adjustment' | 'return' | string
+  reason: 'sale' | 'restock' | 'adjustment' | 'return' | 'reversal' | string
   created_by?: {
     id: number
     username: string
     display_name: string
   } | null
+  reference_transaction_id?: number | null
   created_at: string
   notes?: string
 }
@@ -55,6 +56,7 @@ interface InventoryState {
   fetchLowStock: () => Promise<void>
   fetchTransactions: () => Promise<void>
   fetchAll: () => Promise<void>
+  reverseTransaction: (transactionId: number) => Promise<void>
 }
 
 // Helper to determine stock status
@@ -156,6 +158,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
         change: tx.change as number || tx.quantity_change as number || 0,
         reason: tx.reason as string || tx.type as string || 'unknown',
         created_by: tx.created_by as InventoryTransaction['created_by'],
+        reference_transaction_id: tx.reference_transaction_id as number | null | undefined,
         created_at: tx.created_at as string || new Date().toISOString(),
         notes: tx.notes as string | undefined
       }))
@@ -173,5 +176,12 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   fetchAll: async () => {
     const { fetchInventory, fetchLowStock, fetchTransactions } = get()
     await Promise.all([fetchInventory(), fetchLowStock(), fetchTransactions()])
-  }
+  },
+
+  reverseTransaction: async (transactionId: number) => {
+    await api.post(`/api/inventory/transactions/${transactionId}/reverse`)
+    // Refresh transactions and inventory after reversal
+    const { fetchTransactions, fetchInventory } = get()
+    await Promise.all([fetchTransactions(), fetchInventory()])
+  },
 }))

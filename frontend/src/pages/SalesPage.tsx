@@ -26,7 +26,8 @@ import {
   Boxes,
   Pencil,
   Minus,
-  Trash
+  Trash,
+  RotateCcw
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useSalesStore, DateRangeFilter, SalesChannel } from '../stores/salesStore'
@@ -39,6 +40,7 @@ import SalesForm from '../components/forms/SalesForm'
 import InventoryForm from '../components/forms/InventoryForm'
 import RawMaterialForm from '../components/forms/RawMaterialForm'
 import DynamicFormModal from '../components/forms/DynamicFormModal'
+import { useNotificationContext } from '../contexts/NotificationProvider'
 import api from '../services/api'
 
 // Tab types
@@ -429,6 +431,7 @@ export default function SalesPage() {
               <TransactionsTab
                 transactions={transactions}
                 loading={loadingTransactions}
+                isAdmin={isAdmin}
               />
             ) : (
               <RestrictedSection message="Transactions are restricted" />
@@ -947,11 +950,24 @@ function InventoryTab({
 // Transactions Tab Component
 function TransactionsTab({
   transactions,
-  loading
+  loading,
+  isAdmin = false
 }: {
   transactions: ReturnType<typeof useInventoryStore.getState>['transactions']
   loading: boolean
+  isAdmin?: boolean
 }) {
+  const { reverseTransaction } = useInventoryStore()
+  const { addToast } = useNotificationContext()
+  const [reversingId, setReversingId] = useState<number | null>(null)
+  const [confirmId, setConfirmId] = useState<number | null>(null)
+
+  // Build a set of transaction IDs that have been reversed
+  const reversedIds = new Set(
+    transactions
+      .filter(tx => tx.reference_transaction_id != null)
+      .map(tx => tx.reference_transaction_id!)
+  )
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -974,7 +990,22 @@ function TransactionsTab({
     'sale': 'bg-blue-500/10 text-blue-400',
     'restock': 'bg-green-500/10 text-green-400',
     'adjustment': 'bg-yellow-500/10 text-yellow-400',
-    'return': 'bg-purple-500/10 text-purple-400'
+    'return': 'bg-purple-500/10 text-purple-400',
+    'reversal': 'bg-orange-500/10 text-orange-400'
+  }
+
+  const handleReverse = async (txId: number) => {
+    setReversingId(txId)
+    setConfirmId(null)
+    try {
+      await reverseTransaction(txId)
+      addToast({ type: 'success', title: 'Transaction reversed successfully' })
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'Failed to reverse transaction'
+      addToast({ type: 'error', title: msg })
+    } finally {
+      setReversingId(null)
+    }
   }
 
   return (
@@ -987,11 +1018,16 @@ function TransactionsTab({
             <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Reason</th>
             <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">By</th>
             <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Date</th>
+            {isAdmin && <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Action</th>}
           </tr>
         </thead>
         <tbody>
           {transactions.map((tx) => (
-            <tr key={tx.id} className="border-b border-[#1f2023] last:border-0 hover:bg-[#35373c]">
+            <tr key={tx.id} className={clsx(
+              'border-b border-[#1f2023] last:border-0 hover:bg-[#35373c]',
+              reversedIds.has(tx.id) && 'opacity-50',
+              tx.reason === 'reversal' && 'bg-orange-500/5'
+            )}>
               <td className="px-4 py-3">
                 <span className="text-white">{tx.product_name}</span>
               </td>
@@ -1019,6 +1055,7 @@ function TransactionsTab({
                   reasonColors[tx.reason] || 'bg-gray-500/10 text-gray-400'
                 )}>
                   {tx.reason}
+                  {reversedIds.has(tx.id) && ' (Reversed)'}
                 </span>
               </td>
               <td className="px-4 py-3 text-center text-[#949ba4] text-sm">
@@ -1027,6 +1064,39 @@ function TransactionsTab({
               <td className="px-4 py-3 text-right text-[#949ba4] text-sm">
                 {formatDateTime(tx.created_at)}
               </td>
+              {isAdmin && (
+                <td className="px-4 py-3 text-center">
+                  {tx.reason !== 'reversal' && !reversedIds.has(tx.id) ? (
+                    confirmId === tx.id ? (
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          onClick={() => handleReverse(tx.id)}
+                          disabled={reversingId === tx.id}
+                          className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-50"
+                        >
+                          {reversingId === tx.id ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmId(null)}
+                          className="px-2 py-1 text-xs font-medium rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmId(tx.id)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded text-[#949ba4] hover:bg-[#3f4147] hover:text-white"
+                      >
+                        <RotateCcw size={12} />
+                        Reverse
+                      </button>
+                    )
+                  ) : (
+                    <span className="text-xs text-[#5c5e66]">—</span>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

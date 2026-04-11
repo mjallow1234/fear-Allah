@@ -11,7 +11,7 @@ from typing import Optional
 from app.core.security import get_current_user
 from app.core.logging import inventory_logger
 from app.db.database import get_db
-from app.db.models import User
+from app.db.models import User, InventoryTransaction, Inventory
 from app.services.inventory import (
     list_inventory,
     get_inventory_item,
@@ -552,11 +552,104 @@ async def list_transactions(
                     "username": t.performed_by.username,
                     "display_name": t.performed_by.display_name,
                 } if t.performed_by else None,
+                "reference_transaction_id": t.reference_transaction_id,
                 "notes": t.notes,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in transactions
         ],
         "count": len(transactions),
+    }
+
+
+@router.post("/transactions/{transaction_id}/reverse")
+async def reverse_transaction(
+    transaction_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Reverse an inventory transaction by creating an opposite transaction.
+    
+    Creates a new transaction with negated change amount.
+    Does not delete the original — maintains full audit trail.
+    
+    Permissions: Admin only
+    """
+    if not await _check_can_manage_inventory(db, current_user['user_id']):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Fetch original transaction
+    from sqlalchemy.orm import selectinload
+    q = select(InventoryTransaction).options(
+        selectinload(InventoryTransaction.inventory_item),
+    ).where(InventoryTransaction.id == transaction_id)
+    result = await db.execute(q)
+    original = result.scalar_one_or_none()
+
+    if not original:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Prevent double reversal — check if a reversal already exists
+    rev_q = select(InventoryTransaction.id).where(
+        InventoryTransaction.reference_transaction_id == original.id
+    )
+    rev_result = await db.execute(rev_q)
+    if rev_result.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=400, detail="Transaction already reversed")
+
+    # Prevent reversing a reversal
+    if original.reference_transaction_id is not None:
+        raise HTTPException(status_code=400, detail="Cannot reverse a reversal transaction")
+
+    # Apply stock change atomically
+    from sqlalchemy import update
+    new_change = -original.change
+    if new_change < 0:
+        # Removing stock — check sufficient
+        upd = (
+            update(Inventory)
+            .where(Inventory.id == original.inventory_item_id)
+            .where(Inventory.total_stock >= abs(new_change))
+            .values(
+                total_stock=Inventory.total_stock + new_change,
+                version=Inventory.version + 1,
+            )
+        )
+    else:
+        # Adding stock back
+        upd = (
+            update(Inventory)
+            .where(Inventory.id == original.inventory_item_id)
+            .values(
+                total_stock=Inventory.total_stock + new_change,
+                version=Inventory.version + 1,
+            )
+        )
+    res = await db.execute(upd)
+    if res.rowcount == 0:
+        raise HTTPException(status_code=400, detail="Insufficient stock to reverse this transaction")
+
+    # Create reversal transaction
+    reversal = InventoryTransaction(
+        inventory_item_id=original.inventory_item_id,
+        change=new_change,
+        reason="reversal",
+        performed_by_id=int(current_user["user_id"]),
+        reference_transaction_id=original.id,
+        notes=f"Reversal of transaction #{original.id}",
+    )
+    db.add(reversal)
+    await db.commit()
+    await db.refresh(reversal)
+
+    return {
+        "id": reversal.id,
+        "inventory_item_id": reversal.inventory_item_id,
+        "change": reversal.change,
+        "reason": reversal.reason,
+        "reference_transaction_id": reversal.reference_transaction_id,
+        "notes": reversal.notes,
+        "created_at": reversal.created_at.isoformat() if reversal.created_at else None,
     }
 
