@@ -153,6 +153,17 @@ async def emit_event(event_name: str, payload: dict):
     except Exception as e:
         logger.warning(f"Failed to route automation trigger for {event_name}: {e}")
 
+    # --- Rule engine (configurable automation) ---
+    try:
+        from app.automation.rule_engine import rule_engine
+        from app.db.database import async_session as _async_session
+
+        async with _async_session() as rule_db:
+            payload['_event'] = event_name
+            await rule_engine.process(event_name, payload, rule_db)
+    except Exception as e:
+        logger.warning(f"Rule engine failed for {event_name}: {e}")
+
 
 async def create_order(
     session: AsyncSession, 
