@@ -116,12 +116,26 @@ async def emit_event(event_name: str, payload: dict):
                         )
 
         elif event_name == EventType.TRANSACTION_REVERSED:
-            logger.info(
-                "[Automation] Transaction reversed: original=%s reversal=%s user=%s",
-                payload.get('original_transaction_id'),
-                payload.get('reversal_id'),
-                payload.get('user_id'),
+            original_id = payload.get('original_transaction_id')
+            user_id = payload.get('user_id')
+            logger.warning(
+                "REVERSAL ALERT: transaction reversed by user=%s, original=%s",
+                user_id, original_id,
             )
+            async with async_session() as db:
+                from app.automation.notification_hooks import get_admins_and_managers
+                from app.services.notification_emitter import create_and_emit_to_multiple
+                from app.db.enums import NotificationType
+                admin_ids = await get_admins_and_managers(db)
+                if admin_ids:
+                    await create_and_emit_to_multiple(
+                        db=db,
+                        user_ids=admin_ids,
+                        notification_type=NotificationType.system,
+                        title="Transaction Reversed",
+                        content=f"Transaction #{original_id} was reversed by user {user_id}",
+                    )
+                    await db.commit()
 
     except Exception as e:
         logger.warning(f"Failed to route automation trigger for {event_name}: {e}")
