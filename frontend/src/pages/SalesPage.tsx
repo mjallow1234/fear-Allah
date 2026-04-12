@@ -5,7 +5,7 @@
  * Displays sales overview, agent performance, inventory status,
  * raw materials management, and transaction history.
  */
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -961,6 +961,7 @@ function TransactionsTab({
   const { addToast } = useNotificationContext()
   const [reversingId, setReversingId] = useState<number | null>(null)
   const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [filter, setFilter] = useState<'all' | 'sales' | 'reversals'>('all')
 
   // Build a set of transaction IDs that have been reversed
   const reversedIds = new Set(
@@ -1008,8 +1009,147 @@ function TransactionsTab({
     }
   }
 
+  const filteredTransactions = transactions.filter(tx => {
+    if (filter === 'sales') return !tx.reference_transaction_id && tx.change < 0
+    if (filter === 'reversals') return !!tx.reference_transaction_id
+    return true
+  })
+
+  const counts = {
+    all: transactions.length,
+    sales: transactions.filter(tx => !tx.reference_transaction_id && tx.change < 0).length,
+    reversals: transactions.filter(tx => !!tx.reference_transaction_id).length,
+  }
+
+  // Group transactions: parent rows with nested reversal children
+  type GroupedTx = typeof transactions[number] & { children: typeof transactions }
+  const grouped: Record<number, GroupedTx> = {}
+  const orphans: typeof transactions = []
+
+  for (const tx of filteredTransactions) {
+    if (!tx.reference_transaction_id) {
+      grouped[tx.id] = { ...tx, children: [] }
+    }
+  }
+  for (const tx of filteredTransactions) {
+    if (tx.reference_transaction_id) {
+      const parent = grouped[tx.reference_transaction_id]
+      if (parent) {
+        parent.children.push(tx)
+      } else {
+        orphans.push(tx) // parent filtered out — render standalone
+      }
+    }
+  }
+  const groupedList = [...Object.values(grouped), ...orphans.map(tx => ({ ...tx, children: [] as typeof transactions }))]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+  const renderRow = (tx: typeof transactions[number], isChild: boolean) => (
+    <tr key={tx.id} className={clsx(
+      'border-b border-[#1f2023] last:border-0',
+      isChild ? 'bg-[#25262a]' : 'hover:bg-[#35373c]',
+      !isChild && reversedIds.has(tx.id) && 'opacity-50',
+    )}>
+      <td className="px-4 py-3">
+        {isChild ? (
+          <span className="inline-flex items-center gap-1 text-[#949ba4] text-sm pl-4">
+            <span className="text-[#5c5e66]">↳</span>
+            {tx.product_name}
+          </span>
+        ) : (
+          <span className="text-white">{tx.product_name}</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-center">
+        <span className={clsx(
+          'inline-flex items-center gap-1 font-semibold',
+          isChild ? 'text-sm' : '',
+          tx.change > 0 ? 'text-green-400' : 'text-red-400'
+        )}>
+          {tx.change > 0 ? (
+            <>
+              <ArrowUpRight size={isChild ? 12 : 14} />
+              +{tx.change}
+            </>
+          ) : (
+            <>
+              <ArrowDownRight size={isChild ? 12 : 14} />
+              {tx.change}
+            </>
+          )}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-center">
+        <span className={clsx(
+          'px-2 py-1 rounded-full text-xs font-medium capitalize',
+          reasonColors[tx.reason] || 'bg-gray-500/10 text-gray-400'
+        )}>
+          {tx.reason}
+          {!isChild && reversedIds.has(tx.id) && ' (Reversed)'}
+        </span>
+      </td>
+      <td className={clsx('px-4 py-3 text-center text-sm', isChild ? 'text-[#5c5e66]' : 'text-[#949ba4]')}>
+        {tx.created_by?.display_name || tx.created_by?.username || 'System'}
+      </td>
+      <td className={clsx('px-4 py-3 text-right text-sm', isChild ? 'text-[#5c5e66]' : 'text-[#949ba4]')}>
+        {formatDateTime(tx.created_at)}
+      </td>
+      {isAdmin && (
+        <td className="px-4 py-3 text-center">
+          {!isChild && tx.reason !== 'reversal' && !reversedIds.has(tx.id) ? (
+            confirmId === tx.id ? (
+              <div className="inline-flex items-center gap-1">
+                <button
+                  onClick={() => handleReverse(tx.id)}
+                  disabled={reversingId === tx.id}
+                  className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-50"
+                >
+                  {reversingId === tx.id ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
+                </button>
+                <button
+                  onClick={() => setConfirmId(null)}
+                  className="px-2 py-1 text-xs font-medium rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmId(tx.id)}
+                title="This will create a reversal entry. The original record will remain for audit purposes."
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded text-[#949ba4] hover:bg-[#3f4147] hover:text-white"
+              >
+                <RotateCcw size={12} />
+                Reverse
+              </button>
+            )
+          ) : (
+            <span className="text-xs text-[#5c5e66]">—</span>
+          )}
+        </td>
+      )}
+    </tr>
+  )
+
   return (
-    <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
+    <div>
+      <div className="flex items-center gap-1 mb-3">
+        {(['all', 'sales', 'reversals'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={clsx(
+              'px-3 py-1.5 text-xs font-medium rounded transition-colors capitalize',
+              filter === f
+                ? 'bg-[#5865f2] text-white'
+                : 'text-[#949ba4] hover:text-white hover:bg-[#35373c]'
+            )}
+          >
+            {f} ({counts[f]})
+          </button>
+        ))}
+      </div>
+      <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
       <table className="w-full">
         <thead>
           <tr className="border-b border-[#1f2023]">
@@ -1022,85 +1162,15 @@ function TransactionsTab({
           </tr>
         </thead>
         <tbody>
-          {transactions.map((tx) => (
-            <tr key={tx.id} className={clsx(
-              'border-b border-[#1f2023] last:border-0 hover:bg-[#35373c]',
-              reversedIds.has(tx.id) && 'opacity-50',
-              tx.reason === 'reversal' && 'bg-orange-500/5'
-            )}>
-              <td className="px-4 py-3">
-                <span className="text-white">{tx.product_name}</span>
-              </td>
-              <td className="px-4 py-3 text-center">
-                <span className={clsx(
-                  'inline-flex items-center gap-1 font-semibold',
-                  tx.change > 0 ? 'text-green-400' : 'text-red-400'
-                )}>
-                  {tx.change > 0 ? (
-                    <>
-                      <ArrowUpRight size={14} />
-                      +{tx.change}
-                    </>
-                  ) : (
-                    <>
-                      <ArrowDownRight size={14} />
-                      {tx.change}
-                    </>
-                  )}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-center">
-                <span className={clsx(
-                  'px-2 py-1 rounded-full text-xs font-medium capitalize',
-                  reasonColors[tx.reason] || 'bg-gray-500/10 text-gray-400'
-                )}>
-                  {tx.reason}
-                  {reversedIds.has(tx.id) && ' (Reversed)'}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-center text-[#949ba4] text-sm">
-                {tx.created_by?.display_name || tx.created_by?.username || 'System'}
-              </td>
-              <td className="px-4 py-3 text-right text-[#949ba4] text-sm">
-                {formatDateTime(tx.created_at)}
-              </td>
-              {isAdmin && (
-                <td className="px-4 py-3 text-center">
-                  {tx.reason !== 'reversal' && !reversedIds.has(tx.id) ? (
-                    confirmId === tx.id ? (
-                      <div className="inline-flex items-center gap-1">
-                        <button
-                          onClick={() => handleReverse(tx.id)}
-                          disabled={reversingId === tx.id}
-                          className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-50"
-                        >
-                          {reversingId === tx.id ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmId(null)}
-                          className="px-2 py-1 text-xs font-medium rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmId(tx.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded text-[#949ba4] hover:bg-[#3f4147] hover:text-white"
-                      >
-                        <RotateCcw size={12} />
-                        Reverse
-                      </button>
-                    )
-                  ) : (
-                    <span className="text-xs text-[#5c5e66]">—</span>
-                  )}
-                </td>
-              )}
-            </tr>
+          {groupedList.map((parent) => (
+            <React.Fragment key={parent.id}>
+              {renderRow(parent, false)}
+              {parent.children.map(child => renderRow(child, true))}
+            </React.Fragment>
           ))}
         </tbody>
       </table>
+    </div>
     </div>
   )
 }

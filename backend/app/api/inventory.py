@@ -23,6 +23,8 @@ from app.services.inventory import (
     get_inventory_summary,
     update_low_stock_threshold,
 )
+from app.services.task_engine import emit_event
+from app.core.events import EventType
 
 router = APIRouter()
 
@@ -642,6 +644,13 @@ async def reverse_transaction(
     db.add(reversal)
     await db.commit()
     await db.refresh(reversal)
+
+    # Emit event for real-time listeners
+    await emit_event(EventType.TRANSACTION_REVERSED, {
+        'original_transaction_id': original.id,
+        'reversal_id': reversal.id,
+        'user_id': int(current_user['user_id']),
+    })
 
     return {
         "id": reversal.id,

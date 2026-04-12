@@ -27,6 +27,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import Inventory, Sale, InventoryTransaction, Order, User
 from app.db.enums import SaleChannel
 from app.services.task_engine import emit_event
+from app.core.events import EventType
 
 logger = logging.getLogger(__name__)
 
@@ -421,15 +422,16 @@ async def record_sale(
         await session.refresh(inventory_item)
         
         # Emit sale:created event (canonical event name)
-        await emit_event('sale:created', {
+        await emit_event(EventType.SALE_CREATED, {
             'sale_id': sale.id,
             'product_id': sale.product_id,
             'quantity': sale.quantity,
+            'user_id': sold_by_user_id,
             'channel': sale.sale_channel,
         })
         
         # Emit inventory:updated event
-        await emit_event('inventory:updated', {
+        await emit_event(EventType.INVENTORY_UPDATED, {
             'product_id': sale.product_id,
             'stock_before': stock_before,
             'stock_after': sale.stock_after,

@@ -52,10 +52,10 @@ WORKFLOWS = {
 
 
 async def emit_event(event_name: str, payload: dict):
-    """Event emission hook - now emits real Socket.IO events."""
+    """Event emission hook - emits Socket.IO events and routes to automation triggers."""
     logger.info("Event emitted: %s %s", event_name, payload)
     
-    # Import socket functions here to avoid circular imports
+    # --- Socket.IO routing ---
     try:
         from app.realtime.socket import emit_order_updated, emit_order_created, emit_task_completed
         
@@ -79,6 +79,52 @@ async def emit_event(event_name: str, payload: dict):
             )
     except Exception as e:
         logger.warning(f"Failed to emit socket event {event_name}: {e}")
+
+    # --- Automation trigger routing ---
+    try:
+        from app.core.events import EventType
+        from app.automation.sales_triggers import SalesAutomationTriggers
+        from app.db.database import async_session
+
+        if event_name == EventType.SALE_CREATED:
+            sale_id = payload.get('sale_id')
+            if sale_id:
+                async with async_session() as db:
+                    from app.db.models import Sale
+                    from sqlalchemy import select
+                    res = await db.execute(select(Sale).where(Sale.id == sale_id))
+                    sale = res.scalar_one_or_none()
+                    if sale:
+                        await SalesAutomationTriggers.on_sale_recorded(db=db, sale=sale)
+
+        elif event_name == EventType.INVENTORY_UPDATED:
+            product_id = payload.get('product_id')
+            if product_id:
+                async with async_session() as db:
+                    from app.db.models import Inventory
+                    from sqlalchemy import select
+                    res = await db.execute(
+                        select(Inventory).where(Inventory.product_id == product_id)
+                    )
+                    inv = res.scalar_one_or_none()
+                    if inv and inv.total_stock <= inv.low_stock_threshold:
+                        user_id = payload.get('user_id') or payload.get('sale_id') or 0
+                        await SalesAutomationTriggers.on_low_stock(
+                            db=db,
+                            inventory_item=inv,
+                            triggered_by_user_id=user_id,
+                        )
+
+        elif event_name == EventType.TRANSACTION_REVERSED:
+            logger.info(
+                "[Automation] Transaction reversed: original=%s reversal=%s user=%s",
+                payload.get('original_transaction_id'),
+                payload.get('reversal_id'),
+                payload.get('user_id'),
+            )
+
+    except Exception as e:
+        logger.warning(f"Failed to route automation trigger for {event_name}: {e}")
 
 
 async def create_order(

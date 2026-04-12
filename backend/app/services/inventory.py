@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Inventory, InventoryTransaction
 from app.services.task_engine import emit_event
+from app.core.events import EventType
 
 logger = logging.getLogger(__name__)
 
@@ -187,11 +188,12 @@ async def restock_inventory(
     await session.commit()
     await session.refresh(inventory)
     
-    await emit_event('inventory.restocked', {
+    await emit_event(EventType.INVENTORY_RESTOCKED, {
         'inventory_id': inventory.id,
         'product_id': product_id,
         'quantity_added': quantity,
         'new_stock': inventory.total_stock,
+        'change': quantity,
         'performed_by': performed_by_id,
     })
     
@@ -276,10 +278,11 @@ async def adjust_inventory(
     await session.commit()
     await session.refresh(inventory)
     
-    await emit_event('inventory.adjusted', {
+    await emit_event(EventType.INVENTORY_ADJUSTED, {
         'inventory_id': inventory.id,
         'product_id': product_id,
         'adjustment': adjustment,
+        'change': adjustment,
         'reason': reason,
         'new_stock': inventory.total_stock,
         'performed_by': performed_by_id,
