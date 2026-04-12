@@ -600,11 +600,14 @@ async def notify_and_emit_sale_recorded(
     notify_user_id: int,
     total_amount: float,
     product_name: Optional[str] = None,
+    agent_display: Optional[str] = None,
 ) -> Notification:
     """Create and emit sale recorded notification"""
     content = f"Sale recorded: ${total_amount:.2f}"
     if product_name:
         content = f"Sale recorded for {product_name}: ${total_amount:.2f}"
+    if agent_display:
+        content += f" by {agent_display}"
     
     return await create_and_emit_notification(
         db,

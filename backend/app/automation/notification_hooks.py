@@ -32,6 +32,7 @@ from app.services.notification_emitter import (
 )
 from app.db.enums import NotificationType
 from app.core.config import logger
+from app.core.utils.user_utils import get_user_display_name
 
 
 async def get_admins_and_managers(db: AsyncSession) -> List[int]:
@@ -73,8 +74,7 @@ async def on_task_assigned(
     try:
         assigner_name = None
         if assigner_id:
-            assigner_info = await get_user_info(db, assigner_id)
-            assigner_name = assigner_info["username"] if assigner_info else None
+            assigner_name = await get_user_display_name(db, assigner_id)
         
         # If task is linked to an order, broadcast to ALL participants
         if task.related_order_id:
@@ -362,6 +362,8 @@ async def on_sale_recorded(
     Optionally notifies admins/managers.
     """
     try:
+        agent_display = await get_user_display_name(db, agent_id) if agent_id else None
+
         if notify_admins:
             admin_ids = await get_admins_and_managers(db)
             # Don't notify the agent who made the sale
@@ -375,8 +377,9 @@ async def on_sale_recorded(
                     notify_user_id=admin_id,
                     total_amount=total_amount,
                     product_name=product_name,
+                    agent_display=agent_display,
                 )
         
-        logger.info(f"[Notification] Sale recorded notifications sent: sale={sale_id}")
+        logger.info(f"[Notification] Sale recorded notifications sent: sale={sale_id}, by={agent_display}")
     except Exception as e:
         logger.error(f"[Notification] Failed to send sale recorded notification: {e}")

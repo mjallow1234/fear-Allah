@@ -85,6 +85,7 @@ async def emit_event(event_name: str, payload: dict):
         from app.core.events import EventType
         from app.automation.sales_triggers import SalesAutomationTriggers
         from app.db.database import async_session
+        from app.core.utils.user_utils import get_user_display_name
 
         if event_name == EventType.SALE_CREATED:
             sale_id = payload.get('sale_id')
@@ -95,6 +96,9 @@ async def emit_event(event_name: str, payload: dict):
                     res = await db.execute(select(Sale).where(Sale.id == sale_id))
                     sale = res.scalar_one_or_none()
                     if sale:
+                        user_display = await get_user_display_name(db, payload.get('user_id'))
+                        payload['user_name'] = user_display
+                        logger.info("Sale recorded by %s (sale_id=%s)", user_display, sale_id)
                         await SalesAutomationTriggers.on_sale_recorded(db=db, sale=sale)
 
         elif event_name == EventType.INVENTORY_UPDATED:
@@ -109,6 +113,13 @@ async def emit_event(event_name: str, payload: dict):
                     inv = res.scalar_one_or_none()
                     if inv and inv.total_stock <= inv.low_stock_threshold:
                         user_id = payload.get('user_id') or payload.get('sale_id') or 0
+                        user_display = await get_user_display_name(db, user_id)
+                        payload['user_name'] = user_display
+                        logger.warning(
+                            "LOW STOCK: %s triggered by %s (stock=%s, threshold=%s)",
+                            inv.product_name or f"Product {product_id}",
+                            user_display, inv.total_stock, inv.low_stock_threshold,
+                        )
                         await SalesAutomationTriggers.on_low_stock(
                             db=db,
                             inventory_item=inv,
@@ -118,11 +129,13 @@ async def emit_event(event_name: str, payload: dict):
         elif event_name == EventType.TRANSACTION_REVERSED:
             original_id = payload.get('original_transaction_id')
             user_id = payload.get('user_id')
-            logger.warning(
-                "REVERSAL ALERT: transaction reversed by user=%s, original=%s",
-                user_id, original_id,
-            )
             async with async_session() as db:
+                user_display = await get_user_display_name(db, user_id)
+                payload['user_name'] = user_display
+                logger.warning(
+                    "REVERSAL ALERT: reversed by %s, original=%s",
+                    user_display, original_id,
+                )
                 from app.automation.notification_hooks import get_admins_and_managers
                 from app.services.notification_emitter import create_and_emit_to_multiple
                 from app.db.enums import NotificationType
@@ -133,7 +146,7 @@ async def emit_event(event_name: str, payload: dict):
                         user_ids=admin_ids,
                         notification_type=NotificationType.system,
                         title="Transaction Reversed",
-                        content=f"Transaction #{original_id} was reversed by user {user_id}",
+                        content=f"Transaction #{original_id} was reversed by {user_display}",
                     )
                     await db.commit()
 
