@@ -164,6 +164,7 @@ class SalesAutomationTriggers:
                     product_name=inventory_item.product_name or f"Product {inventory_item.product_id}",
                     current_quantity=inventory_item.total_stock,
                     reorder_level=inventory_item.low_stock_threshold,
+                    product_id=inventory_item.product_id,
                     notify_admins=True,
                 )
             except Exception as notif_err:
@@ -202,6 +203,7 @@ class SalesAutomationTriggers:
                 quantity_added=quantity_added,
                 new_quantity=inventory_item.total_stock,
                 restocked_by_id=performed_by_id,
+                product_id=inventory_item.product_id,
                 notify_admins=True,
             )
         except Exception as notif_err:

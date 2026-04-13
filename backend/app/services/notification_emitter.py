@@ -555,6 +555,7 @@ async def notify_and_emit_low_stock(
     product_name: str,
     current_quantity: int,
     reorder_level: int,
+    product_id: Optional[int] = None,
 ) -> Notification:
     """Create and emit low stock notification"""
     return await create_and_emit_notification(
@@ -567,6 +568,9 @@ async def notify_and_emit_low_stock(
         metadata={
             "current_quantity": current_quantity,
             "reorder_level": reorder_level,
+            "action_type": "inventory",
+            "entity_id": product_id or inventory_id,
+            "action_url": f"/sales?tab=inventory&highlight={product_id or inventory_id}",
         },
     )
 
@@ -578,6 +582,7 @@ async def notify_and_emit_inventory_restocked(
     product_name: str,
     quantity_added: int,
     new_quantity: int,
+    product_id: Optional[int] = None,
 ) -> Notification:
     """Create and emit inventory restocked notification"""
     return await create_and_emit_notification(
@@ -590,6 +595,9 @@ async def notify_and_emit_inventory_restocked(
         metadata={
             "quantity_added": quantity_added,
             "new_quantity": new_quantity,
+            "action_type": "inventory",
+            "entity_id": product_id or inventory_id,
+            "action_url": f"/sales?tab=inventory&highlight={product_id or inventory_id}",
         },
     )
 
@@ -603,9 +611,9 @@ async def notify_and_emit_sale_recorded(
     agent_display: Optional[str] = None,
 ) -> Notification:
     """Create and emit sale recorded notification"""
-    content = f"Sale recorded: ${total_amount:.2f}"
+    content = f"Sale recorded: D{total_amount:.2f}"
     if product_name:
-        content = f"Sale recorded for {product_name}: ${total_amount:.2f}"
+        content = f"Sale recorded for {product_name}: D{total_amount:.2f}"
     if agent_display:
         content += f" by {agent_display}"
     
@@ -616,6 +624,11 @@ async def notify_and_emit_sale_recorded(
         title="Sale Recorded",
         content=content,
         sale_id=sale_id,
+        metadata={
+            "action_type": "sale",
+            "entity_id": sale_id,
+            "action_url": f"/sales?tab=transactions&highlight={sale_id}",
+        },
     )
 
 

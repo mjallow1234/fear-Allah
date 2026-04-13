@@ -147,6 +147,11 @@ async def emit_event(event_name: str, payload: dict):
                         notification_type=NotificationType.system,
                         title="Transaction Reversed",
                         content=f"Transaction #{original_id} was reversed by {user_display}",
+                        metadata={
+                            "action_type": "reversal",
+                            "entity_id": original_id,
+                            "action_url": f"/sales?tab=transactions&highlight={original_id}",
+                        },
                     )
                     await db.commit()
 

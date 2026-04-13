@@ -274,6 +274,7 @@ async def on_low_stock_alert(
     product_name: str,
     current_quantity: int,
     reorder_level: int,
+    product_id: Optional[int] = None,
     notify_admins: bool = True,
 ):
     """
@@ -292,6 +293,7 @@ async def on_low_stock_alert(
                     product_name=product_name,
                     current_quantity=current_quantity,
                     reorder_level=reorder_level,
+                    product_id=product_id,
                 )
         
         logger.info(f"[Notification] Low stock notifications sent: inventory={inventory_id}")
@@ -317,6 +319,7 @@ async def on_inventory_restocked(
     quantity_added: int,
     new_quantity: int,
     restocked_by_id: Optional[int] = None,
+    product_id: Optional[int] = None,
     notify_admins: bool = True,
 ):
     """
@@ -338,6 +341,7 @@ async def on_inventory_restocked(
                     product_name=product_name,
                     quantity_added=quantity_added,
                     new_quantity=new_quantity,
+                    product_id=product_id,
                 )
         
         logger.info(f"[Notification] Inventory restocked notifications sent: inventory={inventory_id}")

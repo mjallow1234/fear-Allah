@@ -14,8 +14,11 @@ interface Notification {
   message_id: number | null
   task_id: number | null
   order_id: number | null
+  inventory_id: number | null
+  sale_id: number | null
   sender_id: number | null
   sender_username: string | null
+  extra_data: string | null
   is_read: boolean
   created_at: string
 }
@@ -122,6 +125,17 @@ export default function NotificationBell() {
       handleMarkRead(notif.id, { stopPropagation: () => {} } as React.MouseEvent)
     }
     setShowDropdown(false)
+
+    // PRIORITY 0: Action URL from extra_data (automation / sales / inventory notifications)
+    if (notif.extra_data) {
+      try {
+        const data = JSON.parse(notif.extra_data)
+        if (data.action_url) {
+          navigate(data.action_url)
+          return
+        }
+      } catch { /* ignore parse errors */ }
+    }
     
     // PRIORITY 1: Order-related notifications → always go to snapshot (read-only, permission-safe)
     // This applies to: order_created, order_completed, task_assigned, task_completed, task_overdue

@@ -119,6 +119,10 @@ async def _action_notify_manager(payload: dict, db: AsyncSession):
         notification_type=NotificationType.system,
         title="Automation Alert",
         content=f"Rule triggered on {event}: quantity={quantity}, by {user_name}",
+        metadata={
+            "action_type": "rule_engine",
+            "action_url": "/sales?tab=transactions",
+        },
     )
     await db.commit()
     logger.info("[RuleEngine] notify_manager sent to %d admin(s)", len(admin_ids))

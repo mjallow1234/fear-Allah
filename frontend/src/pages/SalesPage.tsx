@@ -6,7 +6,7 @@
  * raw materials management, and transaction history.
  */
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   DollarSign,
@@ -77,12 +77,38 @@ function formatDateTime(dateStr: string): string {
 
 export default function SalesPage() {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<TabType>('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const tab = searchParams.get('tab')
+    if (tab && ['overview', 'agents', 'inventory', 'raw-materials', 'transactions'].includes(tab)) {
+      return tab as TabType
+    }
+    return 'overview'
+  })
+  const [highlightId, setHighlightId] = useState<number | null>(() => {
+    const h = searchParams.get('highlight')
+    return h ? parseInt(h, 10) || null : null
+  })
   const [showSalesForm, setShowSalesForm] = useState(false)
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [showRawMaterialForm, setShowRawMaterialForm] = useState(false)
   // Use dynamic forms when available (toggle _setUseDynamicForms to false for legacy forms)
   const [useDynamicForms, _setUseDynamicForms] = useState(true)
+
+  // Clear query params after reading them (clean URL)
+  useEffect(() => {
+    if (searchParams.has('tab') || searchParams.has('highlight')) {
+      setSearchParams({}, { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-clear highlight after 4 seconds
+  useEffect(() => {
+    if (highlightId !== null) {
+      const timer = setTimeout(() => setHighlightId(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [highlightId])
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null)
   const [showProductDrawer, setShowProductDrawer] = useState(false)
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null)
@@ -432,6 +458,7 @@ export default function SalesPage() {
                 transactions={transactions}
                 loading={loadingTransactions}
                 isAdmin={isAdmin}
+                highlightId={highlightId}
               />
             ) : (
               <RestrictedSection message="Transactions are restricted" />
@@ -951,17 +978,27 @@ function InventoryTab({
 function TransactionsTab({
   transactions,
   loading,
-  isAdmin = false
+  isAdmin = false,
+  highlightId = null
 }: {
   transactions: ReturnType<typeof useInventoryStore.getState>['transactions']
   loading: boolean
   isAdmin?: boolean
+  highlightId?: number | null
 }) {
   const { reverseTransaction } = useInventoryStore()
   const { addToast } = useNotificationContext()
   const [reversingId, setReversingId] = useState<number | null>(null)
   const [confirmId, setConfirmId] = useState<number | null>(null)
   const [filter, setFilter] = useState<'all' | 'sales' | 'reversals'>('all')
+  const highlightRef = React.useRef<HTMLTableRowElement>(null)
+
+  // Scroll to highlighted row once loaded
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlightId, loading])
 
   // Build a set of transaction IDs that have been reversed
   const reversedIds = new Set(
@@ -1044,12 +1081,19 @@ function TransactionsTab({
   const groupedList = [...Object.values(grouped), ...orphans.map(tx => ({ ...tx, children: [] as typeof transactions }))]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  const renderRow = (tx: typeof transactions[number], isChild: boolean) => (
-    <tr key={tx.id} className={clsx(
-      'border-b border-[#1f2023] last:border-0',
-      isChild ? 'bg-[#25262a]' : 'hover:bg-[#35373c]',
-      !isChild && reversedIds.has(tx.id) && 'opacity-50',
-    )}>
+  const renderRow = (tx: typeof transactions[number], isChild: boolean) => {
+    const isHighlighted = highlightId != null && tx.id === highlightId
+    return (
+    <tr
+      key={tx.id}
+      ref={isHighlighted ? highlightRef : undefined}
+      className={clsx(
+        'border-b border-[#1f2023] last:border-0 transition-colors duration-700',
+        isChild ? 'bg-[#25262a]' : 'hover:bg-[#35373c]',
+        !isChild && reversedIds.has(tx.id) && 'opacity-50',
+        isHighlighted && 'ring-1 ring-[#5865f2] bg-[#5865f2]/10 animate-pulse',
+      )}
+    >
       <td className="px-4 py-3">
         {isChild ? (
           <span className="inline-flex items-center gap-1 text-[#949ba4] text-sm pl-4">
@@ -1129,7 +1173,7 @@ function TransactionsTab({
         </td>
       )}
     </tr>
-  )
+  )}
 
   return (
     <div>
