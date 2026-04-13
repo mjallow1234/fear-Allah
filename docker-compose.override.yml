@@ -11,12 +11,12 @@ services:
     # backend is accessed by other containers using the internal network (no host port published)
 
   frontend:
-    image: node:20
+    image: node:20-slim
     volumes:
       - ./frontend:/app:cached
     working_dir: /app
     ports:
-      - "3000:5173"
+      - "3000:3000"
     environment:
       - VITE_API_URL=http://localhost:18002
     command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0"

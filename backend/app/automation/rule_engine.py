@@ -113,16 +113,31 @@ async def _action_notify_manager(payload: dict, db: AsyncSession):
     event = payload.get("_event", "event")
     quantity = payload.get("quantity", "?")
 
+    # Build event-specific navigation metadata
+    if event == "sale:created":
+        sale_id = payload.get("sale_id")
+        metadata = {
+            "action_type": "sale",
+            "entity_id": sale_id,
+            "action_url": f"/sales?tab=transactions&highlight={sale_id}",
+        }
+    elif event == "inventory:updated":
+        product_id = payload.get("product_id")
+        metadata = {
+            "action_type": "inventory",
+            "entity_id": product_id,
+            "action_url": f"/inventory?product={product_id}",
+        }
+    else:
+        metadata = {"action_type": "rule_engine", "event": event}
+
     await create_and_emit_to_multiple(
         db=db,
         user_ids=admin_ids,
         notification_type=NotificationType.system,
         title="Automation Alert",
         content=f"Rule triggered on {event}: quantity={quantity}, by {user_name}",
-        metadata={
-            "action_type": "rule_engine",
-            "action_url": "/sales?tab=transactions",
-        },
+        metadata=metadata,
     )
     await db.commit()
     logger.info("[RuleEngine] notify_manager sent to %d admin(s)", len(admin_ids))
