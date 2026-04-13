@@ -28,8 +28,8 @@ type FormMode = 'create' | 'adjust' | 'threshold'
 
 export default function InventoryForm({ isOpen, onClose, onSuccess, editItem }: InventoryFormProps) {
   const user = useAuthStore((state) => state.user)
-  // Operational admin (operational_role_name === 'admin') may manage inventory; system admins keep system console privileges only
-  const isAdmin = user?.operational_role_name === 'admin'
+  // Operational admin may manage inventory; uses operational_roles array (source of truth)
+  const isAdmin = user?.operational_roles?.includes('admin')
   
   // Form mode
   const [mode, setMode] = useState<FormMode>('create')

@@ -14,6 +14,8 @@ OPERATIONAL_PERMISSIONS: Dict[str, Dict[str, Any]] = {
     "admin": {
         "orders": ["read", "create", "update", "cancel"],
         "sales": ["read", "create", "overview", "transactions", "inventory", "raw_materials"],
+        "inventory": ["read", "create", "update", "delete"],
+        "raw_materials": ["read", "create", "update", "delete"],
         "tasks": ["read", "assign", "update"],
     },
     "agent": {
