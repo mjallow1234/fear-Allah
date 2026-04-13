@@ -570,7 +570,7 @@ async def notify_and_emit_low_stock(
             "reorder_level": reorder_level,
             "action_type": "inventory",
             "entity_id": product_id or inventory_id,
-            "action_url": f"/sales?tab=inventory&highlight={product_id or inventory_id}",
+            "action_url": f"/sales?tab=inventory&product={product_id or inventory_id}",
         },
     )
 
@@ -597,7 +597,7 @@ async def notify_and_emit_inventory_restocked(
             "new_quantity": new_quantity,
             "action_type": "inventory",
             "entity_id": product_id or inventory_id,
-            "action_url": f"/sales?tab=inventory&highlight={product_id or inventory_id}",
+            "action_url": f"/sales?tab=inventory&product={product_id or inventory_id}",
         },
     )
 

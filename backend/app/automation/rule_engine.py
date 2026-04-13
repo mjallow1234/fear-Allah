@@ -126,7 +126,7 @@ async def _action_notify_manager(payload: dict, db: AsyncSession):
         metadata = {
             "action_type": "inventory",
             "entity_id": product_id,
-            "action_url": f"/inventory?product={product_id}",
+            "action_url": f"/sales?tab=inventory&product={product_id}",
         }
     else:
         metadata = {"action_type": "rule_engine", "event": event}

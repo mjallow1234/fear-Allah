@@ -89,6 +89,10 @@ export default function SalesPage() {
     const h = searchParams.get('highlight')
     return h ? parseInt(h, 10) || null : null
   })
+  const [productHighlightId, setProductHighlightId] = useState<number | null>(() => {
+    const p = searchParams.get('product')
+    return p ? parseInt(p, 10) || null : null
+  })
   const [showSalesForm, setShowSalesForm] = useState(false)
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [showRawMaterialForm, setShowRawMaterialForm] = useState(false)
@@ -97,7 +101,7 @@ export default function SalesPage() {
 
   // Clear query params after reading them (clean URL)
   useEffect(() => {
-    if (searchParams.has('tab') || searchParams.has('highlight')) {
+    if (searchParams.has('tab') || searchParams.has('highlight') || searchParams.has('product')) {
       setSearchParams({}, { replace: true })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -109,6 +113,14 @@ export default function SalesPage() {
       return () => clearTimeout(timer)
     }
   }, [highlightId])
+
+  // Auto-clear product highlight after 4 seconds
+  useEffect(() => {
+    if (productHighlightId !== null) {
+      const timer = setTimeout(() => setProductHighlightId(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [productHighlightId])
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null)
   const [showProductDrawer, setShowProductDrawer] = useState(false)
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null)
@@ -415,6 +427,7 @@ export default function SalesPage() {
                 items={inventoryItems}
                 lowStockItems={lowStockItems}
                 loading={loadingItems}
+                highlightProductId={productHighlightId}
                 onItemClick={(productId) => {
                   setSelectedProductId(productId)
                   setShowProductDrawer(true)
@@ -845,14 +858,24 @@ function InventoryTab({
   items,
   lowStockItems,
   loading,
+  highlightProductId = null,
   onItemClick
 }: {
   items: ReturnType<typeof useInventoryStore.getState>['items']
   lowStockItems: ReturnType<typeof useInventoryStore.getState>['lowStockItems']
   loading: boolean
+  highlightProductId?: number | null
   onItemClick?: (productId: number) => void
 }) {
   const [showLowOnly, setShowLowOnly] = useState(false)
+  const highlightRef = React.useRef<HTMLDivElement>(null)
+
+  // Scroll to highlighted item once loaded
+  useEffect(() => {
+    if (highlightProductId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlightProductId, loading])
   
   if (loading) {
     return (
@@ -907,16 +930,21 @@ function InventoryTab({
         {displayItems.map((item) => {
           const statusConfig = stockStatusConfig[item.status]
           const StatusIcon = statusConfig.icon
+          const isHighlighted = highlightProductId != null && item.product_id === highlightProductId
           
           return (
             <div
               key={item.id}
+              ref={isHighlighted ? highlightRef : undefined}
               onClick={() => onItemClick?.(item.product_id)}
               className={clsx(
                 'bg-[#2b2d31] rounded-lg p-4 border cursor-pointer hover:bg-[#35373c] transition-colors',
-                item.status === 'critical' ? 'border-red-500/50' :
-                item.status === 'low' ? 'border-yellow-500/50' :
-                'border-[#1f2023]'
+                isHighlighted && 'ring-1 ring-[#5865f2] bg-[#5865f2]/10 animate-pulse',
+                !isHighlighted && (
+                  item.status === 'critical' ? 'border-red-500/50' :
+                  item.status === 'low' ? 'border-yellow-500/50' :
+                  'border-[#1f2023]'
+                )
               )}
             >
               <div className="flex items-start justify-between mb-3">
