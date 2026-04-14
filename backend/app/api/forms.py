@@ -481,7 +481,7 @@ SEED_FORMS = [
         "slug": "inventory",
         "category": "inventory",
         "description": "Update inventory stock",
-        "service_target": "inventory.update_stock",
+        "service_target": "inventory",
         "fields": [
             {"key": "product_id", "label": "Product", "field_type": "select", "required": True, "options_source": "products", "order_index": 1},
             {"key": "adjustment_type", "label": "Adjustment Type", "field_type": "select", "required": True, "options": [
@@ -506,7 +506,7 @@ SEED_FORMS = [
         "slug": "raw_materials",
         "category": "raw_material",
         "description": "Manage raw materials inventory",
-        "service_target": "inventory.update_raw_material",
+        "service_target": "raw_materials",
         "fields": [
             {"key": "material_id", "label": "Raw Material", "field_type": "select", "required": True, "options_source": "raw_materials", "order_index": 1},
             {"key": "transaction_type", "label": "Transaction Type", "field_type": "select", "required": True, "options": [

@@ -225,41 +225,43 @@ async def handle_orders_submission(db: AsyncSession, data: dict, user_id: int, s
 
 async def handle_inventory_submission(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission for inventory adjustments."""
-    from app.services.inventory import InventoryService
+    from app.services.inventory import restock_inventory, adjust_inventory
     
     # Determine operation type
-    operation = data.get("operation", "adjust")
+    operation = data.get("operation") or data.get("adjustment_type", "adjust")
     product_id = data.get("product_id")
-    quantity = data.get("quantity", 0)
+    quantity = int(data.get("quantity", 0))
     reason = data.get("reason", "form_submission")
     notes = data.get("notes")
     
+    if not product_id:
+        raise ValueError("product_id is required")
+    
     if operation == "add":
-        result = await InventoryService.add_stock(
-            db=db,
+        result = await restock_inventory(
+            session=db,
             product_id=product_id,
             quantity=quantity,
-            reason=reason,
+            performed_by_id=user_id,
             notes=notes,
-            performed_by=user_id,
         )
     elif operation == "remove":
-        result = await InventoryService.remove_stock(
-            db=db,
+        result = await adjust_inventory(
+            session=db,
             product_id=product_id,
-            quantity=quantity,
+            adjustment=-abs(quantity),
+            performed_by_id=user_id,
             reason=reason,
             notes=notes,
-            performed_by=user_id,
         )
-    else:  # adjust
-        result = await InventoryService.adjust_stock(
-            db=db,
+    else:  # adjust / set
+        result = await adjust_inventory(
+            session=db,
             product_id=product_id,
-            new_quantity=quantity,
+            adjustment=quantity,
+            performed_by_id=user_id,
             reason=reason,
             notes=notes,
-            performed_by=user_id,
         )
     
     return result.id if hasattr(result, 'id') else 0
@@ -270,8 +272,19 @@ async def handle_raw_materials_submission(db: AsyncSession, data: dict, user_id:
     from app.db.models import RawMaterial, RawMaterialTransaction
     from sqlalchemy import select
     
-    raw_material_id = data.get("raw_material_id")
-    change = data.get("change", 0)
+    # Accept both "raw_material_id" and "material_id" (dynamic form uses "material_id")
+    raw_material_id = data.get("raw_material_id") or data.get("material_id")
+    if not raw_material_id:
+        raise ValueError("raw_material_id is required")
+    
+    # Build change from quantity + transaction_type if present (dynamic form path)
+    transaction_type = data.get("transaction_type")
+    quantity = data.get("quantity", 0)
+    if transaction_type:
+        change = int(quantity) if transaction_type == "ADD" else -abs(int(quantity))
+    else:
+        change = int(data.get("change", 0))
+    
     reason = data.get("reason", "form_submission")
     notes = data.get("notes")
     
