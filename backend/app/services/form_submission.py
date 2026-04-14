@@ -272,10 +272,13 @@ async def handle_raw_materials_submission(db: AsyncSession, data: dict, user_id:
     from app.db.models import RawMaterial, RawMaterialTransaction
     from sqlalchemy import select
     
+    logger.info(f"[RawMaterials] Incoming data: {data}")
+    
     # Accept both "raw_material_id" and "material_id" (dynamic form uses "material_id")
     raw_material_id = data.get("raw_material_id") or data.get("material_id")
     if not raw_material_id:
-        raise ValueError("raw_material_id is required")
+        logger.error(f"[RawMaterials] material_id missing. Keys present: {list(data.keys())}")
+        raise ValueError("raw_material_id or material_id is required — received neither")
     try:
         raw_material_id = int(raw_material_id)
     except (TypeError, ValueError):

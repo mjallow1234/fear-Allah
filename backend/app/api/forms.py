@@ -447,7 +447,7 @@ SEED_FORMS = [
         "slug": "sales",
         "category": "sale",
         "description": "Record sales transactions",
-        "service_target": "sales.create_sale",
+        "service_target": "sales",
         "fields": [
             {"key": "product_id", "label": "Product", "field_type": "select", "required": True, "options_source": "products", "order_index": 1},
             {"key": "quantity", "label": "Quantity", "field_type": "number", "required": True, "min_value": 1, "order_index": 2},
@@ -466,7 +466,7 @@ SEED_FORMS = [
         "slug": "orders",
         "category": "order",
         "description": "Create new orders",
-        "service_target": "orders.create_order",
+        "service_target": "orders",
         "fields": [
             {"key": "order_type", "label": "Order Type", "field_type": "select", "required": True, "options": [
                 {"value": "AGENT_RESTOCK", "label": "Agent Restock"},
@@ -543,12 +543,20 @@ async def seed_forms(
     
     created = []
     skipped = []
+    updated = []
     
     for form_def in SEED_FORMS:
         # Check if form exists
         existing = await db.execute(select(Form).where(Form.slug == form_def["slug"]))
-        if existing.scalar_one_or_none():
-            skipped.append(form_def["slug"])
+        existing_form = existing.scalar_one_or_none()
+        if existing_form:
+            # Update service_target if it changed (fixes stale seed data)
+            new_target = form_def.get("service_target")
+            if new_target and existing_form.service_target != new_target:
+                existing_form.service_target = new_target
+                updated.append(form_def["slug"])
+            else:
+                skipped.append(form_def["slug"])
             continue
         
         # Create form
@@ -611,8 +619,9 @@ async def seed_forms(
     await db.commit()
     
     return {
-        "message": f"Seeding complete. Created: {len(created)}, Skipped (already exist): {len(skipped)}",
+        "message": f"Seeding complete. Created: {len(created)}, Updated: {len(updated)}, Skipped: {len(skipped)}",
         "created": created,
+        "updated": updated,
         "skipped": skipped,
     }
 
