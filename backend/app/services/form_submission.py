@@ -354,9 +354,58 @@ async def handle_production_submission(db: AsyncSession, data: dict, user_id: in
     return batch.id
 
 
+async def handle_inventory_update_stock(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
+    """Handle form submission for inventory.update_stock service target."""
+    from app.services.inventory import restock_inventory, adjust_inventory
+
+    product_id = data.get("product_id")
+    if not product_id:
+        raise ValueError("product_id is required")
+    product_id = int(product_id)
+
+    quantity = data.get("quantity")
+    if not quantity:
+        raise ValueError("quantity is required")
+    quantity = int(quantity)
+
+    adjustment_type = data.get("adjustment_type", "add")
+    reason = data.get("reason", "manual_adjustment")
+    notes = data.get("notes")
+
+    if adjustment_type == "add":
+        result = await restock_inventory(
+            session=db,
+            product_id=product_id,
+            quantity=quantity,
+            performed_by_id=user_id,
+            notes=notes,
+        )
+    elif adjustment_type == "remove":
+        result = await adjust_inventory(
+            session=db,
+            product_id=product_id,
+            adjustment=-abs(quantity),
+            performed_by_id=user_id,
+            reason=reason,
+            notes=notes,
+        )
+    else:
+        result = await adjust_inventory(
+            session=db,
+            product_id=product_id,
+            adjustment=quantity,
+            performed_by_id=user_id,
+            reason=reason,
+            notes=notes,
+        )
+
+    return result.id if hasattr(result, 'id') else 0
+
+
 # Register handlers
 FormSubmissionService.register_handler("sales", handle_sales_submission)
 FormSubmissionService.register_handler("orders", handle_orders_submission)
 FormSubmissionService.register_handler("inventory", handle_inventory_submission)
+FormSubmissionService.register_handler("inventory.update_stock", handle_inventory_update_stock)
 FormSubmissionService.register_handler("raw_materials", handle_raw_materials_submission)
 FormSubmissionService.register_handler("production", handle_production_submission)
