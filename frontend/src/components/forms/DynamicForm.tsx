@@ -147,7 +147,12 @@ function SelectField({ field, value, onChange, error, disabled }: FieldProps) {
       <select
         id={field.key}
         value={value || ''}
-        onChange={(e) => onChange(field.key, e.target.value)}
+        onChange={(e) => {
+          const raw = e.target.value
+          // Coerce to number if the value looks numeric (e.g. IDs from options_source)
+          const parsed = raw !== '' && !isNaN(Number(raw)) ? Number(raw) : raw
+          onChange(field.key, parsed)
+        }}
         disabled={disabled}
         className={clsx(
           'w-full px-3 py-2 bg-[#1e1f22] border rounded-lg text-white appearance-none',

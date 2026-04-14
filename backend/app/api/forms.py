@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
-from app.db.models import Form, FormField, FormVersion, FormSubmission, User, Inventory
+from app.db.models import Form, FormField, FormVersion, FormSubmission, User, Inventory, RawMaterial
 from app.db.enums import FormFieldType, FormCategory, UserRole
 from app.core.security import get_current_user, require_admin
 
@@ -238,6 +238,14 @@ async def _resolve_dynamic_options(db: AsyncSession, fields: List[FormFieldRespo
                 {"label": item.product_name, "value": item.product_id}
                 for item in items
                 if item.product_name
+            ]
+        elif field.options_source == "raw_materials":
+            query = select(RawMaterial).order_by(RawMaterial.name)
+            result = await db.execute(query)
+            items = result.scalars().all()
+            field.options = [
+                {"label": f"{item.name} ({item.current_stock} {item.unit})", "value": item.id}
+                for item in items
             ]
 
 

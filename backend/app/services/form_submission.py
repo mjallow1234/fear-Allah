@@ -276,6 +276,10 @@ async def handle_raw_materials_submission(db: AsyncSession, data: dict, user_id:
     raw_material_id = data.get("raw_material_id") or data.get("material_id")
     if not raw_material_id:
         raise ValueError("raw_material_id is required")
+    try:
+        raw_material_id = int(raw_material_id)
+    except (TypeError, ValueError):
+        raise ValueError("raw_material_id must be an integer")
     
     # Build change from quantity + transaction_type if present (dynamic form path)
     transaction_type = data.get("transaction_type")
