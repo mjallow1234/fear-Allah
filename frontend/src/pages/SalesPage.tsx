@@ -6,7 +6,7 @@
  * raw materials management, and transaction history.
  */
 import React, { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   ArrowLeft,
   DollarSign,
@@ -42,6 +42,7 @@ import RawMaterialForm from '../components/forms/RawMaterialForm'
 import DynamicFormModal from '../components/forms/DynamicFormModal'
 import { useNotificationContext } from '../contexts/NotificationProvider'
 import api from '../services/api'
+import { subscribeToSales } from '../realtime/sales'
 
 // Tab types
 type TabType = 'overview' | 'agents' | 'inventory' | 'raw-materials' | 'transactions'
@@ -77,34 +78,46 @@ function formatDateTime(dateStr: string): string {
 
 export default function SalesPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState<TabType>(() => {
-    const tab = searchParams.get('tab')
-    if (tab && ['overview', 'agents', 'inventory', 'raw-materials', 'transactions'].includes(tab)) {
-      return tab as TabType
-    }
-    return 'overview'
-  })
-  const [highlightId, setHighlightId] = useState<number | null>(() => {
-    const h = searchParams.get('highlight')
-    return h ? parseInt(h, 10) || null : null
-  })
-  const [productHighlightId, setProductHighlightId] = useState<number | null>(() => {
-    const p = searchParams.get('product')
-    return p ? parseInt(p, 10) || null : null
-  })
+  const [activeTab, setActiveTab] = useState<TabType>('overview')
+  const [highlightId, setHighlightId] = useState<number | null>(null)
+  const [productHighlightId, setProductHighlightId] = useState<number | null>(null)
   const [showSalesForm, setShowSalesForm] = useState(false)
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [showRawMaterialForm, setShowRawMaterialForm] = useState(false)
+  const [showCreateMaterialForm, setShowCreateMaterialForm] = useState(false)
   // Use dynamic forms when available (toggle _setUseDynamicForms to false for legacy forms)
   const [useDynamicForms, _setUseDynamicForms] = useState(true)
 
-  // Clear query params after reading them (clean URL)
+  // React to URL query param changes (notification clicks, direct links)
   useEffect(() => {
-    if (searchParams.has('tab') || searchParams.has('highlight') || searchParams.has('product')) {
+    const params = new URLSearchParams(location.search)
+    const tabParam = params.get('tab')
+    const highlightParam = params.get('highlight')
+    const productParam = params.get('product')
+
+    if (highlightParam) {
+      setHighlightId(parseInt(highlightParam, 10) || null)
+      setActiveTab((tabParam as TabType) || 'transactions')
+    } else if (productParam) {
+      setProductHighlightId(parseInt(productParam, 10) || null)
+      setActiveTab((tabParam as TabType) || 'inventory')
+    } else if (tabParam && ['overview', 'agents', 'inventory', 'raw-materials', 'transactions'].includes(tabParam)) {
+      setActiveTab(tabParam as TabType)
+    }
+
+    // Clean up query params from URL after reading
+    if (params.has('tab') || params.has('highlight') || params.has('product')) {
       setSearchParams({}, { replace: true })
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [location.search]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Subscribe to real-time sale events
+  useEffect(() => {
+    const unsubscribe = subscribeToSales()
+    return () => unsubscribe()
+  }, [])
 
   // Auto-clear highlight after 4 seconds
   useEffect(() => {
@@ -152,7 +165,7 @@ export default function SalesPage() {
   // Enforce matrix v1: revenue visible **only** to system admins (strict role check)
   // Revenue visibility must NOT depend on API response — hard block by role here.
   const isAdmin = currentUser?.role === 'system_admin'
-  const canManageRawMaterials = currentUser?.operational_role_name === 'admin'
+  const canManageRawMaterials = currentUser?.operational_roles?.includes('admin')
   // System admin flag used to restrict certain auto-fetch calls (system-admin-only APIs)
   const isSystemAdmin = currentUser?.is_system_admin === true
   // Permissions for Sales sub-views
@@ -256,6 +269,10 @@ export default function SalesPage() {
   }
 
   // Raw material action handlers (admin only)
+  const handleCreateRawMaterial = () => {
+    setShowCreateMaterialForm(true)
+  }
+
   const handleAddRawMaterial = () => {
     setSelectedMaterialId(null)
     setShowRawMaterialForm(true)
@@ -267,7 +284,6 @@ export default function SalesPage() {
   }
 
   const handleAdjustRawMaterial = (id: number) => {
-    // Adjust flow handled inside RawMaterialForm when selectedMaterialId is set
     setSelectedMaterialId(id)
     setShowRawMaterialForm(true)
   }
@@ -308,7 +324,7 @@ export default function SalesPage() {
         <div className="flex items-center gap-4">
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            {(["admin","sales_agent","storekeeper"].includes(currentUser?.operational_role_name || '')) && (
+            {(currentUser?.operational_roles?.some(r => ["admin","sales_agent","storekeeper"].includes(r))) && (
               <button
                 onClick={() => setShowSalesForm(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
@@ -444,8 +460,10 @@ export default function SalesPage() {
             <RawMaterialsTab
               materials={rawMaterials}
               loading={loadingRawMaterials}
+              isAdmin={isAdmin}
 
               /* ✅ ADMIN-ONLY ACTIONS */
+              onCreateClick={isAdmin ? handleCreateRawMaterial : undefined}
               onAddClick={isAdmin ? handleAddRawMaterial : undefined}
               onEdit={isAdmin ? handleEditRawMaterial : undefined}
               onAdjust={isAdmin ? handleAdjustRawMaterial : undefined}
@@ -491,6 +509,7 @@ export default function SalesPage() {
               fetchSummary()
               fetchInventoryItems()
               fetchLowStock()
+              if (isAdmin) fetchTransactions()
             }}
             fallbackComponent={
               <SalesForm
@@ -500,6 +519,7 @@ export default function SalesPage() {
                   fetchSummary()
                   fetchInventoryItems()
                   fetchLowStock()
+                  if (isAdmin) fetchTransactions()
                   setShowSalesForm(false)
                 }}
               />
@@ -532,7 +552,7 @@ export default function SalesPage() {
             isOpen={showRawMaterialForm}
             onClose={() => setShowRawMaterialForm(false)}
             formSlug="raw_materials"
-            title="Raw Materials"
+            title="Adjust Raw Material Stock"
             onSuccess={() => {
               fetchRawMaterials()
             }}
@@ -546,6 +566,17 @@ export default function SalesPage() {
                 }}
               />
             }
+          />
+
+          <DynamicFormModal
+            isOpen={showCreateMaterialForm}
+            onClose={() => setShowCreateMaterialForm(false)}
+            formSlug="raw_materials_create"
+            title="Create Raw Material"
+            onSuccess={() => {
+              fetchRawMaterials()
+              fetchRawMaterialsOverview()
+            }}
           />
         </>
       ) : (
@@ -1262,23 +1293,25 @@ interface RawMaterial {
 function RawMaterialsTab({
   materials,
   loading,
+  isAdmin,
+  onCreateClick,
   onAddClick,
   onRefresh,
   onItemClick,
   onEdit,
   onAdjust,
   onDelete,
-  canManageRawMaterials
 }: {
   materials: RawMaterial[]
   loading: boolean
+  isAdmin?: boolean
+  onCreateClick?: () => void
   onAddClick?: () => void
   onRefresh?: () => void
   onItemClick?: (materialId: number) => void
   onEdit?: (materialId: number) => void
   onAdjust?: (materialId: number) => void
   onDelete?: (materialId: number) => void
-  canManageRawMaterials?: boolean
 }) {
   if (loading) {
     return (
@@ -1306,32 +1339,42 @@ function RawMaterialsTab({
               <RefreshCw size={16} />
             </button>
           )}
+          {onCreateClick && (
+            <button
+              onClick={onCreateClick}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+            >
+              <Plus size={14} />
+              Create Material
+            </button>
+          )}
           {onAddClick && (
             <button
               onClick={onAddClick}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors"
             >
-              <Plus size={14} />
-              Add Material
+              <RotateCcw size={14} />
+              Adjust Stock
             </button>
           )}
         </div>
       </div>
       
       {/* Empty State */}
-      {(materials.length === 0 && !canManageRawMaterials) ? (
+      {materials.length === 0 ? (
         <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] p-8 text-center">
           <Boxes size={48} className="mx-auto text-[#949ba4] mb-4" />
-          <p className="text-white font-medium mb-2">No Raw Materials</p>
+          <p className="text-white font-medium mb-2">No materials found</p>
           <p className="text-[#949ba4] text-sm mb-4">
             Add raw materials to track ingredients, supplies, and production inputs.
           </p>
-          {onAddClick && (
+          {onCreateClick && (
             <button
-              onClick={onAddClick}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm transition-colors"
+              onClick={onCreateClick}
+              className="flex items-center gap-1.5 mx-auto px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors"
             >
-              Add First Material
+              <Plus size={14} />
+              Create Material
             </button>
           )}
         </div>
@@ -1408,10 +1451,11 @@ function RawMaterialsTab({
                         {onAdjust && (
                           <button
                             onClick={(e) => { e.stopPropagation(); onAdjust(material.id) }}
-                            title="Adjust"
-                            className="px-2 py-1 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded"
+                            title="Adjust Stock"
+                            className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs flex items-center gap-1"
                           >
-                            <Minus size={14} />
+                            <RotateCcw size={12} />
+                            Adjust
                           </button>
                         )}
                         {onDelete && (
