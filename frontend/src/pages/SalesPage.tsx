@@ -80,6 +80,7 @@ export default function SalesPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { addToast } = useNotificationContext()
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [highlightId, setHighlightId] = useState<number | null>(null)
   const [productHighlightId, setProductHighlightId] = useState<number | null>(null)
@@ -555,6 +556,7 @@ export default function SalesPage() {
             title="Adjust Raw Material Stock"
             onSuccess={() => {
               fetchRawMaterials()
+              addToast({ type: 'success', title: 'Stock adjusted successfully' })
             }}
             fallbackComponent={
               <RawMaterialForm
@@ -573,9 +575,14 @@ export default function SalesPage() {
             onClose={() => setShowCreateMaterialForm(false)}
             formSlug="raw_materials_create"
             title="Create Raw Material"
-            onSuccess={() => {
+            onSuccess={(result) => {
               fetchRawMaterials()
               fetchRawMaterialsOverview()
+              addToast({ type: 'success', title: 'Material created successfully' })
+              // Auto-select the newly created material for quick adjust
+              if (result?.result_id) {
+                setSelectedMaterialId(result.result_id)
+              }
             }}
           />
         </>
@@ -1364,9 +1371,9 @@ function RawMaterialsTab({
       {materials.length === 0 ? (
         <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] p-8 text-center">
           <Boxes size={48} className="mx-auto text-[#949ba4] mb-4" />
-          <p className="text-white font-medium mb-2">No materials found</p>
+          <p className="text-white font-medium mb-2">No raw materials yet</p>
           <p className="text-[#949ba4] text-sm mb-4">
-            Add raw materials to track ingredients, supplies, and production inputs.
+            Create your first material to start tracking stock
           </p>
           {onCreateClick && (
             <button

@@ -408,6 +408,7 @@ async def handle_inventory_update_stock(db: AsyncSession, data: dict, user_id: i
 async def handle_raw_materials_create(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
     """Handle form submission to create a new raw material."""
     from app.db.models import RawMaterial
+    from sqlalchemy import func
 
     logger.info(f"[RawMaterials.Create] Incoming data: {data}")
 
@@ -415,9 +416,16 @@ async def handle_raw_materials_create(db: AsyncSession, data: dict, user_id: int
     if not name:
         raise ValueError("name is required")
 
-    unit = (data.get("unit") or "").strip()
+    unit = (data.get("unit") or "").strip().lower()
     if not unit:
         raise ValueError("unit is required")
+
+    # Check for duplicate name (case-insensitive)
+    existing = await db.execute(
+        select(RawMaterial).where(func.lower(RawMaterial.name) == name.lower())
+    )
+    if existing.scalar_one_or_none():
+        raise ValueError(f"Material \"{name}\" already exists")
 
     initial_stock = data.get("initial_stock", 0)
     try:
