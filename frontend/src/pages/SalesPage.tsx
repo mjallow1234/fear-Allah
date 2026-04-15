@@ -1387,15 +1387,15 @@ function RawMaterialsTab({
         </div>
       ) : (
         <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead>
               <tr className="border-b border-[#1f2023]">
-                <th className="text-left text-[#949ba4] text-sm font-medium px-4 py-3">Material</th>
-                <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Stock</th>
-                <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Unit</th>
-                <th className="text-center text-[#949ba4] text-sm font-medium px-4 py-3">Status</th>
-                <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Supplier</th>
-                {(onEdit || onAdjust || onDelete) && <th className="text-right text-[#949ba4] text-sm font-medium px-4 py-3">Actions</th>}
+                <th className="w-[25%] text-left text-[#949ba4] text-sm font-medium px-4 py-3">Material</th>
+                <th className="w-[10%] text-center text-[#949ba4] text-sm font-medium px-4 py-3">Stock</th>
+                <th className="w-[10%] text-center text-[#949ba4] text-sm font-medium px-4 py-3">Unit</th>
+                <th className="w-[15%] text-center text-[#949ba4] text-sm font-medium px-4 py-3">Status</th>
+                <th className="w-[20%] text-left text-[#949ba4] text-sm font-medium px-4 py-3">Supplier</th>
+                {(onEdit || onAdjust || onDelete) && <th className="w-[20%] text-right text-[#949ba4] text-sm font-medium px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -1407,7 +1407,7 @@ function RawMaterialsTab({
                     className="border-b border-[#1f2023] last:border-0 hover:bg-[#35373c] cursor-pointer"
                     onClick={() => onItemClick && onItemClick(material.id)}
                   >
-                    <td className="px-4 py-3">
+                    <td className="w-[25%] text-left px-4 py-3">
                       <div>
                         <span className="text-white font-medium">{material.name}</span>
                         {material.description && (
@@ -1415,7 +1415,7 @@ function RawMaterialsTab({
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="w-[10%] text-center px-4 py-3">
                       <span className={clsx(
                         'font-semibold',
                         isLowStock ? 'text-yellow-400' : 'text-white'
@@ -1423,57 +1423,59 @@ function RawMaterialsTab({
                         {material.current_stock.toLocaleString()}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-center text-[#b5bac1]">
+                    <td className="w-[10%] text-center px-4 py-3 text-[#b5bac1]">
                       {material.unit}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="w-[15%] text-center px-4 py-3">
+                      <div className="flex justify-center">
+                        {isLowStock ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-400/10 text-yellow-400">
+                            <AlertTriangle size={12} />
+                            Low Stock
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-400/10 text-green-400">
+                            <CheckCircle size={12} />
+                            In Stock
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      {isLowStock ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-400/10 text-yellow-400">
-                          <AlertTriangle size={12} />
-                          Low Stock
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-400/10 text-green-400">
-                          <CheckCircle size={12} />
-                          In Stock
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-[#949ba4] text-sm">
+                    <td className="w-[20%] text-left px-4 py-3 text-[#949ba4] text-sm">
                       {material.supplier || '—'}
                     </td>
                     {(onEdit || onAdjust || onDelete) && (
-                      <td className="px-4 py-3 text-right text-sm flex items-center gap-2">
-                        {onEdit && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onEdit(material.id) }}
-                            title="Edit"
-                            className="px-2 py-1 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                        )}
-                        {onAdjust && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onAdjust(material.id) }}
-                            title="Adjust Stock"
-                            className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs flex items-center gap-1"
-                          >
-                            <RotateCcw size={12} />
-                            Adjust
-                          </button>
-                        )}
-                        {onDelete && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onDelete(material.id) }}
-                            title="Delete"
-                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
-                          >
-                            <Trash size={14} />
-                          </button>
-                        )}
+                      <td className="w-[20%] text-right px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          {onEdit && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onEdit(material.id) }}
+                              title="Edit"
+                              className="px-2 py-1 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                          {onAdjust && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onAdjust(material.id) }}
+                              title="Adjust Stock"
+                              className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs flex items-center gap-1"
+                            >
+                              <RotateCcw size={12} />
+                              Adjust
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onDelete(material.id) }}
+                              title="Delete"
+                              className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
+                            >
+                              <Trash size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
