@@ -405,10 +405,46 @@ async def handle_inventory_update_stock(db: AsyncSession, data: dict, user_id: i
     return result.id if hasattr(result, 'id') else 0
 
 
+async def handle_raw_materials_create(db: AsyncSession, data: dict, user_id: int, submission: Optional[FormSubmission] = None) -> int:
+    """Handle form submission to create a new raw material."""
+    from app.db.models import RawMaterial
+
+    logger.info(f"[RawMaterials.Create] Incoming data: {data}")
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise ValueError("name is required")
+
+    unit = (data.get("unit") or "").strip()
+    if not unit:
+        raise ValueError("unit is required")
+
+    initial_stock = data.get("initial_stock", 0)
+    try:
+        initial_stock = int(initial_stock) if initial_stock else 0
+    except (TypeError, ValueError):
+        initial_stock = 0
+
+    material = RawMaterial(
+        name=name,
+        unit=unit,
+        supplier=(data.get("supplier") or "").strip() or None,
+        description=(data.get("description") or "").strip() or None,
+        current_stock=initial_stock,
+        created_by_id=user_id,
+    )
+    db.add(material)
+    await db.flush()
+
+    logger.info(f"[RawMaterials.Create] Created id={material.id}, name={name}")
+    return material.id
+
+
 # Register handlers
 FormSubmissionService.register_handler("sales", handle_sales_submission)
 FormSubmissionService.register_handler("orders", handle_orders_submission)
 FormSubmissionService.register_handler("inventory", handle_inventory_submission)
 FormSubmissionService.register_handler("inventory.update_stock", handle_inventory_update_stock)
 FormSubmissionService.register_handler("raw_materials", handle_raw_materials_submission)
+FormSubmissionService.register_handler("raw_materials.create", handle_raw_materials_create)
 FormSubmissionService.register_handler("production", handle_production_submission)

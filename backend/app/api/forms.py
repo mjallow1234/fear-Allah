@@ -527,6 +527,28 @@ SEED_FORMS = [
             {"key": "notes", "label": "Notes", "field_type": "textarea", "required": False, "order_index": 6},
         ],
     },
+    {
+        "name": "Create Raw Material",
+        "slug": "raw_materials_create",
+        "category": "raw_material",
+        "description": "Add a new raw material to inventory",
+        "service_target": "raw_materials.create",
+        "fields": [
+            {"key": "name", "label": "Material Name", "field_type": "text", "required": True, "placeholder": "e.g. Groundnut, Sugar, Flour", "order_index": 1},
+            {"key": "unit", "label": "Unit of Measure", "field_type": "select", "required": True, "options": [
+                {"value": "kg", "label": "Kilograms (kg)"},
+                {"value": "g", "label": "Grams (g)"},
+                {"value": "liters", "label": "Liters"},
+                {"value": "ml", "label": "Milliliters (ml)"},
+                {"value": "pieces", "label": "Pieces"},
+                {"value": "bags", "label": "Bags"},
+                {"value": "boxes", "label": "Boxes"},
+            ], "default_value": "kg", "order_index": 2},
+            {"key": "initial_stock", "label": "Initial Stock", "field_type": "number", "required": False, "min_value": 0, "help_text": "Starting quantity (default 0)", "order_index": 3},
+            {"key": "supplier", "label": "Supplier", "field_type": "text", "required": False, "placeholder": "Optional supplier name", "order_index": 4},
+            {"key": "description", "label": "Description", "field_type": "textarea", "required": False, "order_index": 5},
+        ],
+    },
 ]
 
 
