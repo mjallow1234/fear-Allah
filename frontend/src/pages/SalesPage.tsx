@@ -27,7 +27,8 @@ import {
   Pencil,
   Minus,
   Trash,
-  RotateCcw
+  RotateCcw,
+  History
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useSalesStore, DateRangeFilter, SalesChannel } from '../stores/salesStore'
@@ -40,6 +41,7 @@ import SalesForm from '../components/forms/SalesForm'
 import InventoryForm from '../components/forms/InventoryForm'
 import RawMaterialForm from '../components/forms/RawMaterialForm'
 import DynamicFormModal from '../components/forms/DynamicFormModal'
+import RawMaterialHistoryModal from '../components/RawMaterialHistoryModal'
 import { useNotificationContext } from '../contexts/NotificationProvider'
 import api from '../services/api'
 import { subscribeToSales } from '../realtime/sales'
@@ -88,6 +90,8 @@ export default function SalesPage() {
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [showRawMaterialForm, setShowRawMaterialForm] = useState(false)
   const [showCreateMaterialForm, setShowCreateMaterialForm] = useState(false)
+  const [historyMaterialId, setHistoryMaterialId] = useState<number | null>(null)
+  const [historyMaterialName, setHistoryMaterialName] = useState('')
   // Use dynamic forms when available (toggle _setUseDynamicForms to false for legacy forms)
   const [useDynamicForms, _setUseDynamicForms] = useState(true)
 
@@ -469,6 +473,7 @@ export default function SalesPage() {
               onEdit={isAdmin ? handleEditRawMaterial : undefined}
               onAdjust={isAdmin ? handleAdjustRawMaterial : undefined}
               onDelete={isAdmin ? handleDeleteRawMaterial : undefined}
+              onViewHistory={(id, name) => { setHistoryMaterialId(id); setHistoryMaterialName(name) }}
 
               onRefresh={fetchRawMaterials}
               onItemClick={(materialId) => {
@@ -617,6 +622,14 @@ export default function SalesPage() {
         </>
       )}
       
+      {/* Raw Material History Modal */}
+      <RawMaterialHistoryModal
+        materialId={historyMaterialId ?? 0}
+        materialName={historyMaterialName}
+        open={historyMaterialId !== null}
+        onClose={() => { setHistoryMaterialId(null); setHistoryMaterialName('') }}
+      />
+
       {/* Product Details Drawer */}
       <ProductDetailsDrawer
         productId={selectedProductId}
@@ -1308,6 +1321,7 @@ function RawMaterialsTab({
   onEdit,
   onAdjust,
   onDelete,
+  onViewHistory,
 }: {
   materials: RawMaterial[]
   loading: boolean
@@ -1319,6 +1333,7 @@ function RawMaterialsTab({
   onEdit?: (materialId: number) => void
   onAdjust?: (materialId: number) => void
   onDelete?: (materialId: number) => void
+  onViewHistory?: (materialId: number, materialName: string) => void
 }) {
   if (loading) {
     return (
@@ -1395,7 +1410,7 @@ function RawMaterialsTab({
                 <th className="w-[10%] text-center text-[#949ba4] text-sm font-medium px-4 py-3">Unit</th>
                 <th className="w-[15%] text-center text-[#949ba4] text-sm font-medium px-4 py-3">Status</th>
                 <th className="w-[20%] text-left text-[#949ba4] text-sm font-medium px-4 py-3">Supplier</th>
-                {(onEdit || onAdjust || onDelete) && <th className="w-[20%] text-right text-[#949ba4] text-sm font-medium px-4 py-3">Actions</th>}
+                {(onEdit || onAdjust || onDelete || onViewHistory) && <th className="w-[20%] text-right text-[#949ba4] text-sm font-medium px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -1444,9 +1459,19 @@ function RawMaterialsTab({
                     <td className="w-[20%] text-left px-4 py-3 text-[#949ba4] text-sm">
                       {material.supplier || '—'}
                     </td>
-                    {(onEdit || onAdjust || onDelete) && (
+                    {(onEdit || onAdjust || onDelete || onViewHistory) && (
                       <td className="w-[20%] text-right px-4 py-3">
                         <div className="flex justify-end gap-2">
+                          {onViewHistory && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onViewHistory(material.id, material.name) }}
+                              title="View History"
+                              className="px-2 py-1 bg-[#5865f2] hover:bg-[#4752c4] text-white rounded text-xs flex items-center gap-1"
+                            >
+                              <History size={12} />
+                              History
+                            </button>
+                          )}
                           {onEdit && (
                             <button
                               onClick={(e) => { e.stopPropagation(); onEdit(material.id) }}

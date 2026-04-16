@@ -6,6 +6,7 @@ Admin-only create/update operations.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel
@@ -458,9 +459,10 @@ async def get_material_transactions(
     if not item:
         raise HTTPException(status_code=404, detail="Raw material not found")
     
-    # Get transactions
+    # Get transactions with user info
     tx_query = (
         select(RawMaterialTransaction)
+        .options(selectinload(RawMaterialTransaction.performed_by))
         .where(RawMaterialTransaction.raw_material_id == material_id)
         .order_by(RawMaterialTransaction.created_at.desc())
         .limit(limit)
@@ -471,13 +473,18 @@ async def get_material_transactions(
     return {
         "material_id": material_id,
         "material_name": item.name,
+        "current_stock": item.current_stock,
+        "unit": item.unit,
         "transactions": [
             {
                 "id": tx.id,
                 "change": tx.change,
                 "reason": tx.reason,
                 "notes": tx.notes,
-                "performed_by_id": tx.performed_by_id,
+                "performed_by": {
+                    "id": tx.performed_by.id,
+                    "name": tx.performed_by.display_name or tx.performed_by.username,
+                } if tx.performed_by else None,
                 "created_at": tx.created_at.isoformat() if tx.created_at else None,
             }
             for tx in transactions
