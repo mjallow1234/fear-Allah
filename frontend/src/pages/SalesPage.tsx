@@ -628,6 +628,8 @@ export default function SalesPage() {
         materialName={historyMaterialName}
         open={historyMaterialId !== null}
         onClose={() => { setHistoryMaterialId(null); setHistoryMaterialName('') }}
+        isAdmin={isAdmin}
+        onReversed={() => { fetchRawMaterials(); addToast({ type: 'success', title: 'Transaction reversed successfully' }) }}
       />
 
       {/* Product Details Drawer */}

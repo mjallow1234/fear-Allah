@@ -607,11 +607,16 @@ class RawMaterialTransaction(Base):
     notes = Column(Text, nullable=True)
     performed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     related_batch_id = Column(Integer, ForeignKey("processing_batches.id"), nullable=True)
+    reversed = Column(Boolean, default=False, nullable=False, server_default="false")
+    reversed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
+    reversal_of_id = Column(Integer, ForeignKey("raw_material_transactions.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     raw_material = relationship("RawMaterial", back_populates="transactions")
-    performed_by = relationship("User")
+    performed_by = relationship("User", foreign_keys=[performed_by_id])
+    reversed_by = relationship("User", foreign_keys=[reversed_by_id])
     related_batch = relationship("ProcessingBatch", back_populates="raw_material_transactions")
 
 

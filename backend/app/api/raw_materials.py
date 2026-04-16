@@ -481,6 +481,8 @@ async def get_material_transactions(
                 "change": tx.change,
                 "reason": tx.reason,
                 "notes": tx.notes,
+                "reversed": tx.reversed or False,
+                "reversal_of_id": tx.reversal_of_id,
                 "performed_by": {
                     "id": tx.performed_by.id,
                     "name": tx.performed_by.display_name or tx.performed_by.username,
@@ -491,6 +493,61 @@ async def get_material_transactions(
         ],
         "count": len(transactions),
     }
+
+
+@router.post("/transactions/{transaction_id}/reverse")
+async def reverse_transaction(
+    transaction_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reverse a raw material transaction by creating an opposite entry. Admin only."""
+    user_id = current_user.get('user_id')
+
+    if not await _check_is_admin(db, user_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Fetch original transaction
+    result = await db.execute(
+        select(RawMaterialTransaction).where(RawMaterialTransaction.id == transaction_id)
+    )
+    original = result.scalar_one_or_none()
+    if not original:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    if original.reversed:
+        raise HTTPException(status_code=400, detail="Transaction has already been reversed")
+
+    # Fetch material to update stock
+    mat_result = await db.execute(
+        select(RawMaterial).where(RawMaterial.id == original.raw_material_id)
+    )
+    material = mat_result.scalar_one_or_none()
+    if not material:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+
+    # Create reversal transaction
+    reversal = RawMaterialTransaction(
+        raw_material_id=original.raw_material_id,
+        change=-original.change,
+        reason="adjust",
+        notes=f"Reversal of transaction #{original.id}",
+        performed_by_id=user_id,
+        reversal_of_id=original.id,
+    )
+    db.add(reversal)
+
+    # Update stock
+    material.current_stock += reversal.change
+
+    # Mark original as reversed
+    original.reversed = True
+    original.reversed_by_id = user_id
+    original.reversed_at = datetime.utcnow()
+
+    await db.commit()
+
+    return {"message": "Transaction reversed successfully"}
 
 
 @router.delete("/{material_id}")
