@@ -15,7 +15,6 @@ let presenceSubscribed = false
  */
 export function subscribeToPresence(): void {
   if (presenceSubscribed) {
-    console.log('[Presence] Already subscribed to presence events')
     return
   }
   
@@ -23,24 +22,20 @@ export function subscribeToPresence(): void {
   
   // Listen for initial presence list (sent on connect)
   onSocketEvent<{ online_user_ids: number[] }>('presence:list', (data) => {
-    console.log('[Presence] Received presence:list', data)
     store.setInitialPresence(data.online_user_ids)
   })
   
   // Listen for user coming online
   onSocketEvent<{ user_id: number; username: string }>('presence:online', (data) => {
-    console.log('[Presence] Received presence:online', data)
     store.userOnline(data.user_id)
   })
   
   // Listen for user going offline
   onSocketEvent<{ user_id: number }>('presence:offline', (data) => {
-    console.log('[Presence] Received presence:offline', data)
     store.userOffline(data.user_id)
   })
   
   presenceSubscribed = true
-  console.log('[Presence] Subscribed to presence events')
 }
 
 /**

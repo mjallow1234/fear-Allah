@@ -34,6 +34,9 @@ export interface Order {
   meta: string | null
   created_at: string
   updated_at: string | null
+  created_by_id?: number | null
+  created_by?: { id: number; username: string; display_name: string | null } | null
+  has_sale?: boolean
 }
 
 export interface OrderAutomationStatus {
@@ -51,6 +54,7 @@ export interface OrderWithDetails extends Order {
   parsed_items?: Array<{ product_id: number; quantity: number; product_name?: string }>
   parsed_meta?: Record<string, unknown>
   automation?: OrderAutomationStatus
+  has_sale?: boolean
 }
 
 interface OrderState {
@@ -95,13 +99,16 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   error: null,
   
   fetchOrders: async () => {
-    // Note: Backend doesn't have a list endpoint yet
-    // This is a placeholder - orders come from notifications/tasks
     set({ loading: true, error: null })
     try {
-      // For now, we don't have a list endpoint
-      // Orders are populated from notifications and task links
-      set({ loading: false })
+      const response = await api.get('/api/orders/')
+      const data = (response.data as Order[]).map((o): OrderWithDetails => ({
+        ...o,
+        order_type: normalizeOrderType(o.order_type),
+        status: normalizeStatus(o.status),
+        has_sale: o.has_sale ?? false,
+      }))
+      set({ orders: data, loading: false })
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
       console.error('[OrderStore] Failed to fetch orders:', error)
@@ -183,7 +190,6 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   
   // Socket event handlers
   handleOrderCreated: (data) => {
-    console.log('[OrderStore] Order created event:', data)
     // Add to orders list if we have more info
     const newOrder: OrderWithDetails = {
       id: data.order_id,
@@ -200,7 +206,11 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   },
   
   handleOrderUpdated: (data) => {
-    console.log('[OrderStore] Order updated event:', data)
+    const exists = get().orders.some(o => o.id === data.order_id)
+    if (!exists) {
+      get().fetchOrders()
+      return
+    }
     const normalizedStatus = normalizeStatus(data.status)
     set((state) => ({
       orders: state.orders.map(o => 
@@ -215,7 +225,11 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   },
   
   handleOrderCompleted: (data) => {
-    console.log('[OrderStore] Order completed event:', data)
+    const exists = get().orders.some(o => o.id === data.order_id)
+    if (!exists) {
+      get().fetchOrders()
+      return
+    }
     set((state) => ({
       orders: state.orders.map(o => 
         o.id === data.order_id ? { ...o, status: 'COMPLETED' as OrderStatus } : o

@@ -22,14 +22,17 @@ import {
   XCircle,
   PlayCircle,
   PauseCircle,
-  Plus
+  Plus,
+  DollarSign
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useOrderStore, OrderWithDetails } from '../stores/orderStore'
+import { useAuthStore } from '../stores/authStore'
 import { subscribeToOrders } from '../realtime/orders'
 import RecentAutomationEvents from '../components/RecentAutomationEvents'
 import OrderForm from '../components/forms/OrderForm'
 import DynamicFormModal from '../components/forms/DynamicFormModal'
+import ConvertToSaleModal from '../components/ConvertToSaleModal'
 
 // Helper to normalize to uppercase for config lookup
 const normalizeType = (type: string): string => type?.toUpperCase() || 'AGENT_RESTOCK'
@@ -53,12 +56,12 @@ const statusConfig: Record<string, { color: string; bgColor: string; icon: typeo
   'CANCELLED': { color: 'text-red-400', bgColor: 'bg-red-400/10', icon: XCircle, label: 'Cancelled' },
 }
 
-function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () => void }) {
+function OrderCard({ order, onClick, onFulfill, canFulfill }: { order: OrderWithDetails; onClick: () => void; onFulfill?: () => void; canFulfill?: boolean }) {
   const typeConfig = orderTypeConfig[normalizeType(order.order_type)] || orderTypeConfig['AGENT_RESTOCK']
   const status = statusConfig[normalizeStatus(order.status)] || statusConfig['SUBMITTED']
   const TypeIcon = typeConfig.icon
   const StatusIcon = status.icon
-  
+
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr)
     const now = new Date()
@@ -94,7 +97,6 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
         )}>
           <TypeIcon size={20} />
         </div>
-        
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -107,18 +109,37 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
               <StatusIcon size={12} />
               {status.label}
             </span>
+            {order.has_sale && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-700 text-white ml-2 flex items-center gap-1">
+                <DollarSign size={12} />
+                Converted to Sale
+              </span>
+            )}
           </div>
-          
           <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
             <span className="flex items-center gap-1">
               <Clock size={12} />
               {formatTime(order.created_at)}
             </span>
+            {order.created_by && (
+              <span>by {order.created_by.display_name || order.created_by.username}</span>
+            )}
             <span className={clsx('px-1.5 py-0.5 rounded', typeConfig.color + '/20')} style={{ color: 'var(--text-primary)' }}>
               {typeConfig.label}
             </span>
           </div>
-          
+          {/* Fulfill button: only if not already converted to sale */}
+          {canFulfill && !order.has_sale && (normalizeStatus(order.status) === 'AWAITING_CONFIRMATION' || normalizeStatus(order.status) === 'COMPLETED') && (
+            <div className="mt-2 pt-2 border-t border-[#1f2023]">
+              <button
+                onClick={(e) => { e.stopPropagation(); onFulfill?.() }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                <DollarSign size={14} />
+                Convert to Sale
+              </button>
+            </div>
+          )}
           {/* Automation progress */}
           {order.automation?.has_automation && (
             <div className="mt-2 pt-2 border-t border-[#1f2023]">
@@ -145,8 +166,13 @@ function OrderCard({ order, onClick }: { order: OrderWithDetails; onClick: () =>
 export default function OrdersPage() {
   const navigate = useNavigate()
   const [showOrderForm, setShowOrderForm] = useState(false)
+  const [fulfillOrderId, setFulfillOrderId] = useState<number | null>(null)
   // Use dynamic forms when available (toggle _setUseDynamicForms to false for legacy forms)
   const [useDynamicForms, _setUseDynamicForms] = useState(true)
+  const { currentUser } = useAuthStore()
+  const isAdmin = Boolean(currentUser?.is_system_admin === true || currentUser?.operational_roles?.includes('admin'))
+  const isStorekeeper = currentUser?.operational_roles?.includes('storekeeper')
+  const canFulfill = isAdmin || isStorekeeper
   const {
     orders,
     loading,
@@ -175,7 +201,7 @@ export default function OrdersPage() {
   const completedOrders = orders.filter(o => o.status === 'COMPLETED' || o.status === 'CANCELLED')
 
   return (
-    <div className="h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
+    <div className="min-h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
       <div style={{ backgroundColor: 'var(--panel-bg)', borderBottom: '1px solid var(--sidebar-border)' }} className="px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -272,6 +298,8 @@ export default function OrdersPage() {
                       key={order.id}
                       order={order}
                       onClick={() => navigate(`/orders/${order.id}`)}
+                      canFulfill={canFulfill}
+                      onFulfill={() => setFulfillOrderId(order.id)}
                     />
                   ))}
                 </div>
@@ -290,6 +318,8 @@ export default function OrdersPage() {
                       key={order.id}
                       order={order}
                       onClick={() => navigate(`/orders/${order.id}`)}
+                      canFulfill={canFulfill}
+                      onFulfill={() => setFulfillOrderId(order.id)}
                     />
                   ))}
                 </div>
@@ -299,6 +329,18 @@ export default function OrdersPage() {
         )}
       </div>
       
+      {/* Convert to Sale Modal */}
+      {fulfillOrderId && (
+        <ConvertToSaleModal
+          orderId={fulfillOrderId}
+          open={true}
+          onClose={() => setFulfillOrderId(null)}
+          onSuccess={() => {
+            setFulfillOrderId(null)
+          }}
+        />
+      )}
+
       {/* Order Form Modal - Use dynamic form if available */}
       {useDynamicForms ? (
         <DynamicFormModal

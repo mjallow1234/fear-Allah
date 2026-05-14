@@ -66,7 +66,7 @@ export default function DynamicFormModal({
   if (!isOpen) return null
   
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/70" 
@@ -74,7 +74,7 @@ export default function DynamicFormModal({
       />
       
       {/* Modal */}
-      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#313338] rounded-xl shadow-2xl">
+      <div className="relative w-full sm:max-w-lg mx-0 sm:mx-4 max-h-[92dvh] overflow-y-auto overscroll-contain bg-[#313338] rounded-t-xl sm:rounded-xl shadow-2xl">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-[#3f4147] bg-[#313338]">
           <div className="flex items-center gap-2">

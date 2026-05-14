@@ -3,6 +3,7 @@ Inventory API Endpoints (Phase 6.3)
 Handles inventory management with role-based permissions.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timedelta
@@ -11,7 +12,7 @@ from typing import Optional
 from app.core.security import get_current_user
 from app.core.logging import inventory_logger
 from app.db.database import get_db
-from app.db.models import User, InventoryTransaction, Inventory
+from app.db.models import User, InventoryTransaction, Inventory, Sale
 from app.services.inventory import (
     list_inventory,
     get_inventory_item,
@@ -642,8 +643,30 @@ async def reverse_transaction(
         notes=f"Reversal of transaction #{original.id}",
     )
     db.add(reversal)
+
+    # Mark related sale as reversed when reversing a sale transaction
+    reversed_sale = None
+    if original.related_sale_id is not None:
+        sale_q = select(Sale).where(Sale.id == original.related_sale_id)
+        sale_result = await db.execute(sale_q)
+        sale = sale_result.scalar_one_or_none()
+        if sale and not sale.is_reversed:
+            sale.is_reversed = True
+            sale.reversed_by_id = int(current_user["user_id"])
+            sale.reversed_at = datetime.utcnow()
+            reversed_sale = sale
+
     await db.commit()
     await db.refresh(reversal)
+
+    # Broadcast SALE_REVERSED if a sale was just reversed
+    if reversed_sale is not None:
+        from app.core.realtime import safe_broadcast
+        asyncio.create_task(safe_broadcast({
+            "type": "SALE_REVERSED",
+            "sale_id": reversed_sale.id,
+            "order_id": reversed_sale.related_order_id,
+        }))
 
     # Emit event for real-time listeners
     await emit_event(EventType.TRANSACTION_REVERSED, {

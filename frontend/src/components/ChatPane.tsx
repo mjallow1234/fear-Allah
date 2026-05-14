@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Smile, MessageSquare, X, Pencil, Trash2, Pin } from 'lucide-react'
+import Portal from './ui/Portal'
 import type { Message, Reaction } from '../services/useWebSocket'
 import { useChatSocket } from '../contexts/ChatSocketContext'
 import { useAuthStore } from '../stores/authStore'
@@ -32,6 +33,7 @@ const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '�
 const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => {
   const [messages, setMessages] = useState<ExtendedMessage[]>([])
   const [showEmojiPicker, setShowEmojiPicker] = useState<number | null>(null)
+  const [emojiPickerAnchor, setEmojiPickerAnchor] = useState<DOMRect | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [activeThread, setActiveThread] = useState<number | null>(null)
   const [threadReplies, setThreadReplies] = useState<Message[]>([])
@@ -51,14 +53,11 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
 
   // Debugging instrumentation
   useEffect(() => {
-    console.log('[ChatPane] mounted for channel', channelId)
     // Also subscribe to the global Socket.IO message:new purely for verification (no UI mutation here)
     const unsub = (() => {
       try {
         const { onSocketEvent } = require('../realtime')
-        return onSocketEvent('message:new', (data: any) => {
-          console.log('[ChatPane] message:new received (raw socket)', data)
-        })
+        return onSocketEvent('message:new', (_data: any) => {})
       } catch (err) {
         return () => {}
       }
@@ -150,7 +149,6 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
     const handler = (data: any) => {
       switch (data.type) {
         case 'message':
-          console.log('[ChatPane] onMessage received message:', data)
           handleMessage(data)
           break
 
@@ -557,7 +555,11 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
             {msg.id > 0 && <div className="absolute right-2 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="flex gap-1 bg-[#2e3035] rounded border border-[#3f4147] p-1">
                 <button
-                  onClick={() => setShowEmojiPicker(showEmojiPicker === msg.id ? null : msg.id)}
+                  onClick={(e) => {
+                    const next = showEmojiPicker === msg.id ? null : msg.id
+                    setEmojiPickerAnchor(next !== null ? e.currentTarget.getBoundingClientRect() : null)
+                    setShowEmojiPicker(next)
+                  }}
                   className="p-1 hover:bg-[#3f4147] rounded text-[#b9bbbe] hover:text-white"
                   title="Add reaction"
                 >
@@ -615,20 +617,30 @@ const ChatPane = forwardRef<ChatPaneRef, ChatPaneProps>(({ channelId }, ref) => 
               </div>
 
               {/* Emoji picker */}
-              {showEmojiPicker === msg.id && (
-                <div className="absolute right-0 top-8 bg-[#2e3035] border border-[#3f4147] rounded p-2 z-10">
-                  <div className="flex gap-1 flex-wrap w-48">
-                    {EMOJI_LIST.map((emoji) => (
-                      <button
-                        key={emoji}
-                        onClick={() => handleAddReaction(msg.id, emoji)}
-                        className="p-1 hover:bg-[#3f4147] rounded text-lg"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
+              {showEmojiPicker === msg.id && emojiPickerAnchor && (
+                <Portal>
+                  <div
+                    className="bg-[#2e3035] border border-[#3f4147] rounded p-2"
+                    style={{
+                      position: 'fixed',
+                      top: emojiPickerAnchor.bottom + 4,
+                      left: Math.max(4, emojiPickerAnchor.right - 200),
+                      zIndex: 9999,
+                    }}
+                  >
+                    <div className="flex gap-1 flex-wrap w-48">
+                      {EMOJI_LIST.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleAddReaction(msg.id, emoji)}
+                          className="p-1 hover:bg-[#3f4147] rounded text-lg"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </Portal>
               )}
             </div>}
           </div>

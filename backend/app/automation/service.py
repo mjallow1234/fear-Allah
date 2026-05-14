@@ -32,6 +32,9 @@ from app.services.notification_emitter import (
     notify_and_emit_order_completed_to_participants,
 )
 
+import os
+AUTOMATIONS_ENABLED = os.environ.get("AUTOMATIONS_ENABLED", "true").lower() == "true"
+
 
 class ClaimError(Exception):
     """Base exception for claim-related failures."""
@@ -366,7 +369,7 @@ class AutomationService:
         # Reload with relationships
         result = await db.execute(
             select(AutomationTask)
-            .options(selectinload(AutomationTask.assignments))
+            .options(selectinload(AutomationTask.assignments).selectinload(TaskAssignment.user))
             .where(AutomationTask.id == task.id)
         )
         task = result.scalar_one()
@@ -443,7 +446,7 @@ class AutomationService:
                                 )
                                 # Refresh task to include new assignments
                                 result = await db.execute(
-                                    select(AutomationTask).options(selectinload(AutomationTask.assignments)).where(AutomationTask.id == task.id)
+                                    select(AutomationTask).options(selectinload(AutomationTask.assignments).selectinload(TaskAssignment.user)).where(AutomationTask.id == task.id)
                                 )
                                 task = result.scalar_one()
             except Exception as e:
@@ -464,9 +467,9 @@ class AutomationService:
         query = select(AutomationTask).where(AutomationTask.id == task_id)
         
         if include_assignments:
-            query = query.options(selectinload(AutomationTask.assignments))
+            query = query.options(selectinload(AutomationTask.assignments).selectinload(TaskAssignment.user))
         if include_events:
-            query = query.options(selectinload(AutomationTask.events))
+            query = query.options(selectinload(AutomationTask.events).selectinload(TaskEvent.user))
             
         result = await db.execute(query)
         return result.scalar_one_or_none()
@@ -525,7 +528,7 @@ class AutomationService:
         user_role_debug = getattr(current_user, 'role', None)
         user_is_admin_debug = getattr(current_user, 'is_system_admin', None)
 
-        query = select(AutomationTask).options(selectinload(AutomationTask.assignments))
+        query = select(AutomationTask).options(selectinload(AutomationTask.assignments).selectinload(TaskAssignment.user))
         
         if status:
             query = query.where(AutomationTask.status == status)
@@ -614,11 +617,12 @@ class AutomationService:
     @staticmethod
     async def available_tasks_for_role(
         db: AsyncSession,
-        role: str,
+        role: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[AutomationTask]:
-        """Return tasks that are required for a role and have no assignments at all."""
+        """Return tasks that are required for a role and have no assignments at all.
+        If role is None, returns all unclaimed open tasks regardless of required_role."""
         # Exclude tasks that have ANY assignment - only truly free tasks are available
         from sqlalchemy import select as _select
         assignment_exists = (
@@ -628,8 +632,7 @@ class AutomationService:
 
         query = (
             select(AutomationTask)
-            .options(selectinload(AutomationTask.assignments))
-            .where(AutomationTask.required_role == role)
+            .options(selectinload(AutomationTask.assignments).selectinload(TaskAssignment.user))
             .where(AutomationTask.status == AutomationTaskStatus.open)
             .where(AutomationTask.claimed_by_user_id == None)
             .where(~exists(assignment_exists))
@@ -640,6 +643,8 @@ class AutomationService:
             .limit(limit)
             .offset(offset)
         )
+        if role is not None:
+            query = query.where(AutomationTask.required_role == role)
         result = await db.execute(query)
         return list(result.scalars().all())
     
@@ -1253,28 +1258,32 @@ class AutomationService:
         db.add(evt)
         await db.flush()
 
-        # === NOTIFY: Assignment completed → notify participants ===
+        # === NOTIFY: Assignment completed → notify participants (defer socket emission) ===
+        deferred_notifications = []
         if marked_done and automation_task and automation_task.related_order_id:
             try:
                 # Get actor username for notification content
                 actor_username = actor.username if actor else "Someone"
                 task_title = getattr(automation_task, 'title', None) or f"Task #{task_id}"
-                await notify_and_emit_task_completed_to_participants(
+                notifs = await notify_and_emit_task_completed_to_participants(
                     db=db,
                     task_id=automation_task.id,
                     order_id=automation_task.related_order_id,
                     task_title=task_title,
                     completed_by=actor_username,
+                    defer_emit=True,
                 )
-                logger.info(f"[Automation] Emitted task_completed notification to participants for task={task_id}")
+                deferred_notifications.extend(notifs or [])
+                logger.info(f"[Automation] Created deferred task_completed notification for task={task_id}")
             except Exception as e:
-                logger.warning(f"[Automation] Failed to emit task_completed notification: {e}")
+                logger.warning(f"[Automation] Failed to create task_completed notification: {e}")
         
         # --- Complete the corresponding workflow task to advance the order ---
+        deferred_engine = None
         if workflow_task_to_complete:
             try:
                 logger.info(f"[Automation] Advancing workflow: completing task {workflow_task_to_complete.id} ({workflow_task_to_complete.step_key})")
-                await engine_complete_task(db, workflow_task_to_complete.id, user_id)
+                deferred_engine = await engine_complete_task(db, workflow_task_to_complete.id, user_id, commit=False)
                 logger.info(f"[Automation] Workflow advanced: {workflow_task_to_complete.step_key} completed")
             except Exception as e:
                 logger.warning(f"[Automation] Failed to advance workflow task: {e}")
@@ -1288,15 +1297,12 @@ class AutomationService:
             except Exception as e:
                 logger.warning(f"[Automation] Failed to chain foreman handover->delivery: {e}")
 
-        await db.commit()
-        # Refresh the assignment object
-        await db.refresh(assignment)
-
         logger.info(f"[Automation] Assignment completed: task={task_id}, user={user_id}, assignment_id={assignment.id}")
 
-        # CRITICAL: Evaluate order-root completion BEFORE any return.
+        # CRITICAL: Evaluate order-root completion BEFORE commit.
         # This block runs unconditionally — fetch the order-root and complete if all assignments are done.
         # NO role checks, NO order-type checks, NO early returns between all_done and mutation.
+        skip_root_completion = False
         related_order_id = getattr(automation_task, 'related_order_id', None) if automation_task else None
         if related_order_id:
             from app.db.models import AutomationTask as ATModel, Order as OrderModel
@@ -1342,82 +1348,136 @@ class AutomationService:
                             pending_final_delivery = pending_final_res.scalar_one_or_none()
                             if pending_final_delivery:
                                 logger.info(f"[Automation] agent_retail order {order_obj.id}: deliver_items not yet done, skipping root completion")
-                                # Do NOT complete root yet — return assignment
-                                return assignment
+                                skip_root_completion = True
 
-                    now_root = datetime.now(timezone.utc)
-                    # Use ORM mutation instead of Core UPDATE to avoid CompileError
-                    root_task.status = ATS.completed
-                    root_task.completed_at = now_root
-                    logger.error(
-                        "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
-                        root_task.id,
-                    )
-                    # order_obj already fetched above; complete it
-                    if order_obj:
-                        order_obj.status = OS.completed
-
-                    # Cascade completion to role-scoped automation tasks
-                    # Find all non-root tasks for this order that are still open/claimed/in_progress
-                    from app.db.models import TaskAssignment as TAModel
-                    role_tasks_q = select(ATModel).where(
-                        ATModel.related_order_id == related_order_id,
-                        ATModel.is_order_root == False,
-                        ATModel.status.in_([ATS.open, ATS.claimed, ATS.in_progress])
-                    )
-                    role_tasks_res = await db.execute(role_tasks_q)
-                    role_tasks = role_tasks_res.scalars().all()
-                    for rtask in role_tasks:
-                        rtask.status = ATS.completed
-                        rtask.completed_at = now_root
-                        # Mark all assignments on this task as DONE
-                        assign_q = select(TAModel).where(
-                            TAModel.task_id == rtask.id,
-                            TAModel.status.notin_([AssignmentStatus.done, AssignmentStatus.skipped])
+                    if not skip_root_completion:
+                        now_root = datetime.now(timezone.utc)
+                        # Use ORM mutation instead of Core UPDATE to avoid CompileError
+                        root_task.status = ATS.completed
+                        root_task.completed_at = now_root
+                        logger.error(
+                            "[ROOT-TRACE] root MARKED COMPLETED | root_id=%s",
+                            root_task.id,
                         )
-                        assign_res = await db.execute(assign_q)
-                        assigns = assign_res.scalars().all()
-                        for a in assigns:
-                            a.status = AssignmentStatus.done
-                            a.completed_at = now_root
-                        logger.info(f"[Automation] Cascade-completed role-scoped task {rtask.id} and {len(assigns)} assignments")
+                        # order_obj already fetched above; complete it
+                        if order_obj:
+                            order_obj.status = OS.completed
 
-                    await db.commit()
-                    logger.error(
-                        "[ROOT-TRACE] TRANSACTION COMMITTED | root_id=%s",
-                        root_task.id,
-                    )
-                    logger.info(f"[Automation] Marked order-root {root_task.id} COMPLETED and Order {related_order_id} COMPLETED as all root assignments are done")
-
-                    # === NOTIFY: Task (root) completed → notify participants ===
-                    try:
-                        root_title = getattr(root_task, 'title', None) or f"Order Task #{root_task.id}"
-                        actor_username = actor.username if actor else "System"
-                        await notify_and_emit_task_completed_to_participants(
-                            db=db,
-                            task_id=root_task.id,
-                            order_id=related_order_id,
-                            task_title=root_title,
-                            completed_by=actor_username,
+                        # Cascade completion to role-scoped automation tasks
+                        # Find all non-root tasks for this order that are still open/claimed/in_progress
+                        from app.db.models import TaskAssignment as TAModel
+                        role_tasks_q = select(ATModel).where(
+                            ATModel.related_order_id == related_order_id,
+                            ATModel.is_order_root == False,
+                            ATModel.status.in_([ATS.open, ATS.claimed, ATS.in_progress])
                         )
-                        logger.info(f"[Automation] Emitted root task_completed notification for task={root_task.id}")
-                    except Exception as e:
-                        logger.warning(f"[Automation] Failed to emit root task_completed notification: {e}")
-
-                    # === NOTIFY: Order completed → notify ALL participants ===
-                    if order_obj:
-                        try:
-                            order_reference = str(order_obj.id)
-                            await notify_and_emit_order_completed_to_participants(
-                                db=db,
-                                order_id=order_obj.id,
-                                order_reference=order_reference,
+                        role_tasks_res = await db.execute(role_tasks_q)
+                        role_tasks = role_tasks_res.scalars().all()
+                        for rtask in role_tasks:
+                            rtask.status = ATS.completed
+                            rtask.completed_at = now_root
+                            # Mark all assignments on this task as DONE
+                            assign_q = select(TAModel).where(
+                                TAModel.task_id == rtask.id,
+                                TAModel.status.notin_([AssignmentStatus.done, AssignmentStatus.skipped])
                             )
-                            logger.info(f"[Automation] Emitted order_completed notification for order={order_obj.id}")
-                        except Exception as e:
-                            logger.warning(f"[Automation] Failed to emit order_completed notification: {e}")
+                            assign_res = await db.execute(assign_q)
+                            assigns = assign_res.scalars().all()
+                            for a in assigns:
+                                a.status = AssignmentStatus.done
+                                a.completed_at = now_root
+                            logger.info(f"[Automation] Cascade-completed role-scoped task {rtask.id} and {len(assigns)} assignments")
 
-        # Emit Make.com webhook for task.completed event
+                        logger.info(f"[Automation] Marked order-root {root_task.id} COMPLETED and Order {related_order_id} COMPLETED as all root assignments are done")
+
+                        # === NOTIFY: Task (root) completed → notify participants (deferred) ===
+                        try:
+                            root_title = getattr(root_task, 'title', None) or f"Order Task #{root_task.id}"
+                            actor_username = actor.username if actor else "System"
+                            notifs = await notify_and_emit_task_completed_to_participants(
+                                db=db,
+                                task_id=root_task.id,
+                                order_id=related_order_id,
+                                task_title=root_title,
+                                completed_by=actor_username,
+                                defer_emit=True,
+                            )
+                            deferred_notifications.extend(notifs or [])
+                            logger.info(f"[Automation] Created deferred root task_completed notification for task={root_task.id}")
+                        except Exception as e:
+                            logger.warning(f"[Automation] Failed to create root task_completed notification: {e}")
+
+                        # === NOTIFY: Order completed → notify ALL participants (deferred) ===
+                        if order_obj:
+                            try:
+                                order_reference = str(order_obj.id)
+                                notifs = await notify_and_emit_order_completed_to_participants(
+                                    db=db,
+                                    order_id=order_obj.id,
+                                    order_reference=order_reference,
+                                    defer_emit=True,
+                                )
+                                deferred_notifications.extend(notifs or [])
+                                logger.info(f"[Automation] Created deferred order_completed notification for order={order_obj.id}")
+                            except Exception as e:
+                                logger.warning(f"[Automation] Failed to create order_completed notification: {e}")
+
+        # =====================================================================
+        # SINGLE COMMIT — all DB writes happen above, all emissions below
+        # =====================================================================
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
+        logger.error(
+            "[ROOT-TRACE] TRANSACTION COMMITTED | assignment_id=%s",
+            assignment.id,
+        )
+
+        # Re-query assignment with user relationship eagerly loaded for API serialization
+        _stmt = (
+            select(TaskAssignment)
+            .options(selectinload(TaskAssignment.user))
+            .where(TaskAssignment.id == assignment.id)
+        )
+        _res = await db.execute(_stmt)
+        assignment = _res.scalar_one()
+
+        # =====================================================================
+        # POST-COMMIT: Emit all deferred notifications via Socket.IO
+        # =====================================================================
+        if deferred_notifications:
+            try:
+                from app.services.notification_emitter import emit_deferred_notifications
+                await emit_deferred_notifications(deferred_notifications)
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to emit deferred notifications: {e}")
+
+        # POST-COMMIT: Emit deferred engine events (task.completed, task.activated, order.status_changed)
+        if deferred_engine:
+            try:
+                from app.services.task_engine import emit_event
+                for event_name, payload in deferred_engine.get("events", []):
+                    await emit_event(event_name, payload)
+                # Engine notifications were already in deferred_notifications via task_engine
+                engine_notifs = deferred_engine.get("notifications", [])
+                if engine_notifs:
+                    from app.services.notification_emitter import emit_deferred_notifications as _emit
+                    await _emit(engine_notifs)
+                # Trigger automation on status change (Phase 6.2)
+                if deferred_engine.get("changed") and AUTOMATIONS_ENABLED:
+                    from app.automation.order_triggers import OrderAutomationTriggers
+                    await OrderAutomationTriggers.on_order_status_changed(
+                        db, deferred_engine["order"],
+                        deferred_engine["old_status"], deferred_engine["new_status"],
+                        user_id,
+                    )
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to emit deferred engine events: {e}")
+
+        # POST-COMMIT: Emit Make.com webhook for task.completed event
         try:
             # Get user info for payload
             user_result = await db.execute(select(User).where(User.id == user_id))
@@ -1672,7 +1732,29 @@ class AutomationService:
         """Get all events for a task."""
         result = await db.execute(
             select(TaskEvent)
+            .options(selectinload(TaskEvent.user))
             .where(TaskEvent.task_id == task_id)
+            .order_by(TaskEvent.created_at)
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_order_task_events(
+        db: AsyncSession,
+        order_id: int,
+    ) -> list[TaskEvent]:
+        """Get events from ALL automation tasks belonging to an order.
+
+        Used so that viewing the order-root task shows the full activity
+        timeline including events logged against role-specific sibling tasks.
+        """
+        sibling_ids_q = select(AutomationTask.id).where(
+            AutomationTask.related_order_id == order_id
+        )
+        result = await db.execute(
+            select(TaskEvent)
+            .options(selectinload(TaskEvent.user))
+            .where(TaskEvent.task_id.in_(sibling_ids_q))
             .order_by(TaskEvent.created_at)
         )
         return list(result.scalars().all())

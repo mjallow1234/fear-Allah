@@ -25,7 +25,6 @@ import {
   Plus,
   Boxes,
   Pencil,
-  Minus,
   Trash,
   RotateCcw,
   History
@@ -81,7 +80,7 @@ function formatDateTime(dateStr: string): string {
 export default function SalesPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [, setSearchParams] = useSearchParams()
   const { addToast } = useNotificationContext()
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [highlightId, setHighlightId] = useState<number | null>(null)
@@ -169,8 +168,7 @@ export default function SalesPage() {
   const { currentUser } = useAuthStore()
   // Enforce matrix v1: revenue visible **only** to system admins (strict role check)
   // Revenue visibility must NOT depend on API response — hard block by role here.
-  const isAdmin = currentUser?.role === 'system_admin'
-  const canManageRawMaterials = currentUser?.operational_roles?.includes('admin')
+  const isAdmin = Boolean(currentUser?.is_system_admin === true || currentUser?.operational_roles?.includes('admin'))
   // System admin flag used to restrict certain auto-fetch calls (system-admin-only APIs)
   const isSystemAdmin = currentUser?.is_system_admin === true
   // Permissions for Sales sub-views
@@ -311,95 +309,116 @@ export default function SalesPage() {
   ]
 
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
-      {/* Header */}
-      <div className="h-12 flex items-center px-4 justify-between flex-shrink-0" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-1 transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <DollarSign size={20} style={{ color: 'var(--accent)' }} />
-          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Sales & Inventory</span>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
+    <div className="flex flex-col min-h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
+      {/* Header — two rows on mobile, single row on md+ */}
+      <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
+        {/* Row 1: always visible */}
+        <div className="h-12 flex items-center px-4 justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-1 transition-colors flex-shrink-0"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <DollarSign size={20} className="flex-shrink-0" style={{ color: 'var(--accent)' }} />
+            <span className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>Sales & Inventory</span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Date Range Filter — hidden on mobile, shown in row 2 */}
+            <div className="hidden sm:flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: 'var(--input-bg)' }}>
+              {dateRanges.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setDateRange(value)}
+                  className={clsx('px-3 py-1 text-sm rounded-md transition-colors')}
+                  style={dateRange === value ? { backgroundColor: 'var(--accent)', color: 'var(--text-primary)' } : { color: 'var(--text-secondary)' }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Action Buttons — icon-only on mobile */}
             {(currentUser?.operational_roles?.some(r => ["admin","sales_agent","storekeeper"].includes(r))) && (
               <button
                 onClick={() => setShowSalesForm(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                title="Record Sale"
               >
                 <Plus size={14} />
-                Record Sale
+                <span className="hidden sm:inline">Record Sale</span>
               </button>
             )}
             {isAdmin && (
               <button
                 onClick={() => setShowInventoryForm(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                title="Manage Inventory"
               >
                 <Package size={14} />
-                Manage Inventory
+                <span className="hidden sm:inline">Manage Inventory</span>
               </button>
             )}
+
+            {/* Refresh */}
+            <button
+              onClick={handleRefresh}
+              disabled={isLoading}
+              className="p-2 icon-button text-[#949ba4] hover:text-white transition-colors disabled:opacity-50"
+              title="Refresh"
+            >
+              <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+            </button>
           </div>
-          
-          {/* Date Range Filter */}
-          <div className="flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: 'var(--input-bg)' }}>
+        </div>
+
+        {/* Row 2: date range on mobile only */}
+        <div className="sm:hidden flex items-center gap-1 px-4 pb-2">
+          <div className="flex items-center gap-1 rounded-lg p-1 w-full" style={{ backgroundColor: 'var(--input-bg)' }}>
             {dateRanges.map(({ value, label }) => (
               <button
                 key={value}
                 onClick={() => setDateRange(value)}
-                className={clsx('px-3 py-1 text-sm rounded-md transition-colors')}
+                className={clsx('flex-1 py-1 text-sm rounded-md transition-colors')}
                 style={dateRange === value ? { backgroundColor: 'var(--accent)', color: 'var(--text-primary)' } : { color: 'var(--text-secondary)' }}
               >
                 {label}
               </button>
             ))}
           </div>
-          
-          {/* Refresh button */}
-          <button
-            onClick={handleRefresh}
-            disabled={isLoading}
-            className="p-2 text-[#949ba4] hover:text-white transition-colors disabled:opacity-50"
-            title="Refresh"
-          >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-          </button>
         </div>
       </div>
       
-      {/* Tabs - visible according to operational permissions */}
-      <div className="border-b border-[#1f2023] flex px-4 flex-shrink-0">
-        {[
-          { id: 'overview' as TabType, label: 'Overview', icon: TrendingUp, allowed: true },
-          { id: 'agents' as TabType, label: 'Agent Performance', icon: Users, allowed: true },
-          { id: 'inventory' as TabType, label: 'Inventory', icon: Package, allowed: true },
-          { id: 'raw-materials' as TabType, label: 'Raw Materials', icon: Boxes, allowed: !!perms.sales?.rawMaterials },
-          { id: 'transactions' as TabType, label: 'Transactions', icon: Calendar, allowed: true }
-        ]
-          .filter(tab => tab.allowed)
-          .map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={clsx(
-              'px-4 py-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-colors',
-              activeTab === id
-                ? 'text-white border-[#5865f2]'
-                : 'text-[#949ba4] border-transparent hover:text-white hover:border-[#35373c]'
-            )}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
+      {/* Tabs — horizontally scrollable, no wrap */}
+      <div className="border-b border-[#1f2023] sticky top-0 z-10 overflow-x-auto scrollbar-none" style={{ backgroundColor: 'var(--main-bg)' }}>
+        <div className="flex px-4 min-w-max">
+          {[
+            { id: 'overview' as TabType, label: 'Overview', icon: TrendingUp, allowed: true },
+            { id: 'agents' as TabType, label: 'Agents', icon: Users, allowed: true },
+            { id: 'inventory' as TabType, label: 'Inventory', icon: Package, allowed: true },
+            { id: 'raw-materials' as TabType, label: 'Materials', icon: Boxes, allowed: !!perms.sales?.rawMaterials },
+            { id: 'transactions' as TabType, label: 'Transactions', icon: Calendar, allowed: true }
+          ]
+            .filter(tab => tab.allowed)
+            .map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={clsx(
+                'px-4 py-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap',
+                activeTab === id
+                  ? 'text-white border-[#5865f2]'
+                  : 'text-[#949ba4] border-transparent hover:text-white hover:border-[#35373c]'
+              )}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Keep active tab valid (no permission checks) */}
@@ -415,7 +434,7 @@ export default function SalesPage() {
       })()}
       
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="p-4">
         {activeTab === 'overview' && (
             perms.sales?.overview ? (
               <OverviewTab
@@ -481,8 +500,6 @@ export default function SalesPage() {
                 setShowMaterialDrawer(true)
               }}
 
-              /* Control empty-state rendering for admins */
-              canManageRawMaterials={canManageRawMaterials}
             />
           ) : (
             <RestrictedSection message="Raw Materials are restricted" />
@@ -856,6 +873,7 @@ function AgentsTab({
 
   return (
     <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
+      <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
           <tr className="border-b border-[#1f2023]">
@@ -902,6 +920,7 @@ function AgentsTab({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
@@ -1067,6 +1086,7 @@ function TransactionsTab({
   isAdmin?: boolean
   highlightId?: number | null
 }) {
+  const navigate = useNavigate()
   const { reverseTransaction } = useInventoryStore()
   const { addToast } = useNotificationContext()
   const [reversingId, setReversingId] = useState<number | null>(null)
@@ -1182,7 +1202,18 @@ function TransactionsTab({
             {tx.product_name}
           </span>
         ) : (
-          <span className="text-white">{tx.product_name}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-white">{tx.product_name}</span>
+            {tx.reason === 'sale' && tx.related_sale_id != null && (
+              <button
+                onClick={() => navigate(`/sales/${tx.related_sale_id}`)}
+                className="flex-shrink-0 text-[#5865f2] hover:text-[#7289da] text-xs underline underline-offset-2 transition-colors"
+                title="View sale details"
+              >
+                #Sale
+              </button>
+            )}
+          </div>
         )}
       </td>
       <td className="px-4 py-3 text-center">
@@ -1275,6 +1306,7 @@ function TransactionsTab({
         ))}
       </div>
       <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
+      <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
           <tr className="border-b border-[#1f2023]">
@@ -1295,6 +1327,7 @@ function TransactionsTab({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
     </div>
   )
@@ -1315,7 +1348,7 @@ interface RawMaterial {
 function RawMaterialsTab({
   materials,
   loading,
-  isAdmin,
+  isAdmin: _isAdmin,
   onCreateClick,
   onAddClick,
   onRefresh,
@@ -1404,7 +1437,8 @@ function RawMaterialsTab({
         </div>
       ) : (
         <div className="bg-[#2b2d31] rounded-lg border border-[#1f2023] overflow-hidden">
-          <table className="w-full table-fixed">
+          <div className="overflow-x-auto">
+          <table className="w-full">
             <thead>
               <tr className="border-b border-[#1f2023]">
                 <th className="w-[25%] text-left text-[#949ba4] text-sm font-medium px-4 py-3">Material</th>
@@ -1510,6 +1544,7 @@ function RawMaterialsTab({
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
       

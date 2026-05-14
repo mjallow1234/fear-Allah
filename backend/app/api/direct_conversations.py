@@ -9,6 +9,7 @@ from app.core.security import get_current_user, check_user_can_post
 from app.realtime.socket import emit_message_new, emit_direct_read_updated
 from app.api.ws import manager
 from app.api.messages import transform_message_to_response
+from app.services.identity import resolve_display_name
 from datetime import datetime
 import logging
 
@@ -227,7 +228,7 @@ async def post_direct_conversation_message(
         participants = pr.scalars().all()
         other_participant = next((p for p in participants if p.user_id != current_user["user_id"]), None)
         if other_participant:
-            sender_username = current_user.get('username') or f"user_{current_user['user_id']}"
+            sender_username = resolve_display_name(msg.author)
             await create_and_emit_notification(
                 db,
                 user_id=other_participant.user_id,
@@ -253,6 +254,8 @@ async def post_direct_conversation_message(
             "content": msg.content,
             "direct_conversation_id": conv_id,
             "author_id": current_user["user_id"],
+            "author_username": msg.author.username if msg.author else None,
+            "author_display_name": resolve_display_name(msg.author),
             "parent_id": request.parent_id,
             "created_at": msg.created_at.isoformat(),
         }
@@ -260,13 +263,14 @@ async def post_direct_conversation_message(
 
         # If this message is a reply to a parent in a DM, also emit thread:reply for DM rooms
         if parent_msg:
-            username = msg.author.username if msg.author else f"user_{current_user['user_id']}"
+            username = resolve_display_name(msg.author)
             reply_payload = {
                 "id": msg.id,
                 "content": msg.content,
                 "direct_conversation_id": conv_id,
                 "author_id": current_user["user_id"],
-                "author_username": username,
+                "author_username": msg.author.username if msg.author else None,
+                "author_display_name": username,
                 "parent_id": request.parent_id,
                 "created_at": msg.created_at.isoformat(),
                 "is_edited": False,
@@ -285,7 +289,7 @@ async def post_direct_conversation_message(
                     r = await db.execute(select(UserModel).where(UserModel.id == parent_msg.author_id, UserModel.is_active == True))
                     parent_author = r.scalar_one_or_none()
                     if parent_author:
-                        sender_username = current_user.get('username') or f"user_{current_user['user_id']}"
+                        sender_username = resolve_display_name(msg.author)
                         await create_and_emit_notification(
                             db,
                             user_id=parent_author.id,

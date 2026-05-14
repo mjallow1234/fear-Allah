@@ -29,3 +29,8 @@ export {
   subscribeToOrders,
   resetOrderSubscription,
 } from './orders'
+
+export {
+  subscribeToSales,
+  resetSaleSubscription,
+} from './sales'

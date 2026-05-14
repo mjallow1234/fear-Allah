@@ -57,11 +57,22 @@ class AssignmentCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class UserBrief(BaseModel):
+    """Minimal user info for display purposes."""
+    id: int
+    username: str
+    display_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class AssignmentResponse(BaseModel):
     """Schema for assignment response"""
     id: int
     task_id: int
     user_id: Optional[int] = None
+    user: Optional[UserBrief] = None
     role_hint: Optional[str]
     status: AssignmentStatus
     notes: Optional[str]
@@ -84,6 +95,7 @@ class TaskEventResponse(BaseModel):
     id: int
     task_id: int
     user_id: Optional[int]
+    user: Optional[UserBrief] = None
     event_type: TaskEventType
     metadata: Optional[dict[str, Any]]
     created_at: datetime

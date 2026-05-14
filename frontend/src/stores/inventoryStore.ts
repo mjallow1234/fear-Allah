@@ -33,6 +33,7 @@ export interface InventoryTransaction {
     display_name: string
   } | null
   reference_transaction_id?: number | null
+  related_sale_id?: number | null
   created_at: string
   notes?: string
 }
@@ -159,6 +160,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
         reason: tx.reason as string || tx.type as string || 'unknown',
         created_by: tx.created_by as InventoryTransaction['created_by'],
         reference_transaction_id: tx.reference_transaction_id as number | null | undefined,
+        related_sale_id: tx.related_sale_id as number | null | undefined,
         created_at: tx.created_at as string || new Date().toISOString(),
         notes: tx.notes as string | undefined
       }))

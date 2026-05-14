@@ -9,7 +9,7 @@
  * - System Settings
  * - Audit Log
  */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -53,6 +53,9 @@ import { useUICapabilities } from '../permissions/uiPermissions'
 import { extractAxiosError } from '../utils/errorUtils'
 import { useNotificationContext } from '../contexts/NotificationProvider'
 import api from '../services/api'
+import Portal from '../components/ui/Portal'
+import { useFloating } from '../hooks/useFloating'
+import type { RefObject } from 'react'
 
 // === Tab Types ===
 type TabId = 'overview' | 'users' | 'roles' | 'settings' | 'audit'
@@ -185,7 +188,7 @@ function OverviewTab() {
 
 // Phase 8.5.3: Enhanced User Action Menu with safety guards
 // Phase 8.6: Permission enforcement
-function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => void }) {
+function UserActionMenu({ user, onClose, anchorRef }: { user: SystemUser; onClose: () => void; anchorRef: RefObject<HTMLElement | null> }) {
   const { setUserStatus, setUserAdmin, resetUserPassword, forceLogoutUser, stats } = useSystemStore()
   const currentUser = useAuthStore(s => s.user)
   const { addToast } = useNotificationContext()
@@ -196,6 +199,10 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
   
   // Phase 8.6: Permission check
   const { canManageUsers } = useUICapabilities()
+
+  // Portal positioning — always open since the component is only mounted when visible
+  const menuCoords = useFloating({ anchorRef, open: true, width: 320, height: 400, placement: 'bottom-end' })
+  const coords = menuCoords ?? { top: -9999, left: -9999 }
   
   const isSelf = currentUser?.id === user.id
   const isLastAdmin = stats?.users.admins === 1 && user.is_system_admin
@@ -318,7 +325,12 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
   // Password reset success view
   if (tempPassword) {
     return (
-      <div className="absolute right-0 top-full mt-1 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-4">
+      <Portal>
+        <div className="fixed inset-0" style={{ zIndex: 199 }} onClick={onClose} />
+        <div
+          className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4"
+          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 320, zIndex: 200 }}
+        >
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-green-400 flex items-center gap-2">
             <Check size={16} />
@@ -345,7 +357,8 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
           <AlertTriangle size={12} />
           User must change password on next login.
         </div>
-      </div>
+        </div>
+      </Portal>
     )
   }
   
@@ -381,7 +394,12 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
     const config = confirmMessages[confirmAction]
     
     return (
-      <div className="absolute right-0 top-full mt-1 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-4">
+      <Portal>
+        <div className="fixed inset-0" style={{ zIndex: 199 }} onClick={() => setConfirmAction(null)} />
+        <div
+          className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4"
+          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 288, zIndex: 200 }}
+        >
         <div className="flex items-center justify-between mb-3">
           <span className={clsx(
             'text-sm font-medium',
@@ -432,12 +450,18 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
             Confirm
           </button>
         </div>
-      </div>
+        </div>
+      </Portal>
     )
   }
   
   return (
-    <div className="absolute right-0 top-full mt-1 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+    <Portal>
+      <div className="fixed inset-0" style={{ zIndex: 199 }} onClick={onClose} />
+      <div
+        className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden"
+        style={{ position: 'fixed', top: coords.top, left: coords.left, width: 224, zIndex: 200 }}
+      >
       {loading && (
         <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center z-10">
           <Loader2 className="animate-spin text-blue-500" size={20} />
@@ -572,7 +596,8 @@ function UserActionMenu({ user, onClose }: { user: SystemUser; onClose: () => vo
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </Portal>
   )
 }
 
@@ -584,6 +609,9 @@ function UserRow({ user, view, onRestoreSuccess }: { user: SystemUser, view: 'ac
   const [restoring, setRestoring] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [restoreError, setRestoreError] = useState<string | null>(null)
+  const menuTriggerRef = useRef<HTMLButtonElement>(null)
+  const [deleteAnchor, setDeleteAnchor] = useState<DOMRect | null>(null)
+  const [restoreAnchor, setRestoreAnchor] = useState<DOMRect | null>(null)
 
   const currentUser = useAuthStore(s => s.user)
   const isSelf = currentUser?.id === user.id
@@ -609,7 +637,6 @@ function UserRow({ user, view, onRestoreSuccess }: { user: SystemUser, view: 'ac
   }
 
   const handleRestore = async () => {
-    console.log('RESTORE CLICKED', user.id)
     // Note: we don't allow self-restore (no-op) but still move through flow to keep behavior consistent.
     if (isSelf) {
       setRestoreError('You cannot restore yourself')
@@ -704,7 +731,7 @@ function UserRow({ user, view, onRestoreSuccess }: { user: SystemUser, view: 'ac
       <td className="px-4 py-3 relative">
         {view === 'active' && (
           <button
-            onClick={() => setConfirmDelete(true)}
+            onClick={(e) => { setDeleteAnchor(e.currentTarget.getBoundingClientRect()); setConfirmDelete(true) }}
             disabled={!canManageUsers || deleting || isSelf || user.is_system_admin}
             className={clsx(
               'p-1.5 rounded mr-1 transition-colors',
@@ -723,7 +750,7 @@ function UserRow({ user, view, onRestoreSuccess }: { user: SystemUser, view: 'ac
         )}
         {view === 'deleted' && (
           <button
-            onClick={() => setConfirmRestore(true)}
+            onClick={(e) => { setRestoreAnchor(e.currentTarget.getBoundingClientRect()); setConfirmRestore(true) }}
             disabled={!canManageUsers || restoring}
             className={clsx(
               'p-1.5 hover:bg-green-700 rounded text-green-400 hover:text-green-200 mr-1',
@@ -735,48 +762,61 @@ function UserRow({ user, view, onRestoreSuccess }: { user: SystemUser, view: 'ac
           </button>
         )}
         <button
+          ref={menuTriggerRef}
           onClick={() => setShowMenu(!showMenu)}
           className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
         >
           <MoreVertical size={16} />
         </button>
-        {showMenu && <UserActionMenu user={user} onClose={() => setShowMenu(false)} />}
+        {showMenu && <UserActionMenu user={user} anchorRef={menuTriggerRef} onClose={() => setShowMenu(false)} />}
 
-        {confirmDelete && (
-          <div className="absolute right-0 top-full mt-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-3">
-            <p className="text-sm text-gray-200 mb-2">Are you sure you want to delete this user?</p>
-            {deleteError && <p className="text-xs text-red-400 mb-2">{deleteError}</p>}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={deleting}
-              >Cancel</button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-sm text-white"
-                disabled={deleting}
-              >{deleting ? 'Deleting...' : 'Confirm'}</button>
+        {confirmDelete && deleteAnchor && (
+          <Portal>
+            <div className="fixed inset-0" style={{ zIndex: 199 }} onClick={() => setConfirmDelete(false)} />
+            <div
+              className="w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-3"
+              style={{ position: 'fixed', top: deleteAnchor.bottom + 4, left: Math.max(4, deleteAnchor.right - 288), zIndex: 200 }}
+            >
+              <p className="text-sm text-gray-200 mb-2">Are you sure you want to delete this user?</p>
+              {deleteError && <p className="text-xs text-red-400 mb-2">{deleteError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                  disabled={deleting}
+                >Cancel</button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-sm text-white"
+                  disabled={deleting}
+                >{deleting ? 'Deleting...' : 'Confirm'}</button>
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
-        {confirmRestore && (
-          <div className="absolute right-0 top-full mt-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-3">
-            <p className="text-sm text-gray-200 mb-2">Restore this user?</p>
-            {restoreError && <p className="text-xs text-red-400 mb-2">{restoreError}</p>}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmRestore(false)}
-                className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={restoring}
-              >Cancel</button>
-              <button
-                onClick={handleRestore}
-                className="flex-1 px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-sm text-white"
-                disabled={restoring}
-              >{restoring ? 'Restoring...' : 'Confirm'}</button>
+        {confirmRestore && restoreAnchor && (
+          <Portal>
+            <div className="fixed inset-0" style={{ zIndex: 199 }} onClick={() => setConfirmRestore(false)} />
+            <div
+              className="w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-3"
+              style={{ position: 'fixed', top: restoreAnchor.bottom + 4, left: Math.max(4, restoreAnchor.right - 288), zIndex: 200 }}
+            >
+              <p className="text-sm text-gray-200 mb-2">Restore this user?</p>
+              {restoreError && <p className="text-xs text-red-400 mb-2">{restoreError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmRestore(false)}
+                  className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                  disabled={restoring}
+                >Cancel</button>
+                <button
+                  onClick={handleRestore}
+                  className="flex-1 px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-sm text-white"
+                  disabled={restoring}
+                >{restoring ? 'Restoring...' : 'Confirm'}</button>
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
       </td>
     </tr>
@@ -832,7 +872,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   useEffect(() => {
     // Default operational role to agent if available
     if (!formData.operational_role_id && operationalRoles && operationalRoles.length) {
-      const agent = operationalRoles.find(r => r.name === 'agent')
+      const agent = operationalRoles.find(r => r.name === 'sales_agent')
       if (agent) setFormData(d => ({ ...d, operational_role_id: agent.id }))
     }
 
@@ -1219,8 +1259,8 @@ function UsersTab() {
   
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 flex items-center gap-3 min-w-0">
           <h2 className="text-xl font-semibold text-gray-200">User Management</h2>
           {/* Phase 8.6: Show read-only or actions enabled badge */}
           {canManageUsers ? (
@@ -1235,7 +1275,7 @@ function UsersTab() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setView('active')}
             className={clsx(
@@ -1254,8 +1294,6 @@ function UsersTab() {
           >
             Deleted Users
           </button>
-        </div>
-        <div className="flex items-center gap-2">
           <button
             onClick={() => fetchUsers(true)}
             disabled={usersLoading}
@@ -1340,6 +1378,7 @@ function UsersTab() {
             <Loader2 className="animate-spin text-blue-500" size={32} />
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-900/50">
               <tr>
@@ -1372,6 +1411,7 @@ function UsersTab() {
               )}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       
@@ -1537,7 +1577,7 @@ function CreateRoleModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                   <div className="text-xs font-medium text-gray-400 uppercase mb-2">
                     {PERMISSION_CATEGORIES[category]?.label || category}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {perms.map(perm => (
                       <label
                         key={perm.key}
@@ -1712,7 +1752,7 @@ function EditPermissionsModal({ role, onClose, onSuccess }: { role: RoleInfo; on
                   <Shield size={12} />
                   {PERMISSION_CATEGORIES[category]?.label || category}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {perms.map(perm => {
                     const isRequired = requiredPermissions.includes(perm.key)
                     const isSelected = selectedPermissions.includes(perm.key)
@@ -1960,9 +2000,8 @@ function RolesTab() {
   
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-gray-200">Roles & Permissions</h2>
           {/* Phase 8.6: Show read-only badge if no manage permission */}
           {canManageRoles ? (
             <span className="px-2 py-0.5 bg-green-500/20 rounded text-xs text-green-400 flex items-center gap-1">
@@ -2186,6 +2225,7 @@ function SettingsTab() {
           <h3 className="font-medium text-gray-300">Rate Limits</h3>
         </div>
         <div className="p-4">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-400 text-left">
@@ -2206,6 +2246,7 @@ function SettingsTab() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>
@@ -2352,81 +2393,125 @@ export default function SystemConsolePage() {
   }
   
   return (
-    <div className="flex h-full bg-gray-900">
-      {/* Sidebar */}
-      <div className="w-64 flex-shrink-0 bg-gray-800/50 border-r border-gray-700/50">
-        <div className="p-4 border-b border-gray-700/50">
+    <div className="flex flex-col h-full bg-gray-900">
+      {/* Mobile-only: top bar + horizontal tab strip */}
+      <div className="md:hidden flex-shrink-0 bg-gray-800/50 border-b border-gray-700/50">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-700/30">
           <button
             onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-gray-400 hover:text-white text-sm"
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-sm"
           >
             <ArrowLeft size={16} />
-            Back to Chat
+            Back
           </button>
-        </div>
-        
-        <div className="p-4">
-          <h1 className="text-lg font-bold text-gray-200 mb-1">System Console</h1>
-          <p className="text-xs text-gray-500">Manage your workspace</p>
-        </div>
-        
-        <nav className="p-2">
-          {availableTabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={clsx(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
-                activeTab === tab.id
-                  ? 'bg-blue-600/20 text-blue-400'
-                  : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'
-              )}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-        
-        {/* Manual Refresh Button */}
-        <div className="p-2 mt-4 border-t border-gray-700/50">
+          <span className="font-semibold text-gray-200 text-sm">System Console</span>
           <button
             onClick={handleManualRefresh}
             disabled={rateLimited && retryCountdown !== null}
-            className={clsx(
-              'w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
-              rateLimited && retryCountdown !== null
-                ? 'bg-gray-700/30 text-gray-500 cursor-not-allowed'
-                : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
-            )}
+            className="p-1.5 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+            title="Refresh"
           >
-            <RefreshCw size={14} />
-            Refresh Data
+            <RefreshCw size={16} />
           </button>
         </div>
-      </div>
-      
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-6">
-          {/* Phase 8.4.4: Rate Limit Banner */}
-          {rateLimited && (
-            <div className="mb-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg flex items-center gap-3">
-              <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
-              <div className="flex-1">
-                <span className="text-yellow-200 text-sm">
-                  System data temporarily rate-limited. Please wait a moment.
-                </span>
-                {retryCountdown !== null && (
-                  <span className="text-yellow-400 text-xs ml-2">
-                    ({retryCountdown}s remaining)
-                  </span>
+        <div className="overflow-x-auto scrollbar-none">
+          <div className="flex min-w-max px-2">
+            {availableTabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors',
+                  activeTab === tab.id
+                    ? 'text-blue-400 border-blue-500'
+                    : 'text-gray-400 border-transparent hover:text-white'
                 )}
-              </div>
-            </div>
-          )}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop sidebar + content / Mobile content-only */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar (desktop only) */}
+        <div className="hidden md:flex flex-col w-64 flex-shrink-0 bg-gray-800/50 border-r border-gray-700/50">
+          <div className="p-4 border-b border-gray-700/50">
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-2 text-gray-400 hover:text-white text-sm"
+            >
+              <ArrowLeft size={16} />
+              Back to Chat
+            </button>
+          </div>
           
-          {renderTabContent()}
+          <div className="p-4">
+            <h1 className="text-lg font-bold text-gray-200 mb-1">System Console</h1>
+            <p className="text-xs text-gray-500">Manage your workspace</p>
+          </div>
+          
+          <nav className="p-2">
+            {availableTabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={clsx(
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
+                  activeTab === tab.id
+                    ? 'bg-blue-600/20 text-blue-400'
+                    : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'
+                )}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          
+          {/* Manual Refresh Button */}
+          <div className="p-2 mt-4 border-t border-gray-700/50">
+            <button
+              onClick={handleManualRefresh}
+              disabled={rateLimited && retryCountdown !== null}
+              className={clsx(
+                'w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                rateLimited && retryCountdown !== null
+                  ? 'bg-gray-700/30 text-gray-500 cursor-not-allowed'
+                  : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 hover:text-white'
+              )}
+            >
+              <RefreshCw size={14} />
+              Refresh Data
+            </button>
+          </div>
+        </div>
+        
+        {/* Main Content */}
+        <div className="flex-1 overflow-auto">
+          <div className="max-w-5xl mx-auto px-3 py-4 sm:p-6">
+            {/* Phase 8.4.4: Rate Limit Banner */}
+            {rateLimited && (
+              <div className="mb-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg flex items-center gap-3">
+                <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
+                <div className="flex-1">
+                  <span className="text-yellow-200 text-sm">
+                    System data temporarily rate-limited. Please wait a moment.
+                  </span>
+                  {retryCountdown !== null && (
+                    <span className="text-yellow-400 text-xs ml-2">
+                      ({retryCountdown}s remaining)
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {renderTabContent()}
+          </div>
         </div>
       </div>
     </div>

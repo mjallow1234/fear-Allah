@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import Portal from './ui/Portal'
+import { useFloating } from '../hooks/useFloating'
 import { Bell, Check, CheckCheck, Trash2, Package, ShoppingCart, ClipboardList, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import clsx from 'clsx'
 import { onSocketEvent } from '../realtime'
+import { resolveSenderName, repairNotificationTitle, resolveNotificationRoute } from '../utils/identity'
 
 interface Notification {
   id: number
@@ -18,6 +21,7 @@ interface Notification {
   sale_id: number | null
   sender_id: number | null
   sender_username: string | null
+  sender_display_name?: string | null
   extra_data: string | null
   is_read: boolean
   created_at: string
@@ -36,6 +40,8 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const navigate = useNavigate()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownCoords = useFloating({ anchorRef: triggerRef, open: showDropdown, width: 320, height: 480, placement: 'bottom-end' })
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -126,40 +132,8 @@ export default function NotificationBell() {
     }
     setShowDropdown(false)
 
-    // PRIORITY 0: Action URL from extra_data (automation / sales / inventory notifications)
-    if (notif.extra_data) {
-      try {
-        const data = JSON.parse(notif.extra_data)
-        if (data.action_url) {
-          navigate(data.action_url)
-          return
-        }
-      } catch { /* ignore parse errors */ }
-    }
-    
-    // PRIORITY 1: Order-related notifications → always go to snapshot (read-only, permission-safe)
-    // This applies to: order_created, order_completed, task_assigned, task_completed, task_overdue
-    // NOTE: /order-snapshot is intentionally OUTSIDE /orders so non-admin roles can access it
-    if (notif.order_id) {
-      navigate(`/order-snapshot/${notif.order_id}`)
-      return
-    }
-    
-    // PRIORITY 2: Standalone task notifications (no order) → task inbox
-    if (notif.task_id) {
-      navigate(`/tasks?task=${notif.task_id}`)
-      return
-    }
-    
-    // PRIORITY 3: Channel/message notifications
-    if (notif.channel_id) {
-      if (notif.message_id) {
-        navigate(`/channels/${notif.channel_id}?message=${notif.message_id}`)
-      } else {
-        navigate(`/channels/${notif.channel_id}`)
-      }
-      return
-    }
+    const route = resolveNotificationRoute(notif)
+    if (route) navigate(route)
   }
 
   const getNotificationIcon = (type: string) => {
@@ -219,6 +193,7 @@ export default function NotificationBell() {
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setShowDropdown(!showDropdown)}
         className="relative p-2 text-[#949ba4] hover:text-white transition-colors"
         title="Notifications"
@@ -231,13 +206,17 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {showDropdown && (
-        <>
+      {showDropdown && dropdownCoords && (
+        <Portal>
           <div
-            className="fixed inset-0 z-40"
+            className="fixed inset-0"
+            style={{ zIndex: 199 }}
             onClick={() => setShowDropdown(false)}
           />
-          <div className="absolute right-0 top-10 w-80 bg-[#2b2d31] border border-[#1f2023] rounded-lg shadow-xl z-50 overflow-hidden">
+          <div
+            className="w-80 bg-[#2b2d31] border border-[#1f2023] rounded-lg shadow-xl overflow-hidden"
+            style={{ position: 'fixed', top: dropdownCoords.top, left: dropdownCoords.left, zIndex: 200 }}
+          >
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f2023]">
               <h3 className="font-semibold text-white">Notifications</h3>
               {unreadCount > 0 && (
@@ -277,7 +256,7 @@ export default function NotificationBell() {
                             'text-sm truncate',
                             notif.is_read ? 'text-[#949ba4]' : 'text-white font-medium'
                           )}>
-                            {notif.title}
+                            {repairNotificationTitle(notif.title, resolveSenderName(notif))}
                           </span>
                           {!notif.is_read && (
                             <span className="w-2 h-2 rounded-full bg-[#00a8fc] flex-shrink-0" />
@@ -330,7 +309,7 @@ export default function NotificationBell() {
               </div>
             )}
           </div>
-        </>
+        </Portal>
       )}
     </div>
   )

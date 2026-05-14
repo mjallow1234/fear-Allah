@@ -67,8 +67,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
     if (!parentMessage?.id) return
     
     const currentUserId = currentUser?.id
-    console.log('[ThreadPanel] Setting up thread:reply listener for parent:', parentMessage.id, 'currentUserId:', currentUserId)
-    
+
     const unsubscribe = onSocketEvent<{
       id: number
       content: string
@@ -80,23 +79,19 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
       is_edited: boolean
       reactions: any[]
     }>('thread:reply', (data) => {
-      console.log('[ThreadPanel] Received thread:reply event:', data)
 
       // Only handle replies to this thread
       if (data.parent_id !== parentMessage.id) {
-        console.log('[ThreadPanel] Ignoring reply for different thread:', data.parent_id, '!==', parentMessage.id)
         return
       }
 
       // Skip own replies (sender already added via REST)
       if (data.author_id === currentUserId) {
-        console.log('[Socket.IO] Skipping own thread reply', data.id)
         return
       }
 
       // Prevent duplicates using seenReplyIdsRef
       if (seenReplyIdsRef.current.has(data.id)) {
-        console.log('[ThreadPanel] Duplicate reply ignored by seen set:', data.id)
         return
       }
       seenReplyIdsRef.current.add(data.id)

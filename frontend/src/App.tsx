@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import PWAInstallBanner from './components/PWAInstallBanner'
+import PWAStatusIndicator from './components/PWAStatusIndicator'
 import { useAuthStore } from './stores/authStore'
 import { usePreferencesStore } from './stores/preferencesStore'
 import { connectSocket, subscribeToPresence } from './realtime'
@@ -16,6 +18,7 @@ import OrdersPage from './pages/OrdersPage'
 import OrderDetailsPage from './pages/OrderDetailsPage'
 import OrderSnapshotPage from './pages/OrderSnapshotPage'
 import SalesPage from './pages/SalesPage'
+import SaleDetailsPage from './pages/SaleDetailsPage'
 import AdminAuditPage from './pages/AdminAuditPage'
 import SystemConsolePage from './pages/SystemConsolePage'
 import AdminFormBuilderPage from './pages/AdminFormBuilderPage'
@@ -47,6 +50,15 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   }
   
   return <>{children}</>
+}
+
+// Redirect /inventory?product=X → /sales?tab=inventory&product=X
+function InventoryRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  const product = params.get('product')
+  const target = product ? `/sales?tab=inventory&product=${product}` : '/sales?tab=inventory'
+  return <Navigate to={target} replace />
 }
 
 function App() {
@@ -82,7 +94,6 @@ function App() {
   // Connect Socket.IO when authenticated and not blocked by forced password change
   useEffect(() => {
     if (isAuthenticated && token && !mustChangePassword) {
-      console.log('[App] User authenticated, connecting Socket.IO...')
       connectSocket()
       subscribeToPresence()
       
@@ -98,6 +109,7 @@ function App() {
   }, [isAuthenticated, token, mustChangePassword])
 
   return (
+    <>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
@@ -151,7 +163,11 @@ function App() {
 
         <Route path="sales/*" element={<OperationalGuard tab="Sales" />}>
           <Route index element={<SalesPage />} />
+          <Route path=":id" element={<SaleDetailsPage />} />
         </Route>
+
+        {/* /inventory → redirect to /sales?tab=inventory (inventory is a tab within Sales) */}
+        <Route path="inventory" element={<InventoryRedirect />} />
 
         <Route path="system/audit" element={<AdminOnlyGuard><AdminAuditPage /></AdminOnlyGuard>} />
         <Route path="system/*" element={<SystemConsolePage />} />
@@ -167,6 +183,11 @@ function App() {
       </Route>
       <Route path="*" element={<h1 style={{ padding: 40 }}>404 — Page not found</h1>} />
     </Routes>
+    {/* PWA install prompt — non-intrusive, dismissible for 48 h */}
+    <PWAInstallBanner />
+    {/* PWA dev diagnostics — stripped from production builds */}
+    <PWAStatusIndicator />
+    </>
   )
 }
 

@@ -28,6 +28,7 @@ class SalesAutomationTriggers:
     async def on_sale_recorded(
         db: AsyncSession,
         sale: Sale,
+        transaction_id: int | None = None,
     ) -> None:
         """
         Hook called when a sale is recorded.
@@ -36,6 +37,7 @@ class SalesAutomationTriggers:
         Args:
             db: Database session
             sale: The recorded sale
+            transaction_id: The InventoryTransaction.id created for this sale
         """
         if not SALES_AUTOMATION_ENABLED:
             return
@@ -50,6 +52,7 @@ class SalesAutomationTriggers:
                 product_name=None,  # Could be fetched from inventory
                 agent_id=sale.sold_by_user_id,
                 notify_admins=True,
+                transaction_id=transaction_id,
             )
         except Exception as e:
             logger.error(f"[SalesAutomation] Failed to send sale notification: {e}")

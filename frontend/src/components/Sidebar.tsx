@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { markChannelRead } from '../realtime/readReceipts'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus, FileText, Brain } from 'lucide-react'
+import { Hash, Settings, User, MessageSquare, Circle, ChevronDown, Plus, FileText, Brain, LogOut } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useUICapabilities } from '../permissions/uiPermissions'
 import { usePresenceStore } from '../stores/presenceStore'
@@ -11,6 +11,8 @@ import clsx from 'clsx'
 import NewDMModal from './NewDMModal'
 import CreateChannelModal from './CreateChannelModal'
 import { onSocketEvent } from '../realtime'
+import Portal from './ui/Portal'
+import { useFloating } from '../hooks/useFloating'
 
 
 interface Team {
@@ -52,11 +54,14 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const token = useAuthStore((state) => state.token)
+  const logout = useAuthStore((state) => state.logout)
   const { canViewSystemConsole, canCreateChannels } = useUICapabilities()
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [showTeamMenu, setShowTeamMenu] = useState(false)
+  const teamBtnRef = useRef<HTMLButtonElement>(null)
+  const teamMenuCoords = useFloating({ anchorRef: teamBtnRef, open: showTeamMenu, width: 240, height: 320, placement: 'bottom-start' })
   
   // Helper to navigate and close sidebar on mobile
   const navigateAndClose = (path: string) => {
@@ -327,6 +332,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       {/* Team selector */}
       <div className="relative">
         <button
+          ref={teamBtnRef}
           onClick={() => setShowTeamMenu(!showTeamMenu)}
           className="w-full h-12 flex items-center justify-between px-4 shadow-sm transition-colors"
           style={{ borderBottom: '1px solid var(--sidebar-border)', backgroundColor: 'transparent' }}
@@ -348,8 +354,17 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </button>
 
         {/* Team dropdown */}
-        {showTeamMenu && (
-          <div className="absolute top-12 left-0 right-0 rounded-b shadow-lg z-50 max-h-64 overflow-y-auto" style={{ backgroundColor: 'var(--dropdown-bg)', border: '1px solid var(--sidebar-border)' }}>
+        {showTeamMenu && teamMenuCoords && (
+          <Portal>
+            <div
+              className="fixed inset-0"
+              style={{ zIndex: 199 }}
+              onClick={() => setShowTeamMenu(false)}
+            />
+            <div
+              className="rounded-b shadow-lg max-h-64 overflow-y-auto"
+              style={{ position: 'fixed', top: teamMenuCoords.top, left: teamMenuCoords.left, width: 240, zIndex: 200, backgroundColor: 'var(--dropdown-bg)', border: '1px solid var(--sidebar-border)' }}
+            >
             {Array.isArray(teams) && teams.map((team) => (
               <button
                 key={team.id}
@@ -381,7 +396,8 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 No teams available
               </div>
             )}
-          </div>
+            </div>
+          </Portal>
         )}
       </div>
 
@@ -610,36 +626,66 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       </div>
 
       {/* User area */}
-      <div className="h-14 flex items-center px-2 gap-2" style={{ backgroundColor: 'var(--sidebar-user-bg)' }}>
-        <div className="relative">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" style={{ backgroundColor: 'var(--accent)' }}>
-            {(() => { const name = user?.display_name ?? user?.username ?? ''; return name ? name.charAt(0) : 'U' })()}
+      <div className="flex flex-col" style={{ borderTop: '1px solid var(--sidebar-border)', backgroundColor: 'var(--sidebar-user-bg)' }}>
+        {/* Identity row */}
+        <div className="flex items-center px-2 py-2 gap-2">
+          <div className="relative flex-shrink-0">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" style={{ backgroundColor: 'var(--accent)' }}>
+              {(() => { const name = user?.display_name ?? user?.username ?? ''; return name ? name.charAt(0) : 'U' })()}
+            </div>
+            <Circle
+              size={10}
+              className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', isUserOnline(user?.id) ? 'text-green-500' : 'text-gray-500')}
+            />
           </div>
-          <Circle
-            size={10}
-            className={clsx('absolute -bottom-0.5 -right-0.5 fill-current', isUserOnline(user?.id) ? 'text-green-500' : 'text-gray-500')}
-          />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-            {user?.display_name || user?.username}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+              {user?.display_name || user?.username}
+            </div>
+            <div className="text-xs truncate capitalize" style={{ color: 'var(--text-secondary)' }}>
+              {user?.is_system_admin
+                ? 'Admin'
+                : user?.operational_roles?.length
+                  ? user.operational_roles.join(', ')
+                  : (isUserOnline(user?.id) ? 'online' : 'offline')}
+            </div>
           </div>
-          <div className="text-xs truncate capitalize" style={{ color: 'var(--text-secondary)' }}>{isUserOnline(user?.id) ? 'online' : 'offline'}</div>
         </div>
-        <Link
-          to="/settings"
-          className="p-1 transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          <Settings size={18} />
-        </Link>
-        <Link
-          to="/profile"
-          className="p-1 transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          <User size={18} />
-        </Link>
+        {/* Action row */}
+        <div className="flex items-center px-2 pb-2 gap-1" style={{ borderTop: '1px solid var(--sidebar-border)', paddingTop: '6px' }}>
+          <button
+            onClick={() => navigateAndClose('/profile')}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            title="Profile"
+          >
+            <User size={15} />
+            <span>Profile</span>
+          </button>
+          <button
+            onClick={() => navigateAndClose('/settings')}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            title="Settings"
+          >
+            <Settings size={15} />
+            <span>Settings</span>
+          </button>
+          <button
+            onClick={() => { logout(); navigate('/login') }}
+            className="p-1.5 rounded transition-colors flex-shrink-0"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Sign out"
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+          >
+            <LogOut size={15} />
+          </button>
+        </div>
       </div>
 
       {/* New DM Modal */}

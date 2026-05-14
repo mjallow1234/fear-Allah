@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Notification
 from app.db.enums import NotificationType
+from app.services.identity import resolve_display_name
 
 
 from app.core.config import settings
@@ -31,6 +32,8 @@ async def emit_notification_to_user(user_id: int, notification: Notification):
         "channel_id": notification.channel_id,
         "message_id": notification.message_id,
         "sender_id": notification.sender_id,
+        "sender_username": notification.sender.username if notification.sender else None,
+        "sender_display_name": resolve_display_name(notification.sender) if notification.sender else None,
         "task_id": notification.task_id,
         "order_id": notification.order_id,
         "inventory_id": notification.inventory_id,
@@ -105,10 +108,16 @@ async def create_and_emit_notification(
     notification_type: NotificationType,
     title: str,
     content: Optional[str] = None,
+    defer_emit: bool = False,
     **kwargs
 ) -> Notification:
     """
-    Create a notification and emit it via Socket.IO in one call
+    Create a notification and emit it via Socket.IO in one call.
+    
+    Args:
+        defer_emit: When True, create the DB record (flush only, no commit)
+                    and skip socket emission. Caller must commit and then
+                    call emit_deferred_notifications().
     """
     from app.services.notifications import NotificationService
     
@@ -118,10 +127,12 @@ async def create_and_emit_notification(
         notification_type=notification_type,
         title=title,
         content=content,
+        auto_commit=(not defer_emit),
         **kwargs,
     )
     
-    await emit_notification_to_user(user_id, notification)
+    if not defer_emit:
+        await emit_notification_to_user(user_id, notification)
     return notification
 
 
@@ -131,10 +142,16 @@ async def create_and_emit_to_multiple(
     notification_type: NotificationType,
     title: str,
     content: Optional[str] = None,
+    defer_emit: bool = False,
     **kwargs
 ) -> List[Notification]:
     """
-    Create notifications for multiple users and emit via Socket.IO
+    Create notifications for multiple users and emit via Socket.IO.
+    
+    Args:
+        defer_emit: When True, create DB records (flush only, no commit)
+                    and skip socket emissions. Caller must commit and then
+                    call emit_deferred_notifications().
     """
     from app.services.notifications import NotificationService
     
@@ -147,12 +164,27 @@ async def create_and_emit_to_multiple(
             notification_type=notification_type,
             title=title,
             content=content,
+            auto_commit=(not defer_emit),
             **kwargs,
         )
         notifications.append(notification)
-        await emit_notification_to_user(user_id, notification)
+        if not defer_emit:
+            await emit_notification_to_user(user_id, notification)
     
     return notifications
+
+
+async def emit_deferred_notifications(notifications: List[Notification]):
+    """Emit previously created notifications via Socket.IO.
+    
+    Call this AFTER db.commit() to send socket events for notifications
+    that were created with defer_emit=True.
+    """
+    for n in notifications:
+        try:
+            await emit_notification_to_user(n.user_id, n)
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -311,6 +343,7 @@ async def notify_and_emit_task_completed_to_participants(
     order_id: int,
     task_title: str,
     completed_by: Optional[str] = None,
+    defer_emit: bool = False,
 ) -> List[Notification]:
     """
     Broadcast task completed notification to ALL order participants.
@@ -331,6 +364,7 @@ async def notify_and_emit_task_completed_to_participants(
         content=content,
         task_id=task_id,
         order_id=order_id,
+        defer_emit=defer_emit,
     )
 
 
@@ -395,6 +429,7 @@ async def notify_and_emit_task_step_completed_to_participants(
     step_key: str,
     step_label: str,
     role: Optional[str] = None,
+    defer_emit: bool = False,
 ) -> List[Notification]:
     """
     Notify all order participants that a workflow step has been completed.
@@ -422,6 +457,7 @@ async def notify_and_emit_task_step_completed_to_participants(
         content=content,
         task_id=None,  # DO NOT set - workflow task ID != automation_task ID
         order_id=order_id,
+        defer_emit=defer_emit,
         metadata={
             "step_key": step_key,
             "step_label": step_label,
@@ -435,6 +471,7 @@ async def notify_and_emit_order_completed_to_participants(
     db: AsyncSession,
     order_id: int,
     order_reference: str,
+    defer_emit: bool = False,
 ) -> List[Notification]:
     """
     Broadcast order completed notification to ALL order participants.
@@ -450,6 +487,7 @@ async def notify_and_emit_order_completed_to_participants(
         title="Order Completed",
         content=f"Order #{order_reference} has been completed",
         order_id=order_id,
+        defer_emit=defer_emit,
     )
 
 
@@ -458,15 +496,15 @@ async def notify_and_emit_order_created_to_roles(
     order_id: int,
     order_type: str,
     order_reference: Optional[str] = None,
-    customer_name: Optional[str] = None,
+    creator_name: Optional[str] = None,
     created_by_id: Optional[int] = None,
 ) -> List[Notification]:
     """
     Emit order_created notifications to users based on order type roles.
-    
+
     Uses user_operational_roles to resolve recipients.
     This is called at ORDER CREATION TIME, before any tasks exist.
-    
+
     NOTE: This is the authoritative order_created emitter.
     Do NOT use task assignments or participant resolution here.
     """
@@ -496,9 +534,9 @@ async def notify_and_emit_order_created_to_roles(
     
     ref = order_reference or str(order_id)
     content = f"New order #{ref}"
-    if customer_name:
-        content += f" from {customer_name}"
-    
+    if creator_name:
+        content += f" from {creator_name}"
+
     return await create_and_emit_to_multiple(
         db,
         user_ids=user_ids,
@@ -514,12 +552,12 @@ async def notify_and_emit_order_created(
     order_id: int,
     notify_user_id: int,
     order_reference: str,
-    customer_name: Optional[str] = None,
+    creator_name: Optional[str] = None,
 ) -> Notification:
     """Create and emit order created notification"""
     content = f"New order #{order_reference}"
-    if customer_name:
-        content += f" from {customer_name}"
+    if creator_name:
+        content += f" from {creator_name}"
     
     return await create_and_emit_notification(
         db,
@@ -609,6 +647,7 @@ async def notify_and_emit_sale_recorded(
     total_amount: float,
     product_name: Optional[str] = None,
     agent_display: Optional[str] = None,
+    transaction_id: int | None = None,
 ) -> Notification:
     """Create and emit sale recorded notification"""
     content = f"Sale recorded: D{total_amount:.2f}"
@@ -627,7 +666,7 @@ async def notify_and_emit_sale_recorded(
         metadata={
             "action_type": "sale",
             "entity_id": sale_id,
-            "action_url": f"/sales?tab=transactions&highlight={sale_id}",
+            "action_url": f"/sales?tab=transactions&highlight={transaction_id or sale_id}",
         },
     )
 

@@ -125,7 +125,6 @@ export const useAuditStore = create<AuditState>((set, get) => ({
   fetchLogs: async () => {
     // In-flight guard: prevent duplicate requests (Phase 8.4.2)
     if (get()._fetchingLogs) {
-      console.log('[AuditStore] fetchLogs already in flight, skipping')
       return
     }
     
@@ -200,13 +199,11 @@ export const useAuditStore = create<AuditState>((set, get) => ({
   fetchFilterOptions: async () => {
     // Only fetch once per session (Phase 8.4.2)
     if (get()._optionsFetched) {
-      console.log('[AuditStore] Filter options already fetched, skipping')
       return
     }
     
     // In-flight guard: prevent duplicate requests
     if (get()._fetchingOptions) {
-      console.log('[AuditStore] fetchFilterOptions already in flight, skipping')
       return
     }
     

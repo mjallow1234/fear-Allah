@@ -35,6 +35,7 @@ import {
 import clsx from 'clsx'
 import api from '../services/api'
 import { onSocketEvent } from '../realtime'
+import OrderFormDetails from '../components/orders/OrderFormDetails'
 
 // Types
 interface Assignment {
@@ -66,6 +67,7 @@ interface SnapshotOrder {
   meta: Record<string, unknown>
   created_at: string | null
   created_by_id: number | null
+  created_by?: { id: number; username: string; display_name: string | null } | null
 }
 
 interface SnapshotProgress {
@@ -101,7 +103,35 @@ const roleDisplayNames: Record<string, string> = {
   'foreman': 'Foreman',
   'delivery': 'Delivery',
   'storekeeper': 'Storekeeper',
-  'agent': 'Agent',
+  'sales_agent': 'Agent',
+}
+
+// Extract a structured items array from order meta (handles multiple payload shapes)
+function extractOrderItems(meta: Record<string, unknown>): Array<Record<string, unknown>> | null {
+  // Shape 1: meta.items directly
+  if (Array.isArray(meta.items) && meta.items.length > 0) {
+    return meta.items as Array<Record<string, unknown>>
+  }
+  // Shape 2: meta.form_payload.items
+  if (meta.form_payload && typeof meta.form_payload === 'object') {
+    const fp = meta.form_payload as Record<string, unknown>
+    if (Array.isArray(fp.items) && fp.items.length > 0) {
+      return fp.items as Array<Record<string, unknown>>
+    }
+  }
+  // Shape 3: form fields array with type=items/products
+  if (Array.isArray(meta.fields)) {
+    const fields = meta.fields as Array<Record<string, unknown>>
+    const itemField = fields.find((f) => {
+      const t = String(f.type ?? '').toLowerCase()
+      const n = String(f.name ?? '').toLowerCase()
+      return ['items', 'products', 'line_items'].includes(t) || ['items', 'products', 'line_items'].includes(n)
+    })
+    if (itemField && Array.isArray(itemField.value) && (itemField.value as unknown[]).length > 0) {
+      return itemField.value as Array<Record<string, unknown>>
+    }
+  }
+  return null
 }
 
 export default function OrderSnapshotPage() {
@@ -239,7 +269,7 @@ export default function OrderSnapshotPage() {
   const TypeIcon = typeConfig?.icon || Package
 
   return (
-    <div className="h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
+    <div className="min-h-full" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
       <div style={{ backgroundColor: 'var(--panel-bg)', borderBottom: '1px solid var(--sidebar-border)' }} className="px-6 py-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
@@ -352,6 +382,71 @@ export default function OrderSnapshotPage() {
             </div>
           )}
         </div>
+
+        {/* Order Items & Form Details */}
+        {order.meta && Object.keys(order.meta).length > 0 && (() => {
+          const items = extractOrderItems(order.meta)
+          const formPayload =
+            (order.meta.form_payload as Record<string, unknown> | undefined) ?? order.meta
+
+          const hasFormDetails = formPayload && Object.keys(formPayload).length > 0
+
+          if (!items && !hasFormDetails) return null
+
+          return (
+            <div className="bg-[#2b2d31] border border-[#1f2023] rounded-lg p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Package size={18} />
+                Order Contents
+              </h2>
+
+              {/* Structured items list */}
+              {items && items.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    Items
+                  </p>
+                  <div className="divide-y divide-[#1f2023]">
+                    {items.map((item, idx) => {
+                      const name = String(item.product_name ?? item.name ?? `Item ${idx + 1}`)
+                      const qty = item.quantity ?? item.qty
+                      const price = item.unit_price ?? item.price
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between py-2 text-sm"
+                        >
+                          <span style={{ color: 'var(--text-primary)' }}>{name}</span>
+                          <div className="flex items-center gap-4">
+                            {qty != null && (
+                              <span style={{ color: 'var(--text-secondary)' }}>×{String(qty)}</span>
+                            )}
+                            {price != null && (
+                              <span style={{ color: 'var(--text-primary)' }}>{String(price)}</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Remaining form metadata */}
+              {hasFormDetails && (
+                <OrderFormDetails
+                  formPayload={{
+                    ...formPayload,
+                    // Surface top-level scalar fields into the form view
+                    ...(order.customer_name ? { customer_name: order.customer_name } : {}),
+                    ...(order.customer_phone ? { customer_phone: order.customer_phone } : {}),
+                    ...(order.delivery_location ? { delivery_location: order.delivery_location } : {}),
+                  }}
+                />
+              )}
+            </div>
+          )
+        })()}
 
         {/* Progress Timeline */}
         <div className="bg-[#2b2d31] border border-[#1f2023] rounded-lg p-6">

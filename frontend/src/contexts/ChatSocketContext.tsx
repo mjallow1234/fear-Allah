@@ -45,12 +45,6 @@ export const ChatSocketProvider: FC<{ children: ReactNode }> = ({ children }) =>
     if (sock && isSocketConnected()) setWsStatus('connected')
     else setWsStatus('connecting')
 
-    // Log the socket id for runtime verification
-    try {
-      const realSock = getSocket()
-      console.log('[ChatSocketContext] using socket id', realSock?.id)
-    } catch (err) { /* ignore */ }
-
     const onConnect = () => setWsStatus('connected')
     const onDisconnect = () => setWsStatus('disconnected')
     const onError = () => setWsStatus('error')

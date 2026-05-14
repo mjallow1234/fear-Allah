@@ -443,13 +443,51 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                   <FileText size={16} />
                   Order Details
                 </h4>
-                <div className="bg-[#2b2d31] rounded-lg p-4">
-                  <OrderFormDetails 
-                    formPayload={
-                      ((task.order_details?.meta as Record<string, unknown> | undefined)?.form_payload as Record<string, unknown>) || 
-                      (task.order_details?.meta as Record<string, unknown>) || 
-                      (task.metadata as Record<string, unknown>)
-                    } 
+                <div className="bg-[#2b2d31] rounded-lg p-4 space-y-4">
+
+                  {/* Structured items list: name + quantity + unit price */}
+                  {Array.isArray(task.order_details?.items) && (task.order_details!.items as unknown[]).length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                        Items
+                      </h5>
+                      <div className="space-y-1">
+                        {(task.order_details!.items as Array<Record<string, unknown>>).map((item, idx) => {
+                          const name = String(item.product_name ?? item.name ?? `Item ${idx + 1}`)
+                          const qty = item.quantity ?? item.qty
+                          const price = item.unit_price ?? item.price
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between text-sm py-1.5 border-b border-[#1f2023] last:border-0"
+                            >
+                              <span style={{ color: 'var(--text-primary)' }}>{name}</span>
+                              <div className="flex items-center gap-4 text-right">
+                                {qty != null && (
+                                  <span className="text-[#949ba4]">×{String(qty)}</span>
+                                )}
+                                {price != null && (
+                                  <span style={{ color: 'var(--text-primary)' }}>{String(price)}</span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Remaining form metadata (customer, delivery, misc fields) */}
+                  <OrderFormDetails
+                    formPayload={{
+                      ...(((task.order_details?.meta as Record<string, unknown> | undefined)?.form_payload as Record<string, unknown>) ||
+                        (task.order_details?.meta as Record<string, unknown>) ||
+                        (task.metadata as Record<string, unknown>) || {}),
+                      // Surface order_details top-level fields when meta doesn't already contain them
+                      ...(task.order_details?.customer_name ? { customer_name: task.order_details.customer_name } : {}),
+                      ...(task.order_details?.customer_phone ? { customer_phone: task.order_details.customer_phone } : {}),
+                      ...(task.order_details?.delivery_location ? { delivery_location: task.order_details.delivery_location } : {}),
+                    }}
                   />
                 </div>
               </div>
@@ -554,7 +592,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                         <div className="flex items-center justify-between">
                           <div>
                             <span className="text-white font-medium">
-                              {isMyAssignment ? 'You' : `User #${assignment.user_id}`}
+                              {isMyAssignment ? 'You' : (assignment.user?.display_name || assignment.user?.username || `User #${assignment.user_id}`)}
                             </span>
                             {assignment.role_hint && (
                               <span className="text-[#72767d] text-sm ml-2">({assignment.role_hint})</span>
@@ -664,7 +702,7 @@ export default function TaskDetailsDrawer({ task, events, loading, onClose }: Ta
                             </span>
                           </div>
                           {event.user_id && (
-                            <span className="text-xs text-[#949ba4]">by User #{event.user_id}</span>
+                            <span className="text-xs text-[#949ba4]">by {event.user?.display_name || event.user?.username || `User #${event.user_id}`}</span>
                           )}
                           {event.metadata && Object.keys(event.metadata).length > 0 && (
                             <pre className="text-xs text-[#72767d] mt-2 whitespace-pre-wrap">

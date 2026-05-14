@@ -68,21 +68,6 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
           })
 
-          // Decode user_id from JWT (best-effort) for temporary logging
-          let userIdFromJwt: string | number | null = null
-          try {
-            const parts = token.split('.')
-            if (parts.length > 1) {
-              // atob on the payload, handle URL-safe base64
-              const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-              const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
-              const payload = JSON.parse(json)
-              userIdFromJwt = payload.sub ?? payload.user_id ?? payload.uid ?? null
-            }
-          } catch (e) {
-            // ignore decode errors
-          }
-
           // Force-refresh task stores BEFORE connecting socket, then connect.
           // This ensures /api/automation/tasks is called after login, not before socket connect.
           // If the server indicates the user must change their password, do not proceed with post-login data refresh or socket connect
@@ -95,9 +80,6 @@ export const useAuthStore = create<AuthState>()(
                 await useTaskStore.getState().fetchMyAssignments()
                 // Fetch user preferences on login (Phase 2.5)
                 await usePreferencesStore.getState().fetchPreferences()
-                const tasksCount = useTaskStore.getState().tasks.length
-                // Temporary debug log: user_id from JWT and number of tasks returned
-                console.log('[Auth] Login user_id_from_jwt:', userIdFromJwt ?? user.id, 'tasks_count:', tasksCount)
               } catch (err) {
                 console.error('[Auth] Failed to refresh tasks on login:', err)
               } finally {
@@ -188,23 +170,6 @@ export const useAuthStore = create<AuthState>()(
                 try {
                   await useTaskStore.getState().fetchMyTasks()
                   await useTaskStore.getState().fetchMyAssignments()
-                  const tasksCount = useTaskStore.getState().tasks.length
-
-                  // Attempt to decode user_id from token for temporary logging
-                  let userIdFromJwt: string | number | null = null
-                  try {
-                    if (state?.token) {
-                      const parts = state.token.split('.')
-                      if (parts.length > 1) {
-                        const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-                        const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
-                        const payload = JSON.parse(json)
-                        userIdFromJwt = payload.sub ?? payload.user_id ?? payload.uid ?? null
-                      }
-                    }
-                  } catch (e) {}
-
-                  console.log('[Auth] Rehydrate user_id_from_jwt:', userIdFromJwt ?? state?.user?.id ?? 'unknown', 'tasks_count:', tasksCount)
                 } catch (e) {
                   console.error('[Auth] Failed to refresh tasks on rehydrate:', e)
                 } finally {

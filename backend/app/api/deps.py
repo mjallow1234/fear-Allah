@@ -1,7 +1,6 @@
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
 from app.db.models import User
@@ -33,17 +32,20 @@ async def get_current_user(
             raise HTTPException(status_code=401, detail="Could not validate credentials")
 
         # Attach operational role info onto the User object if one exists
-        from app.db.models import UserRole as UserRoleModel, Role
-        from app.api.system import OPERATIONAL_ROLE_NAMES
+        from app.db.models import UserOperationalRole
 
         op_result = await db.execute(
-            select(UserRoleModel).join(Role).options(selectinload(UserRoleModel.role)).where(
-                UserRoleModel.user_id == user.id, Role.name.in_(OPERATIONAL_ROLE_NAMES)
-            )
+            select(UserOperationalRole).where(UserOperationalRole.user_id == user.id)
         )
-        op_assignment = op_result.scalar_one_or_none()
-        user.operational_role_id = op_assignment.role_id if op_assignment else None
-        user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
+        op_roles = [r.role for r in op_result.scalars().all()]
+        print("OPERATIONAL ROLES:", op_roles)
+        # Use object.__setattr__ to bypass SA relationship instrumentation.
+        # operational_roles on the model is a relationship (UserOperationalRole objects);
+        # we shadow it here with a plain string list so callers can do:
+        #   any(role in allowed_roles for role in user.operational_roles)
+        object.__setattr__(user, 'operational_roles', op_roles)
+        user.operational_role_name = op_roles[0] if op_roles else None
+        user.operational_role_id = None
         return user
     except HTTPException:
         # Re-raise expected HTTP exceptions

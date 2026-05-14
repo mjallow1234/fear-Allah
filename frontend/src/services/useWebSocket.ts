@@ -110,8 +110,6 @@ export function useWebSocket({
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttemptsRef = useRef<number>(0)
   const currentChannelRef = useRef<number>(channelId)
-  // diagnostic: unique id for this connection to trace lifecycle
-  const connectionId = useRef(Math.random().toString(36).slice(2))
   const manualCloseRef = useRef<boolean>(false)
   
   // Store callbacks in refs to avoid recreating connect function
@@ -151,8 +149,6 @@ export function useWebSocket({
   }, [user, token])
 
   const disconnect = useCallback(() => {
-    console.log(`[WS ${connectionId.current}] disconnect (manual)`)
-
     // Mark manual close so onclose doesn't schedule reconnect
     manualCloseRef.current = true
 
@@ -186,11 +182,10 @@ export function useWebSocket({
       wsRef.current = null
     }
 
-    // Force WebSocket URL from VITE_API_URL (do not use window.location)
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
-    if (!import.meta.env.VITE_API_URL) {
-      console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
-    }
+    // Build WebSocket base URL.  When VITE_API_URL is not set, fall back to the
+    // current page origin so the socket goes through Vite's proxy — this is
+    // LAN-safe (mobile opens 192.168.x.x:3000, proxy handles /ws/ server-side).
+    const apiBase = import.meta.env.VITE_API_URL || window.location.origin
 
     const wsBase = apiBase.replace(/^http/, 'ws')
     // Prefer token auth for chat WebSocket (token required)
@@ -201,13 +196,11 @@ export function useWebSocket({
 
     const wsUrl = `${wsBase}/ws/chat/${currentChannel}?token=${encodeURIComponent(token)}`
 
-    console.log(`[WS ${connectionId.current}] connect -> ${wsUrl}`)
     setWsStatus('connecting')
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
-      console.log(`[WS ${connectionId.current}] onopen for channel ${currentChannel}`)
       setIsConnected(true)
       setWsStatus('connected')
       // reset backoff attempts after successful connect
@@ -239,7 +232,7 @@ export function useWebSocket({
 
         // Diagnostic: log heartbeat_ack if received
         if ((data as any).type === 'heartbeat_ack') {
-          console.log(`[WS ${connectionId.current}] heartbeat_ack received`)
+          // heartbeat acknowledged
         }
         
         switch (data.type) {
@@ -323,14 +316,12 @@ export function useWebSocket({
       }
     }
 
-    ws.onclose = (evt) => {
-      console.log(`[WS ${connectionId.current}] onclose code=${(evt as CloseEvent).code} reason=${(evt as CloseEvent).reason} wasClean=${(evt as CloseEvent).wasClean}`)
+    ws.onclose = () => {
       setIsConnected(false)
       setWsStatus('disconnected')
 
       // Do not schedule reconnect if this close was manual (intentional)
       if (manualCloseRef.current) {
-        console.log(`[WS ${connectionId.current}] manual close, not scheduling reconnect`)
         return
       }
 
@@ -340,7 +331,6 @@ export function useWebSocket({
         const base = 3000
         const maxDelay = 60000
         const delay = Math.min(base * (2 ** attempts), maxDelay) + Math.floor(Math.random() * 1000)
-        console.log(`[WS ${connectionId.current}] Scheduling reconnect in ${delay}ms (attempt ${attempts + 1})`)
         reconnectAttemptsRef.current = attempts + 1
         reconnectTimeoutRef.current = setTimeout(() => {
           connect()
@@ -487,17 +477,13 @@ export function usePresence() {
     if (startedRef.current) return // already started
 
     const start = () => {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:18002'
-      if (!import.meta.env.VITE_API_URL) {
-        console.warn('VITE_API_URL is not set; falling back to http://localhost:18002')
-      }
+      const apiBase = import.meta.env.VITE_API_URL || window.location.origin
 
       const wsBase = apiBase.replace(/^http/, 'ws')
       const wsUrl = `${wsBase}/ws/presence?user_id=${user.id}&username=${encodeURIComponent(
         user.username || user.display_name || ''
       )}`
 
-      console.log('WS presence URL (FORCED):', wsUrl)
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
@@ -506,7 +492,6 @@ export function usePresence() {
         startedRef.current = true
         // reset reconnection attempts
         reconnectAttemptsRef.current = 0
-        console.log('[PRESENCE] connected')
 
         // Send heartbeat every 30 seconds
         const heartbeatInterval = setInterval(() => {
@@ -518,14 +503,12 @@ export function usePresence() {
         ws.onclose = () => {
           clearInterval(heartbeatInterval)
           setIsConnected(false)
-          console.log('[PRESENCE] disconnected')
         }
       }
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          console.log('[PRESENCE] update received', data)
 
           if (data.type === 'presence_list') {
             // data.users can be either array of ids or array of user objects
@@ -558,7 +541,6 @@ export function usePresence() {
             const now = Date.now()
             // If we've applied a change recently, avoid flipping state too quickly (debounce transient updates)
             if (prev && prev.status !== incoming.status && (now - (prev.appliedAt || 0) < 2000)) {
-              console.log('[PRESENCE] ignoring transient flip', uid, prev.status, '->', incoming.status)
               return
             }
 
@@ -595,7 +577,6 @@ export function usePresence() {
         const base = 3000
         const maxDelay = 60000
         const delay = Math.min(base * (2 ** attempts), maxDelay) + Math.floor(Math.random() * 1000)
-        console.log(`Presence reconnect scheduled in ${delay}ms (attempt ${attempts + 1})`)
         reconnectAttemptsRef.current = attempts + 1
         reconnectTimeoutRef.current = setTimeout(() => {
           start()

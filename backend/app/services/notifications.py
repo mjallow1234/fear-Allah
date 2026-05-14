@@ -121,8 +121,14 @@ class NotificationService:
         inventory_id: Optional[int] = None,
         sale_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        auto_commit: bool = True,
     ) -> Notification:
-        """Create a new notification"""
+        """Create a new notification.
+        
+        Args:
+            auto_commit: When False, flush instead of commit so the caller
+                         can batch multiple writes into a single transaction.
+        """
         notification = Notification(
             user_id=user_id,
             type=notification_type,
@@ -139,7 +145,10 @@ class NotificationService:
             is_read=False,
         )
         self.db.add(notification)
-        await self.db.commit()
+        if auto_commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         await self.db.refresh(notification)
         return notification
     

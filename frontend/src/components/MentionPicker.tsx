@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../services/api'
+import { createPortal } from 'react-dom'
 
 interface User {
   id: number
@@ -119,15 +120,17 @@ export default function MentionPicker({
     }
   }
 
-  return (
+  const panel = (
     <div
-      className="absolute z-50 bg-[#2b2d31] border border-[#1e1f22] rounded-lg shadow-xl overflow-hidden"
+      className="bg-[#2b2d31] border border-[#1e1f22] rounded-lg shadow-xl overflow-hidden"
       style={{
-        bottom: position.top,
+        position: 'fixed',
+        top: position.top,
         left: position.left,
         minWidth: '250px',
         maxWidth: '350px',
         maxHeight: '300px',
+        zIndex: 9999,
       }}
     >
       {/* Header */}
@@ -201,4 +204,5 @@ export default function MentionPicker({
       </div>
     </div>
   )
+  return createPortal(panel, document.body)
 }

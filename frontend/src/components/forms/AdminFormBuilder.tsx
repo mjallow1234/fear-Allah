@@ -150,8 +150,7 @@ export default function AdminFormBuilder({ initialFormId }: AdminFormBuilderProp
     try {
       setSeeding(true)
       setError(null)
-      const result = await formsApi.adminSeedForms()
-      console.log('Seed result:', result)
+      await formsApi.adminSeedForms()
       await fetchForms()
     } catch (err: any) {
       setError(extractAxiosError(err, 'Failed to seed forms'))

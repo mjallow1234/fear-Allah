@@ -345,6 +345,7 @@ async def create_mention_notifications(
                 "message_id": message_id,
                 "sender_id": sender_id,
                 "sender_username": sender_username,
+                "sender_display_name": sender_username,
                 "created_at": notification.created_at.isoformat() if notification.created_at else None,
             })
     

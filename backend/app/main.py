@@ -212,6 +212,7 @@ from app.core.config import settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=settings.CORS_ORIGINS_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -237,6 +238,10 @@ app.include_router(system.router, prefix="/api/system", tags=["System Console"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["File Attachments"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket Legacy"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
+
+# Operational real-time events feed (/ws/ops)
+from app.api import realtime as realtime_router
+app.include_router(realtime_router.router, prefix="/ws", tags=["Realtime"])
 
 # Audit: Read-only audit log viewer (Phase 4.1)
 app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])

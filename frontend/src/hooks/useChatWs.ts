@@ -21,7 +21,10 @@ export default function useChatWs(channelId: number, token?: string) {
       return
     }
 
-    const wsUrl = `ws://localhost:8000/ws/chat/${channelId}?token=${token || ''}`
+    // Use current page host so the WS goes through Vite's proxy (/ws/*) when
+    // VITE_API_URL is unset.  LAN-safe: resolves to <LAN-IP>:3000 on mobile.
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${proto}://${window.location.host}/ws/chat/${channelId}?token=${token || ''}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onmessage = (event) => {

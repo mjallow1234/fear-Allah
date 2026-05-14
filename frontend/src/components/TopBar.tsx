@@ -64,24 +64,24 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
   return (
     <>
       <div className="topbar h-12 flex items-center px-4 justify-between" style={{ backgroundColor: 'var(--topbar-bg)', borderBottom: '1px solid var(--topbar-border)' }}>
-        <div className="flex items-center gap-2">
-          {/* Mobile menu button */}
+        {/* Left: hamburger (mobile) + channel name */}
+        <div className="flex items-center gap-2 min-w-0">
           {onMenuClick && (
             <button
               onClick={onMenuClick}
-              className="md:hidden p-2 transition-colors icon-button"
+              className="md:hidden p-2 transition-colors icon-button flex-shrink-0"
               style={{ color: 'var(--text-secondary)' }}
               aria-label="Open menu"
             >
               <Menu size={20} />
             </button>
           )}
-          <Hash size={20} style={{ color: 'var(--text-secondary)' }} />
-          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{channelName}</span>
+          <Hash size={20} className="flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+          <span className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{channelName}</span>
           {channelId && (
             <button
               onClick={() => setSettingsOpen(true)}
-              className="p-1 transition-colors"
+              className="p-1 transition-colors flex-shrink-0"
               style={{ color: 'var(--text-secondary)' }}
               title="Channel Settings"
             >
@@ -89,29 +89,31 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             </button>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          {/* Search button */}
+
+        {/* Right: action icons */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Search — icon-only on mobile, text label on md+ */}
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 px-3 py-1 rounded transition-colors"
+            className="flex items-center gap-2 px-2 md:px-3 py-1 rounded transition-colors"
             style={{ backgroundColor: 'var(--input-bg)', color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--input-hover)'}
             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--input-bg)'}
+            aria-label="Search"
           >
             <Search size={16} />
-            <span className="text-sm">Search</span>
-            <kbd className="text-xs px-1 rounded" style={{ backgroundColor: 'var(--topbar-bg)' }}>Ctrl+K</kbd>
+            <span className="hidden md:inline text-sm">Search</span>
+            <kbd className="hidden md:inline text-xs px-1 rounded" style={{ backgroundColor: 'var(--topbar-bg)' }}>Ctrl+K</kbd>
           </button>
           
           {/* Notification Bell */}
           <NotificationBell />
           
-          {/* Operational tabs — visibility controlled *only* by permissions */}
           {/* Task Inbox */}
           {perms.tabs.includes('tasks') && (
             <button
               onClick={() => handleTabNavigate('/tasks', 'tasks')}
-              className="relative p-2 transition-colors"
+              className="relative p-2 transition-colors icon-button"
               style={{ color: 'var(--text-secondary)' }}
               title="Task Inbox"
             >
@@ -128,7 +130,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {perms.tabs.includes('orders') && (
             <button
               onClick={() => handleTabNavigate('/orders', 'orders')}
-              className="relative p-2 transition-colors"
+              className="relative p-2 transition-colors icon-button"
               style={{ color: 'var(--text-secondary)' }}
               title="Orders"
             >
@@ -145,7 +147,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
           {perms.tabs.includes('sales') && (
             <button
               onClick={() => handleTabNavigate('/sales', 'sales')}
-              className="p-2 transition-colors"
+              className="p-2 transition-colors icon-button"
               style={{ color: 'var(--text-secondary)' }}
               title="Sales & Inventory"
             >
@@ -153,11 +155,11 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             </button>
           )}
           
-          {/* Audit Log - visible to system console users */}
+          {/* Audit Log — desktop only */}
           {canViewSystemConsole && (
             <button
               onClick={() => navigate('/system/audit')}
-              className="p-2 transition-colors"
+              className="hidden md:flex p-2 transition-colors icon-button"
               style={{ color: 'var(--text-secondary)' }}
               title="Audit Log"
             >
@@ -165,25 +167,26 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             </button>
           )}
           
-          {/* System Console */}
+          {/* System Console — desktop only */}
           {canViewSystemConsole && (
             <button
               onClick={() => navigate('/system')}
-              className="p-2 text-purple-400 hover:text-purple-300 transition-colors"
+              className="hidden md:flex p-2 text-purple-400 hover:text-purple-300 transition-colors icon-button"
               title="System Console"
             >
               <Cog size={20} />
             </button>
-          )} 
-          
+          )}
+
+          {/* Online count — desktop only */}
           {onlineCount !== undefined && (
-            <div className="flex items-center gap-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div className="hidden md:flex items-center gap-1 text-sm ml-1" style={{ color: 'var(--text-secondary)' }}>
               <Users size={16} />
               <span>{onlineCount} online</span>
             </div>
           )}
 
-          {/* Operational role label (informational only) */}
+          {/* Role label — desktop only */}
           {(() => {
             const roleLabel = currentUser?.is_system_admin
               ? 'Admin'
@@ -192,6 +195,7 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
                 : 'Member'
             return (
               <span
+                className="hidden md:inline"
                 style={{
                   fontSize: "12px",
                   opacity: 0.8,
@@ -207,7 +211,8 @@ export default function TopBar({ channelName = 'general', channelId, onlineCount
             )
           })()}
 
-          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          {/* Username — desktop only */}
+          <span className="hidden md:inline text-sm ml-1" style={{ color: 'var(--text-secondary)' }}>
             {user?.display_name || user?.username}
           </span>
         </div>

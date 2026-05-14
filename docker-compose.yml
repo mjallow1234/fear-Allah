@@ -66,9 +66,9 @@ services:
         condition: service_healthy
 
   frontend:
+    image: fear-allah-frontend
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     depends_on:
       - backend
 

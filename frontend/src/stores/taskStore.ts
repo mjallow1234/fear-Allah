@@ -24,6 +24,7 @@ export interface TaskAssignment {
   notes: string | null
   assigned_at: string
   completed_at: string | null
+  user?: { id: number; username: string; display_name: string | null } | null
 }
 
 export interface AutomationTask {
@@ -40,6 +41,11 @@ export interface AutomationTask {
   updated_at: string | null
   assignments: TaskAssignment[]
   required_role?: string | null
+  order?: {
+    id: number
+    has_sale: boolean
+    // Add more fields if needed
+  }
 }
 
 export interface TaskEvent {
@@ -49,6 +55,7 @@ export interface TaskEvent {
   event_type: string
   metadata: Record<string, unknown> | null
   created_at: string
+  user?: { id: number; username: string; display_name: string | null } | null
 }
 
 interface TaskState {
@@ -122,12 +129,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const params = role ? { params: { role } } : {}
-      console.log('[TaskStore] GET /api/automation/available-tasks', params)
       const response = await api.get('/api/automation/available-tasks', params)
       const data = response.data
       const tasks = Array.isArray(data) ? data : (data.tasks || [])
       set({ availableTasks: tasks, loading: false })
-      console.log('[TaskStore] available_tasks_count:', tasks.length)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
       console.error('[TaskStore] Failed to fetch available tasks:', error)
@@ -144,7 +149,6 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const prevAvail = get().availableTasks
     set({ availableTasks: prevAvail.filter(t => t.id !== taskId) })
     try {
-      console.log('[TaskStore] POST /api/automation/tasks/${taskId}/claim')
       await api.post(`/api/automation/tasks/${taskId}/claim`, {})
       // Refresh my assignments and available tasks (role-based)
       await get().fetchMyAssignments()
@@ -169,26 +173,6 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       const data = response.data
       const tasks = Array.isArray(data) ? data : (data.tasks || [])
       set({ tasks, loading: false })
-
-      // Temporary debug log: user_id from JWT and number of tasks returned
-      try {
-        let userId: string | number | null = useAuthStore.getState().user?.id ?? null
-        const token = useAuthStore.getState().token
-        if (!userId && token) {
-          try {
-            const parts = token.split('.')
-            if (parts.length > 1) {
-              const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-              const json = decodeURIComponent(atob(payloadBase64).split('').map((c) => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))
-              const payload = JSON.parse(json)
-              userId = payload.sub ?? payload.user_id ?? payload.uid ?? null
-            }
-          } catch (e) {}
-        }
-        console.log('[TaskStore] fetchMyTasks user_id_from_jwt:', userId ?? 'unknown', 'tasks_count:', tasks.length)
-      } catch (e) {
-        // ignore logging errors
-      }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
       console.error('[TaskStore] Failed to fetch tasks:', error)
@@ -281,14 +265,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
   
   // Socket event handlers
-  handleTaskAssigned: (data) => {
-    console.log('[TaskStore] Task assigned event:', data)
-    // Refresh assignments when a task is assigned to user
+  handleTaskAssigned: (_data) => {
     get().fetchMyAssignments()
   },
   
   handleTaskCompleted: (data) => {
-    console.log('[TaskStore] Task completed event:', data)
     // Update task status in local state
     set((state) => ({
       tasks: state.tasks.map(t => 
@@ -303,7 +284,6 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
   
   handleTaskAutoClosed: (data) => {
-    console.log('[TaskStore] Task auto-closed event:', data)
     // Update task status in local state
     set((state) => ({
       tasks: state.tasks.map(t => 

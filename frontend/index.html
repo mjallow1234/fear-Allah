@@ -2,9 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>fear-Allah</title>
+
+    <!-- PWA primary icon + favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Viewport: viewport-fit=cover unlocks iPhone safe areas in standalone mode -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA theme -->
+    <meta name="theme-color" content="#313338" />
+    <meta name="background-color" content="#313338" />
+
+    <!-- Standalone mode: hide browser chrome on iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FearAllah" />
+
+    <!-- Android / Chrome -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="FearAllah" />
+
+    <!-- Prevent phone number auto-detection -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <title>Fear Allah Operations</title>
   </head>
   <body>
     <div id="root"></div>

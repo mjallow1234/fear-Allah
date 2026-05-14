@@ -25,16 +25,18 @@ const masterListeners: Map<string, (data: any) => void> = new Map()
 
 /**
  * Get the Socket.IO server URL.
- * Uses VITE_API_URL (same as REST API) or falls back to same host:18002 proxy.
+ * Uses VITE_API_URL when explicitly set; otherwise uses the current page origin
+ * so that Socket.IO connects back to the Vite dev server (which proxies
+ * /socket.io/ to the backend).  This is LAN-safe: on mobile the page origin
+ * is http://<LAN-IP>:3000, and Vite handles the proxy server-side.
  */
 function getSocketUrl(): string {
-  // Use same URL as REST API - Socket.IO goes through the same proxy
   const apiUrl = import.meta.env.VITE_API_URL
   if (apiUrl) {
     return apiUrl
   }
-  // Fallback: same hostname, port 18002 (api-proxy)
-  return `http://${window.location.hostname}:18002`
+  // Relative to current page — works for both localhost and LAN IP
+  return window.location.origin
 }
 
 /**
@@ -51,13 +53,11 @@ export function connectSocket(): Socket | null {
   
   // Prevent multiple simultaneous connection attempts
   if (isConnecting) {
-    console.log('[Socket.IO] Connection already in progress')
     return socket
   }
   
   // If already connected, return existing socket
   if (socket?.connected) {
-    console.log('[Socket.IO] Already connected')
     return socket
   }
   
@@ -70,7 +70,6 @@ export function connectSocket(): Socket | null {
   isConnecting = true
   
   const url = getSocketUrl()
-  console.log('[Socket.IO] Connecting to', url)
   
   socket = io(url, {
     // Backend mounts socket_app at /socket.io, with internal path socket.io
@@ -87,16 +86,14 @@ export function connectSocket(): Socket | null {
 
   // Instrumentation: report that a Socket.IO instance was created
   try {
-    console.log('[SocketContext] socket instance created', socket?.id)
+    getSocket()
   } catch (err) { /* ignore */ }
   
   socket.on('connect', () => {
-    console.log('[Socket.IO] Connected, sid:', socket?.id)
     isConnecting = false
     
     // Process pending channel joins
     pendingJoins.forEach(channelId => {
-      console.log('[Socket.IO] Joining pending channel:', channelId)
       socket?.emit('join_channel', { channel_id: channelId })
     })
     
@@ -112,16 +109,11 @@ export function connectSocket(): Socket | null {
     })
   })
   
-  socket.on('connected', (data) => {
-    console.log('[Socket.IO] Server confirmed connection:', data)
-  })
+  socket.on('connected', (_data) => {})
   
-  socket.on('channel:joined', (data) => {
-    console.log('[Socket.IO] Joined channel room:', data)
-  })
+  socket.on('channel:joined', (_data) => {})
   
-  socket.on('disconnect', (reason) => {
-    console.log('[Socket.IO] Disconnected:', reason)
+  socket.on('disconnect', (_reason) => {
     isConnecting = false
   })
   
@@ -143,7 +135,6 @@ export function connectSocket(): Socket | null {
  */
 export function disconnectSocket(): void {
   if (socket) {
-    console.log('[Socket.IO] Disconnecting')
     socket.disconnect()
     socket = null
   }
@@ -177,11 +168,9 @@ export function joinChannel(channelId: number): void {
   pendingJoins.add(channelId)
   
   if (!socket?.connected) {
-    console.log('[Socket.IO] Queued channel join (not connected yet):', channelId)
     return
   }
   
-  console.log('[Socket.IO] Joining channel:', channelId)
   socket.emit('join_channel', { channel_id: channelId })
 }
 
@@ -195,7 +184,6 @@ export function leaveChannel(channelId: number): void {
     return
   }
   
-  console.log('[Socket.IO] Leaving channel:', channelId)
   socket.emit('leave_channel', { channel_id: channelId })
 }
 
@@ -204,10 +192,8 @@ export function leaveChannel(channelId: number): void {
  */
 export function joinRoom(roomName: string): void {
   if (!socket?.connected) {
-    console.log('[Socket.IO] Queued room join (not connected yet):', roomName)
     return
   }
-  console.log('[Socket.IO] Joining room:', roomName)
   socket.emit('join_room', { room: roomName })
 }
 
@@ -216,7 +202,6 @@ export function joinRoom(roomName: string): void {
  */
 export function leaveRoom(roomName: string): void {
   if (!socket?.connected) return
-  console.log('[Socket.IO] Leaving room:', roomName)
   socket.emit('leave_room', { room: roomName })
 }
 

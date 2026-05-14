@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X, Loader2, History, TrendingUp, TrendingDown, Package, Undo2 } from 'lucide-react'
 import api from '../services/api'
+import { useTaskStore } from '../stores/taskStore'
 
 interface Transaction {
   id: number
@@ -73,6 +74,7 @@ export default function RawMaterialHistoryModal({ materialId, materialName, open
     setReversingId(txId)
     try {
       await api.post(`/api/inventory/raw-materials/transactions/${txId}/reverse`)
+      await useTaskStore.getState().fetchMyTasks()
       setConfirmReverseId(null)
       fetchData()
       onReversed?.()

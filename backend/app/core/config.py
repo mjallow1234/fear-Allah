@@ -45,6 +45,16 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1",
     ]
+    # Allow any browser on a private/LAN network (10.x, 172.16-31.x, 192.168.x)
+    # on any port.  Required for mobile testing where the phone's Origin header
+    # contains the laptop's LAN IP (e.g. http://192.168.1.42:3000).
+    CORS_ORIGINS_REGEX: str = (
+        r"https?://(localhost|127\.0\.0\.1"
+        r"|192\.168\.\d{1,3}\.\d{1,3}"
+        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3})"
+        r"(:\d+)?"
+    )
 
     # Environment + feature flags
     APP_ENV: str = os.getenv("APP_ENV", "development")  # development | staging | production

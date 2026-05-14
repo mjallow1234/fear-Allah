@@ -3,7 +3,6 @@
 // Check if notifications are supported and request permission
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) {
-    console.log('This browser does not support notifications')
     return false
   }
 
@@ -34,10 +33,7 @@ export function showBrowserNotification(
     onClick?: () => void
   }
 ): Notification | null {
-  console.log('showBrowserNotification called:', title, options)
-  
   if (!hasNotificationPermission()) {
-    console.log('No notification permission')
     return null
   }
 
@@ -79,8 +75,6 @@ export function notifyNewMessage(
   channelName?: string,
   onClick?: () => void
 ) {
-  console.log('notifyNewMessage called:', senderName, messageContent, channelName)
-  
   const title = channelName 
     ? `${senderName} in #${channelName}`
     : `New message from ${senderName}`
@@ -104,8 +98,6 @@ export function notifyMention(
   channelName?: string,
   onClick?: () => void
 ) {
-  console.log('notifyMention called:', senderName, messageContent, channelName)
-  
   const title = `${senderName} mentioned you${channelName ? ` in #${channelName}` : ''}`
   
   const body = messageContent.length > 100 

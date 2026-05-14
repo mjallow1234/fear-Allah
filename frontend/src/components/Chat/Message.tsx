@@ -5,6 +5,9 @@ import MessageReactions from '../MessageReactions'
 import EmojiPickerPopover, { EmojiPickerTrigger } from '../EmojiPickerPopover'
 import SlashCommandResponse, { isSlashCommandResponse } from './SlashCommandResponse'
 import api from '../../services/api'
+import Portal from '../ui/Portal'
+import { useFloating } from '../../hooks/useFloating'
+import { resolveSenderName } from '../../utils/identity'
 
 interface MessageProps {
   message: any
@@ -40,6 +43,8 @@ export default function Message({
   const hasReactions = message.reactions && message.reactions.length > 0
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const kebabTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const kebabCoords = useFloating({ anchorRef: kebabTriggerRef, open: menuOpen, width: 160, height: 130, placement: 'bottom-end' })
 
   const handleToggleReaction = (emoji: string) => {
     if (onToggleReaction) {
@@ -124,7 +129,7 @@ export default function Message({
       <div className="flex items-baseline justify-between">
         <div className="author font-bold flex items-center gap-2">
           {message.pinned && <Pin size={14} className="text-yellow-400" />}
-          <span>{message.author_username || message.author}</span>
+          <span>{resolveSenderName(message) || message.author}</span>
         </div>
         {message.created_at && (
           <div className="text-xs text-gray-500 ml-2 flex items-center gap-2">
@@ -214,23 +219,29 @@ export default function Message({
       {message.id > 0 && !message.deleted && (
         <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity message-menu">
           <div className="relative">
-            <button onClick={() => setMenuOpen(!menuOpen)} className="p-1 rounded text-gray-300 hover:bg-gray-700">
+            <button ref={kebabTriggerRef} onClick={() => setMenuOpen(!menuOpen)} className="p-1 rounded text-gray-300 hover:bg-gray-700">
               <MoreHorizontal size={16} />
             </button>
-            {menuOpen && (
-              <div ref={menuRef} className="absolute right-0 mt-2 w-40 bg-gray-800 border border-gray-700 rounded text-sm z-20">
-                <div className="flex flex-col">
-                  {canEdit && (
-                    <button onClick={startEditing} className="text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2"><Edit2 size={14} />Edit</button>
-                  )}
-                  {canDelete && (
-                    <button onClick={confirmDeleteMessage} className="text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2"><Trash2 size={14} />Delete</button>
-                  )}
-                  {canPin && (
-                    <button onClick={togglePin} className="text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2"><Pin size={14} />{message.pinned ? 'Unpin' : 'Pin'}</button>
-                  )}
+            {menuOpen && kebabCoords && (
+              <Portal>
+                <div
+                  ref={menuRef}
+                  className="w-40 bg-gray-800 border border-gray-700 rounded text-sm"
+                  style={{ position: 'fixed', top: kebabCoords.top, left: kebabCoords.left, zIndex: 9999 }}
+                >
+                  <div className="flex flex-col">
+                    {canEdit && (
+                      <button onClick={startEditing} className="text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2"><Edit2 size={14} />Edit</button>
+                    )}
+                    {canDelete && (
+                      <button onClick={confirmDeleteMessage} className="text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2"><Trash2 size={14} />Delete</button>
+                    )}
+                    {canPin && (
+                      <button onClick={togglePin} className="text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2"><Pin size={14} />{message.pinned ? 'Unpin' : 'Pin'}</button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </Portal>
             )}
           </div>
         </div>

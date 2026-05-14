@@ -6,6 +6,7 @@ import { playNotificationSound } from '../hooks/useNotificationSound'
 import { onSocketEvent } from '../realtime'
 import { useAuthStore } from '../stores/authStore'
 import { usePreferencesStore } from '../stores/preferencesStore'
+import { resolveSenderName, repairNotificationTitle, resolveNotificationRoute } from '../utils/identity'
 
 interface Notification {
   id: number
@@ -19,6 +20,7 @@ interface Notification {
   extra_data?: string | null
   sender_id: number | null
   sender_username: string | null
+  sender_display_name?: string | null
   is_read: boolean
   created_at: string
 }
@@ -50,53 +52,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const notificationsEnabled = usePreferencesStore((state) => state.preferences.notifications)
 
   const handleNotificationClick = useCallback((notification: Notification) => {
-    // Parse extra_data if present
-    let extra: any = null
-    try {
-      if (notification.extra_data) extra = JSON.parse(notification.extra_data as string)
-    } catch (e) {
-      // ignore
-    }
-
-    // Special-case chat notifications
-    if (notification.type === 'channel_reply') {
-      const channelId = notification.channel_id || (extra && extra.channel_id)
-      const parentId = (extra && extra.parent_id) || null
-      if (channelId && parentId) {
-        navigate(`/channels/${channelId}?message=${parentId}`)
-        return
-      }
-    }
-
-    if (notification.type === 'dm_reply') {
-      const convId = (extra && extra.direct_conversation_id) || null
-      const parentId = (extra && extra.parent_id) || null
-      if (convId && parentId) {
-        navigate(`/direct/${convId}?message=${parentId}`)
-        return
-      }
-    }
-
-    if (notification.type === 'dm_message') {
-      const convId = (extra && extra.direct_conversation_id) || null
-      if (convId) {
-        navigate(`/direct/${convId}`)
-        return
-      }
-    }
-
-    // Fallbacks for legacy fields
-    if (notification.order_id) {
-      navigate(`/order-snapshot/${notification.order_id}`)
-    } else if (notification.task_id) {
-      navigate(`/tasks?task=${notification.task_id}`)
-    } else if (notification.channel_id) {
-      if (notification.message_id) {
-        navigate(`/channels/${notification.channel_id}?message=${notification.message_id}`)
-      } else {
-        navigate(`/channels/${notification.channel_id}`)
-      }
-    }
+    const route = resolveNotificationRoute(notification)
+    if (route) navigate(route)
   }, [navigate])
 
   const showNotification = useCallback((notification: Notification) => {
@@ -149,9 +106,10 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     // Show toast for critical and important notifications.
     // For business-critical notifications, bypass the user preference gating temporarily (emergency mode).
     if (shouldShowToast(notificationType) && (notificationsEnabled || isBusinessNotificationType(notificationType))) {
+      const repairedTitle = repairNotificationTitle(notification.title, resolveSenderName(notification))
       const toast: Omit<ToastNotification, 'id'> = {
         type: notificationType,
-        title: notification.title,
+        title: repairedTitle,
         body: notification.content || undefined,
         orderId: notification.order_id,
         onClick: () => handleNotificationClick(notification),
@@ -178,7 +136,6 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   useEffect(() => {
     const unsubscribe = onSocketEvent<any>('message:new', (message) => {
       try {
-        console.log('[Notifications] Received message:new', message)
         const currentUserId = useAuthStore.getState().user?.id
 
         // Ignore messages sent by self
@@ -199,21 +156,28 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         // When viewing a thread (via ?message=parent_id), suppress reply notifications for that parent
         if (message.parent_id && openThreadId && openThreadId === Number(message.parent_id)) return
 
-        // Build a friendly title (use channel name if provided, otherwise author)
-        const title = message.channel_name ? `#${message.channel_name}` : (message.author_username || 'Message')
+        // Build a friendly title (use channel name if provided, otherwise resolved sender name)
+        const title = message.channel_name ? `#${message.channel_name}` : (resolveSenderName(message) || 'Message')
+
+        // Include DM routing in extra_data so resolveNotificationRoute can navigate to the correct conversation
+        const extraData = message.direct_conversation_id
+          ? JSON.stringify({ direct_conversation_id: message.direct_conversation_id })
+          : null
 
         // Delegate to showNotification which will respect user preferences
         const notificationPayload: Notification = {
           id: message.id || -Date.now(),
-          type: 'message',
+          type: message.direct_conversation_id ? 'dm_message' : 'message',
           title,
           content: message.content ?? null,
           channel_id: message.channel_id,
           message_id: null,
           task_id: null,
           order_id: null,
+          extra_data: extraData,
           sender_id: message.author_id ?? null,
           sender_username: message.author_username ?? null,
+          sender_display_name: message.author_display_name ?? null,
           is_read: false,
           created_at: message.created_at ?? new Date().toISOString(),
         }

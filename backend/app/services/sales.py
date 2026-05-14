@@ -424,6 +424,7 @@ async def record_sale(
         # Emit sale:created event (canonical event name)
         await emit_event(EventType.SALE_CREATED, {
             'sale_id': sale.id,
+            'transaction_id': transaction.id,
             'product_id': sale.product_id,
             'quantity': sale.quantity,
             'user_id': sold_by_user_id,

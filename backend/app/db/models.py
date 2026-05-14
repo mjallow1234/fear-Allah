@@ -520,6 +520,9 @@ class Sale(Base):
     payment_method = Column(String(50), nullable=True)  # cash, card, transfer, credit
     sale_date = Column(DateTime(timezone=True), nullable=True)
     linked_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    is_reversed = Column(Boolean, default=False, nullable=False, server_default="false")
+    reversed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
     # Affiliate fields
     affiliate_code = Column(String(100), nullable=True)
     affiliate_name = Column(String(200), nullable=True)
@@ -527,7 +530,8 @@ class Sale(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    sold_by = relationship("User")
+    sold_by = relationship("User", foreign_keys=[sold_by_user_id])
+    reversed_by = relationship("User", foreign_keys=[reversed_by_id])
     related_order = relationship("Order", foreign_keys=[related_order_id])
     linked_order = relationship("Order", foreign_keys=[linked_order_id])
     transaction = relationship("InventoryTransaction", back_populates="related_sale", uselist=False)

@@ -4,7 +4,6 @@ export default function Composer() {
   const [text, setText] = useState('')
   const send = () => {
     // placeholder - integrate with useChatWs
-    console.log('send', text)
     setText('')
   }
   return (

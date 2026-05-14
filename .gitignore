@@ -27,3 +27,7 @@ backend/dev.db
 backend/test_concurrency.db
 # Old/backup dirs
 frontend/node_modules_old/
+# Generated PWA/SW dev-mode artifacts
+frontend/dev-dist/
+# Dev scratch files
+backend_tasks.json

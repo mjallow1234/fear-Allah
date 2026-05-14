@@ -222,21 +222,26 @@ async def on_order_created(
         all_recipients = [uid for uid in all_recipients if uid and uid > 0]
         if order.created_by_id and order.created_by_id in all_recipients:
             all_recipients.remove(order.created_by_id)
-        
+
+        # Resolve the creator's username for the notification body
+        creator_name = None
+        if order.created_by_id:
+            creator_name = await get_user_display_name(db, order.created_by_id)
+
         # Log warning if no recipients found (do NOT silently return)
         if not all_recipients:
             logger.warning(
                 "[ORDER_CREATED] No recipients found for order_id=%s order_type=%s roles=%s",
                 order.id, order.order_type, roles
             )
-        
+
         for user_id in all_recipients:
             await notify_and_emit_order_created(
                 db=db,
                 order_id=order.id,
                 notify_user_id=user_id,
                 order_reference=order.reference or str(order.id),
-                customer_name=order.customer_name,
+                creator_name=creator_name,
             )
         
         logger.info(f"[Notification] Order created notifications sent to {len(all_recipients)} users: order={order.id}")
@@ -360,6 +365,7 @@ async def on_sale_recorded(
     product_name: Optional[str] = None,
     agent_id: Optional[int] = None,
     notify_admins: bool = True,
+    transaction_id: int | None = None,
 ):
     """
     Called when a sale is recorded.
@@ -370,9 +376,6 @@ async def on_sale_recorded(
 
         if notify_admins:
             admin_ids = await get_admins_and_managers(db)
-            # Don't notify the agent who made the sale
-            if agent_id in admin_ids:
-                admin_ids.remove(agent_id)
             
             for admin_id in admin_ids:
                 await notify_and_emit_sale_recorded(
@@ -382,6 +385,7 @@ async def on_sale_recorded(
                     total_amount=total_amount,
                     product_name=product_name,
                     agent_display=agent_display,
+                    transaction_id=transaction_id,
                 )
         
         logger.info(f"[Notification] Sale recorded notifications sent: sale={sale_id}, by={agent_display}")

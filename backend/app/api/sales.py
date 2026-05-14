@@ -3,6 +3,7 @@ Sales API Endpoints (Phase 6.3)
 Handles sales recording and reporting with role-based permissions.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime, timedelta
@@ -197,49 +198,32 @@ async def create_sale(
     )
 
     user_id = current_user['user_id']
-    
-    # Check basic access first and get effective role
-    can_access, _, effective_role = await _check_can_access_sales_api(db, user_id)
-    if not can_access:
-        sales_logger.warning(
-            "Sale access denied - blocked role",
-            user_id=user_id,
-            effective_role=effective_role,
-        )
-        raise HTTPException(
-            status_code=403, 
-            detail={"error": "permission_denied", "message": f"Role '{effective_role}' is not allowed to record sales"}
-        )
 
-    # Enforce operational permissions (write) via guard
-    from app.db.models import User
+    # Fetch DB user
+    from app.db.models import User, UserOperationalRole
     q = select(User).where(User.id == user_id)
     result = await db.execute(q)
     db_user = result.scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Attach operational role info onto db_user for permission resolution
-    from app.db.models import UserRole as UserRoleModel, Role
-    from sqlalchemy.orm import selectinload
-    from app.api.system import OPERATIONAL_ROLE_NAMES
+    # Check permissions via user_operational_roles (source of truth)
     op_result = await db.execute(
-        select(UserRoleModel).join(Role).options(selectinload(UserRoleModel.role)).where(
-            UserRoleModel.user_id == user_id, Role.name.in_(OPERATIONAL_ROLE_NAMES)
-        )
+        select(UserOperationalRole).where(UserOperationalRole.user_id == user_id)
     )
-    op_assignment = op_result.scalar_one_or_none()
-    db_user.operational_role_id = op_assignment.role_id if op_assignment else None
-    db_user.operational_role_name = op_assignment.role.name if (op_assignment and op_assignment.role) else None
+    user_op_roles = {r.role for r in op_result.scalars().all()}
+    is_admin = db_user.is_system_admin or db_user.role == "system_admin"
+    print("OPERATIONAL ROLES:", user_op_roles)
+    db_user.operational_role_name = next(iter(user_op_roles), None)
 
-    from app.permissions.guards import require_permission
     from app.audit.logger import log_audit
-    # Require permission, audit on denial
-    try:
-        require_permission(db_user, "sales", "create")
-    except HTTPException:
+    allowed_sales_roles = {"admin", "storekeeper", "sales_agent"}
+    if not (is_admin or user_op_roles.intersection(allowed_sales_roles)):
         await log_audit(db, db_user, action="create", resource="sales", success=False, reason="permission_denied")
-        raise
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "permission_denied", "message": "Insufficient permissions to create sales"}
+        )
 
     # Parse and validate payload
     try:
@@ -376,6 +360,11 @@ async def create_sale(
         "quantity": sale.quantity,
         "sale_channel": sale.sale_channel,
         "sold_by_user_id": sale.sold_by_user_id,
+        "sold_by": {
+            "id": db_user.id,
+            "username": db_user.username,
+            "display_name": db_user.display_name,
+        },
         "location": sale.location,
         "related_order_id": sale.related_order_id,
         "created_at": sale.created_at.isoformat() if sale.created_at else None,
@@ -386,6 +375,14 @@ async def create_sale(
     else:
         resp["unit_price"] = None
         resp["total_amount"] = None
+
+    # Fire-and-forget: notify connected clients
+    from app.core.realtime import ops_manager
+    asyncio.create_task(ops_manager.broadcast({
+        "type": "SALE_CREATED",
+        "sale_id": sale.id,
+        "order_id": sale.related_order_id,
+    }))
 
     return resp
 
@@ -726,33 +723,96 @@ async def get_sale_by_id(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific sale by ID."""
-    sale = await get_sale(db, sale_id)
+    """Get a specific sale by ID with full details."""
+    from sqlalchemy.orm import selectinload
+    from app.db.models import InventoryTransaction
+
+    # Load sale with all needed relationships in one query
+    q = (
+        select(Sale)
+        .options(
+            selectinload(Sale.sold_by),
+            selectinload(Sale.reversed_by),
+            selectinload(Sale.transaction),
+            selectinload(Sale.related_order),
+        )
+        .where(Sale.id == sale_id)
+    )
+    result = await db.execute(q)
+    sale = result.scalar_one_or_none()
+
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
-    
-    # Permission check - users can only see their own sales unless admin
+
+    # Permission check — non-admin users can only view their own sales
     if not await _check_can_view_all_summaries(db, current_user['user_id']):
         if sale.sold_by_user_id != current_user['user_id']:
             raise HTTPException(status_code=403, detail="Not authorized to view this sale")
-    
+
     is_admin = await _is_admin_user(db, current_user['user_id'])
+
+    # Fetch product name from inventory (lightweight scalar query)
+    product_name_row = await db.execute(
+        select(Inventory.product_name).where(Inventory.product_id == sale.product_id)
+    )
+    product_name = product_name_row.scalar_one_or_none() or f"Product #{sale.product_id}"
+
+    # Normalise sale_channel — may be an Enum instance or a plain string
+    channel_value = sale.sale_channel.value if hasattr(sale.sale_channel, 'value') else str(sale.sale_channel or '')
+
     resp = {
         "sale_id": sale.id,
         "product_id": sale.product_id,
+        "product_name": product_name,
         "quantity": sale.quantity,
-        "sale_channel": sale.sale_channel,
+        "sale_channel": channel_value,
         "sold_by_user_id": sale.sold_by_user_id,
         "location": sale.location,
+        "reference": sale.reference,
+        "customer_name": sale.customer_name,
+        "customer_phone": sale.customer_phone,
+        "payment_method": sale.payment_method,
+        "discount": sale.discount,
+        "sale_date": sale.sale_date.isoformat() if sale.sale_date else None,
         "related_order_id": sale.related_order_id,
+        "linked_order_id": sale.linked_order_id,
+        "is_reversed": bool(sale.is_reversed),
+        "reversed_at": sale.reversed_at.isoformat() if sale.reversed_at else None,
+        "affiliate_code": sale.affiliate_code,
+        "affiliate_name": sale.affiliate_name,
+        "affiliate_source": sale.affiliate_source,
+        "sold_by": {
+            "id": sale.sold_by.id,
+            "username": sale.sold_by.username,
+            "display_name": sale.sold_by.display_name,
+        } if sale.sold_by else None,
+        "reversed_by": {
+            "id": sale.reversed_by.id,
+            "username": sale.reversed_by.username,
+            "display_name": sale.reversed_by.display_name,
+        } if sale.reversed_by else None,
+        "related_order": {
+            "id": sale.related_order.id,
+            "status": sale.related_order.status.value if hasattr(sale.related_order.status, 'value') else str(sale.related_order.status),
+            "customer_name": sale.related_order.customer_name,
+        } if sale.related_order else None,
+        "inventory_transaction": {
+            "id": sale.transaction.id,
+            "change": sale.transaction.change,
+            "reason": sale.transaction.reason,
+            "notes": sale.transaction.notes,
+            "created_at": sale.transaction.created_at.isoformat() if sale.transaction.created_at else None,
+        } if sale.transaction else None,
         "created_at": sale.created_at.isoformat() if sale.created_at else None,
     }
+
     if is_admin:
         resp["unit_price"] = sale.unit_price
         resp["total_amount"] = sale.total_amount
     else:
         resp["unit_price"] = None
         resp["total_amount"] = None
+
     return resp
 
 

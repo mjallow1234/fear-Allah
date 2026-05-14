@@ -21,8 +21,11 @@ import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
 import { useTaskStore, AutomationTask } from '../stores/taskStore'
 import { subscribeToTasks } from '../realtime/tasks'
+import { connectOpsRealtime } from '../lib/opsRealtime'
 import TaskCard from '../components/Tasks/TaskCard'
+import OrderGroupCard from '../components/Tasks/OrderGroupCard'
 import TaskDetailsDrawer from '../components/Tasks/TaskDetailsDrawer'
+import ConvertToSaleModal from '../components/ConvertToSaleModal'
 
 type TabType = 'my-tasks' | 'created' | 'completed' | 'available' | 'all'
 
@@ -54,7 +57,14 @@ export default function TaskInboxPage() {
   } = useTaskStore()
   
   // Admins default to 'all' to see every task; frontend must respect backend as source-of-truth
-  const [activeTab, setActiveTab] = useState<TabType>(user?.is_system_admin ? 'all' : 'my-tasks')
+  const isAdmin = !!user?.is_system_admin
+  const canConvert =
+    user?.is_system_admin ||
+    user?.operational_roles?.some(role =>
+      ["admin", "storekeeper", "sales_agent"].includes(role)
+    )
+  const [convertOrderId, setConvertOrderId] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState<TabType>(isAdmin ? 'all' : 'my-tasks')
   
   // Search and filter state
   const [searchValue, setSearchValue] = useState('')
@@ -73,6 +83,12 @@ export default function TaskInboxPage() {
   useEffect(() => {
     const unsubscribe = subscribeToTasks()
     return () => unsubscribe()
+  }, [])
+
+  // Connect to operational real-time feed (/ws/ops) for live order/sale updates
+  useEffect(() => {
+    const disconnect = connectOpsRealtime()
+    return () => disconnect()
   }, [])
   
   // Handle URL query param to open a specific task
@@ -98,8 +114,11 @@ export default function TaskInboxPage() {
       if (orderTypeFilter) filters.order_type = orderTypeFilter
       fetchMyAssignments(Object.keys(filters).length > 0 ? filters : undefined)
     } else if (activeTab === 'available') {
-      // Use operational role name from currentUser (UI header) and normalize to backend enum (lowercase, underscores)
-      const role = operationalRoleName ? operationalRoleName.toLowerCase().replace(/\s+/g, '_') : null
+      // Admin sees all available tasks (no role filter); others filter by their operational role
+      const isAdmin = Boolean(user?.is_system_admin === true || user?.operational_roles?.includes('admin'))
+      const role = isAdmin
+        ? null
+        : operationalRoleName ? operationalRoleName.toLowerCase().replace(/\s+/g, '_') : null
       fetchAvailableTasks(role)
     } else {
       fetchMyTasks()
@@ -136,7 +155,7 @@ export default function TaskInboxPage() {
     const userId = user?.id || 0
 
     if (activeTab === 'my-tasks') {
-      const fromTasks = tasks.filter(t => isMyTask(t, userId))
+      const fromTasks = tasks.filter(t => isAdmin || isMyTask(t, userId))
       if (fromTasks.length > 0) return fromTasks
       // Fallback: when detailed task objects are not yet loaded, return placeholder entries derived from myAssignments
       if (myAssignments && myAssignments.length > 0) {
@@ -144,20 +163,39 @@ export default function TaskInboxPage() {
       }
       return []
     } else if (activeTab === 'created') {
-      return tasks.filter(t => t.created_by_id === user?.id)
+      return tasks.filter(t => isAdmin || t.created_by_id === user?.id)
     } else if (activeTab === 'all') {
-      return tasks.filter(t => isAll(t, user?.id || 0))
+      return isAdmin ? tasks : tasks.filter(t => isAll(t, user?.id || 0))
     } else if (activeTab === 'available') {
       // Use server-provided availableTasks but apply canonical filter as a safety check
       return (availableTasks || []).filter(isAvailable)
     } else {
       // completed
-      return tasks.filter(t => isCompleted(t, user?.id))
+      return tasks.filter(t => isAdmin ? normalizeStatus(t.status) === 'completed' : isCompleted(t, user?.id))
     }
   }
 
   const filteredTasks = getFilteredTasks()
   const tasksToRender = filteredTasks
+
+  // Group tasks by related_order_id for tabs that show order-level cards
+  // (completed, all). Tasks without an order render individually.
+  const shouldGroup = activeTab === 'completed' || activeTab === 'all' || activeTab === 'created'
+  const { groupedOrders, ungroupedTasks } = (() => {
+    if (!shouldGroup) return { groupedOrders: [] as [number, AutomationTask[]][], ungroupedTasks: tasksToRender }
+    const byOrder = new Map<number, AutomationTask[]>()
+    const solo: AutomationTask[] = []
+    for (const t of tasksToRender) {
+      if (t.related_order_id != null) {
+        const arr = byOrder.get(t.related_order_id)
+        if (arr) arr.push(t)
+        else byOrder.set(t.related_order_id, [t])
+      } else {
+        solo.push(t)
+      }
+    }
+    return { groupedOrders: Array.from(byOrder.entries()), ungroupedTasks: solo }
+  })()
   
   // Get assignment for a task
   const getAssignment = (taskId: number) => {
@@ -168,7 +206,6 @@ export default function TaskInboxPage() {
     const success = await completeAssignment(taskId)
     if (success) {
       // Toast would be nice here
-      console.log('[TaskInbox] Task completed successfully')
     }
   }
   
@@ -183,15 +220,8 @@ export default function TaskInboxPage() {
   // Count pending assignments
   const pendingCount = myAssignments.filter(a => a.status === 'PENDING' || a.status === 'IN_PROGRESS').length
 
-  console.log('[DEBUG][TaskInbox]', {
-    activeTab,
-    availableTasksCount: availableTasks?.length,
-    tasksCount: tasks?.length,
-    filteredTasksCount: filteredTasks?.length,
-  });
-
   return (
-    <div className="page-container flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--main-bg)' }}>
+    <div className="page-container flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Header */}
       <div className="flex-shrink-0 px-6 py-4" style={{ backgroundColor: 'var(--panel-bg)', borderBottom: '1px solid var(--sidebar-border)' }}>
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -226,7 +256,7 @@ export default function TaskInboxPage() {
       </div>
       
       {/* Tabs */}
-      <div className="page-tabs flex-shrink-0 min-h-12 bg-[#2b2d31] border-b border-[#1f2023] px-6 relative z-10 overflow-visible">
+      <div className="page-tabs flex-shrink-0 min-h-12 bg-[#2b2d31] border-b border-[#1f2023] px-6 overflow-visible">
         <div className="max-w-4xl mx-auto flex flex-wrap gap-2 overflow-x-auto sm:overflow-visible py-2">
           {!user?.is_system_admin && (
             <button
@@ -359,7 +389,7 @@ export default function TaskInboxPage() {
       )}
       
       {/* Task List */}
-      <div className="page-content flex-1 overflow-y-auto">
+      <div className="page-content">
         <div className="max-w-4xl mx-auto py-6 px-6 pb-12">
           {loading ? (
             <div className="py-12 text-center">
@@ -434,6 +464,34 @@ export default function TaskInboxPage() {
             {activeTab === 'available' && (
               <p className="text-[#72767d] text-sm mt-1">Tasks matching your active role will appear here</p>
             )}
+          </div>
+        ) : shouldGroup ? (
+          /* Grouped rendering: one card per order, individual cards for orphan tasks */
+          <div className="space-y-3">
+            {groupedOrders.map(([orderId, orderTasks]) => (
+              <OrderGroupCard
+                key={`order-${orderId}`}
+                orderId={orderId}
+                tasks={orderTasks}
+                onClick={(task) => setSelectedTask(task)}
+                canConvert={canConvert}
+                onConvert={() => setConvertOrderId(orderId)}
+              />
+            ))}
+            {ungroupedTasks.map((task) => {
+              const assignment = getAssignment(task.id)
+              return (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  assignment={assignment}
+                  currentUserId={user?.id || 0}
+                  isCompleting={completingTaskId === task.id}
+                  onComplete={handleComplete}
+                  onClick={() => setSelectedTask(task)}
+                />
+              )
+            })}
           </div>
         ) : (
           <div className="space-y-3">
@@ -510,6 +568,15 @@ export default function TaskInboxPage() {
         loading={loadingTask}
         onClose={() => setSelectedTask(null)}
       />
+
+      {/* Convert to Sale Modal */}
+      {convertOrderId !== null && (
+        <ConvertToSaleModal
+          orderId={convertOrderId}
+          open={true}
+          onClose={() => setConvertOrderId(null)}
+        />
+      )}
     </div>
   )
 }

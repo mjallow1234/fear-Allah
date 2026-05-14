@@ -30,11 +30,28 @@ TASK_STEP_COLORS = {
 
 @router.get("/")
 async def list_tasks(assigned_to: str = None, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.db.models import Order, Sale
+    from sqlalchemy import select
+
     q = select(Task)
     if assigned_to == 'me':
         q = q.where(Task.assigned_user_id == current_user['user_id'], Task.status.in_(['active', 'pending']))
     result = await db.execute(q)
     tasks = result.scalars().all()
+
+    # Gather all order_ids from tasks
+    order_ids = [t.order_id for t in tasks if t.order_id]
+    sales_order_ids = set()
+    if order_ids:
+        sales_rows = await db.execute(
+            select(Sale.related_order_id)
+            .where(Sale.related_order_id.in_(order_ids), Sale.is_reversed == False)
+        )
+        sales_order_ids = set(sales_rows.scalars().all())
+
+    # Optionally, fetch order info for each task (for future extensibility)
+    order_map = {o.id: o for o in (await db.execute(select(Order).where(Order.id.in_(order_ids)))).scalars().all()} if order_ids else {}
+
     return [
         {
             "task_id": t.id,
@@ -44,6 +61,11 @@ async def list_tasks(assigned_to: str = None, current_user: dict = Depends(get_c
             "assigned_user_id": t.assigned_user_id,
             "status_color": TASK_STATUS_COLORS.get(t.status, "#6B7280"),
             "step_color": TASK_STEP_COLORS.get(t.step_key, "#6B7280"),
+            "order": {
+                "id": t.order_id,
+                "has_sale": t.order_id in sales_order_ids,
+                # Optionally add more order fields here if needed
+            } if t.order_id else None,
         }
         for t in tasks
     ]

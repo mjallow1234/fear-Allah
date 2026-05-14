@@ -57,7 +57,7 @@ async def emit_event(event_name: str, payload: dict):
     
     # --- Socket.IO routing ---
     try:
-        from app.realtime.socket import emit_order_updated, emit_order_created, emit_task_completed
+        from app.realtime.socket import emit_order_updated, emit_order_created, emit_task_completed, emit_sale_created
         
         if event_name == 'order.status_changed' or event_name == 'order.completed':
             await emit_order_updated(
@@ -76,6 +76,14 @@ async def emit_event(event_name: str, payload: dict):
                 task_id=payload.get('task_id'),
                 step_key=payload.get('step_key'),
                 order_id=payload.get('order_id')
+            )
+        elif event_name == 'sale:created':
+            await emit_sale_created(
+                sale_id=payload.get('sale_id'),
+                product_id=payload.get('product_id'),
+                quantity=payload.get('quantity'),
+                user_id=payload.get('user_id'),
+                channel=payload.get('channel'),
             )
     except Exception as e:
         logger.warning(f"Failed to emit socket event {event_name}: {e}")
@@ -99,7 +107,10 @@ async def emit_event(event_name: str, payload: dict):
                         user_display = await get_user_display_name(db, payload.get('user_id'))
                         payload['user_name'] = user_display
                         logger.info("Sale recorded by %s (sale_id=%s)", user_display, sale_id)
-                        await SalesAutomationTriggers.on_sale_recorded(db=db, sale=sale)
+                        await SalesAutomationTriggers.on_sale_recorded(
+                            db=db, sale=sale,
+                            transaction_id=payload.get('transaction_id'),
+                        )
 
         elif event_name == EventType.INVENTORY_UPDATED:
             product_id = payload.get('product_id')
@@ -341,12 +352,14 @@ async def create_order(
     # ============================================================
     try:
         from app.services.notification_emitter import notify_and_emit_order_created_to_roles
+        from app.core.utils.user_utils import get_user_display_name as _get_display_name
+        _creator_name = await _get_display_name(session, created_by_id) if created_by_id else None
         await notify_and_emit_order_created_to_roles(
             db=session,
             order_id=order.id,
             order_type=order.order_type.value if hasattr(order.order_type, 'value') else order.order_type,
             order_reference=order.reference,
-            customer_name=order.customer_name,
+            creator_name=_creator_name,
             created_by_id=created_by_id,
         )
     except Exception as e:
@@ -431,9 +444,14 @@ async def atomic_complete_task(session: AsyncSession, task_id: int, user_id: int
     return res.rowcount
 
 
-async def complete_task(session: AsyncSession, task_id: int, user_id: int):
+async def complete_task(session: AsyncSession, task_id: int, user_id: int, commit: bool = True):
     """Complete a task with validations and activate next.
     Implementation uses a single atomic UPDATE (no pre-load) to mark the task done.
+    
+    Args:
+        commit: When False, flush only (no commit) and skip event emissions.
+                Returns a dict of deferred side effects for the caller to emit
+                after its own commit.  When True (default), behaves exactly as before.
     """
     next_task = None
 
@@ -545,14 +563,14 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
     except Exception as e:
         logger.warning(f"[TaskEngine] Failed to verify remaining workflow tasks before completing order {order.id}: {e}")
 
-    # Flush and commit so we emit events after commit
+    # Flush all pending DB changes (visible in this transaction)
     await session.flush()
-    await session.commit()
 
-    # Emit events after commit with order_type for frontend
-    await emit_event('task.completed', {"task_id": task.id, "step_key": task.step_key, "order_id": order.id})
+    # ---- Build deferred side-effects ----
+    deferred_events = [("task.completed", {"task_id": task.id, "step_key": task.step_key, "order_id": order.id})]
+    deferred_notifications = []
 
-    # === NOTIFY: Workflow step completed → notify ALL order participants ===
+    # Step notification: when commit=False, create DB record but defer socket emission
     try:
         from app.services.notification_emitter import notify_and_emit_task_step_completed_to_participants
         
@@ -562,34 +580,26 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
         step_label = step_meta.get('title', task.step_key) if step_meta else task.step_key
         step_role = step_meta.get('assigned_to') if step_meta else None
         
-        await notify_and_emit_task_step_completed_to_participants(
+        step_notifs = await notify_and_emit_task_step_completed_to_participants(
             db=session,
             order_id=order.id,
             task_id=task.id,
             step_key=task.step_key,
             step_label=step_label,
             role=step_role,
+            defer_emit=(not commit),
         )
-        logger.info(f"[TaskEngine] Emitted task_step_completed notification for step={task.step_key} order={order.id}")
+        deferred_notifications.extend(step_notifs or [])
+        logger.info(f"[TaskEngine] {'Created' if not commit else 'Emitted'} task_step_completed notification for step={task.step_key} order={order.id}")
     except Exception as e:
         logger.warning(f"[TaskEngine] Failed to emit task_step_completed notification: {e}")
 
     if next_task:
-        await emit_event('task.activated', {"task_id": next_task.id, "assigned_user_id": next_task.assigned_user_id})
+        deferred_events.append(("task.activated", {"task_id": next_task.id, "assigned_user_id": next_task.assigned_user_id}))
     if changed:
         if new_status == 'completed':
-            await emit_event('order.completed', {"order_id": order.id, "status": order.status, "order_type": order.order_type})
-        await emit_event('order.status_changed', {"order_id": order.id, "status": order.status, "order_type": order.order_type})
-        
-        # Trigger automation on status change (Phase 6.2)
-        if AUTOMATIONS_ENABLED:
-            try:
-                from app.automation.order_triggers import OrderAutomationTriggers
-                await OrderAutomationTriggers.on_order_status_changed(
-                    session, order, old_status, new_status, user_id
-                )
-            except Exception as e:
-                logger.warning(f"[Automation] Failed to trigger status change automation: {e}")
+            deferred_events.append(("order.completed", {"order_id": order.id, "status": order.status, "order_type": order.order_type}))
+        deferred_events.append(("order.status_changed", {"order_id": order.id, "status": order.status, "order_type": order.order_type}))
 
     # --- Delivery assignment lifecycle: ensure delivery assignments only mark DONE when all delivery workflow steps are complete ---
     try:
@@ -638,6 +648,31 @@ async def complete_task(session: AsyncSession, task_id: int, user_id: int):
     except Exception as e:
         logger.warning(f"[TaskEngine] Error in delivery assignment post-complete check: {e}")
 
-    return task, next_task, order
+    if commit:
+        await session.commit()
 
-    return task, next_task, order
+        # Emit all events immediately (post-commit)
+        for event_name, payload in deferred_events:
+            await emit_event(event_name, payload)
+
+        # Trigger automation on status change (Phase 6.2)
+        if changed and AUTOMATIONS_ENABLED:
+            try:
+                from app.automation.order_triggers import OrderAutomationTriggers
+                await OrderAutomationTriggers.on_order_status_changed(
+                    session, order, old_status, new_status, user_id
+                )
+            except Exception as e:
+                logger.warning(f"[Automation] Failed to trigger status change automation: {e}")
+
+    # Return deferred info so caller can emit after its own commit
+    return {
+        "task": task,
+        "next_task": next_task,
+        "order": order,
+        "events": deferred_events,
+        "notifications": deferred_notifications,
+        "changed": changed,
+        "old_status": old_status,
+        "new_status": new_status,
+    }

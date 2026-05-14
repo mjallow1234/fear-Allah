@@ -186,11 +186,12 @@ rule_engine = RuleEngine()
 
 # --- Default rules (code-based) ---
 
-rule_engine.register_rule({
-    "event": "sale:created",
-    "conditions": {"quantity_gt": 5},
-    "actions": ["notify_manager"],
-})
+# Disabled: sale notifications are handled by notification_hooks.on_sale_recorded
+# rule_engine.register_rule({
+#     "event": "sale:created",
+#     "conditions": {"quantity_gt": 5},
+#     "actions": ["notify_manager"],
+# })
 
 rule_engine.register_rule({
     "event": "transaction:reversed",

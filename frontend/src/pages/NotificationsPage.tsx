@@ -8,6 +8,7 @@ import { Bell, Check, CheckCheck, Trash2, ArrowLeft, Package, ShoppingCart, Clip
 import api from '../services/api'
 import clsx from 'clsx'
 import { onSocketEvent } from '../realtime'
+import { resolveSenderName, repairNotificationTitle, resolveNotificationRoute } from '../utils/identity'
 
 interface Notification {
   id: number
@@ -18,6 +19,7 @@ interface Notification {
   message_id: number | null
   sender_id: number | null
   sender_username: string | null
+  sender_display_name?: string | null
   task_id: number | null
   order_id: number | null
   inventory_id: number | null
@@ -102,24 +104,13 @@ export default function NotificationsPage() {
   }
 
   const handleNotificationClick = (notif: Notification) => {
-    // Navigate based on notification type
-    if (notif.channel_id) {
-      navigate(`/channels/${notif.channel_id}`)
-    } else if (notif.task_id) {
-      // Navigate to tasks page when we have one
-      console.log('Task notification clicked:', notif.task_id)
-    } else if (notif.order_id) {
-      // Navigate to orders page when we have one
-      console.log('Order notification clicked:', notif.order_id)
-    } else if (notif.inventory_id) {
-      // Navigate to inventory page when we have one
-      console.log('Inventory notification clicked:', notif.inventory_id)
-    }
-    
-    // Mark as read if unread
+    // Mark as read first so the action always registers
     if (!notif.is_read) {
       handleMarkRead(notif.id, { stopPropagation: () => {} } as React.MouseEvent)
     }
+
+    const route = resolveNotificationRoute(notif)
+    if (route) navigate(route)
   }
 
   const getNotificationIcon = (type: string) => {
@@ -208,7 +199,7 @@ export default function NotificationsPage() {
   })
 
   return (
-    <div className="h-full bg-[#313338]">
+    <div className="min-h-full bg-[#313338]">
       {/* Header */}
       <div className="bg-[#2b2d31] border-b border-[#1f2023] px-6 py-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
@@ -308,7 +299,7 @@ export default function NotificationsPage() {
                         'text-sm',
                         notif.is_read ? 'text-[#949ba4]' : 'text-white font-medium'
                       )}>
-                        {notif.title}
+                        {repairNotificationTitle(notif.title, resolveSenderName(notif))}
                       </span>
                       {!notif.is_read && (
                         <span className="w-2 h-2 rounded-full bg-[#00a8fc] flex-shrink-0" />

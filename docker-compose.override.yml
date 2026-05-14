@@ -11,14 +11,20 @@ services:
     # backend is accessed by other containers using the internal network (no host port published)
 
   frontend:
-    image: node:20-slim
+    image: fear-allah-frontend-dev
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM node:20-slim
+        RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
     volumes:
       - ./frontend:/app:cached
     working_dir: /app
     ports:
       - "3000:3000"
     environment:
-      - VITE_API_URL=http://localhost:18002
+      # Inside Docker, reach api-proxy via its service name instead of localhost:18002
+      VITE_PROXY_TARGET: http://api-proxy:80
     command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0"
 
   api-proxy:

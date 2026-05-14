@@ -5,8 +5,9 @@ Task management endpoints for the new automation engine.
 from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.db.models import TaskAssignment
+from app.db.models import TaskAssignment, UserOperationalRole
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
@@ -215,16 +216,62 @@ async def list_tasks(
 
     # Enrich tasks with order details when present (best-effort)
     enriched = []
-    from app.db.models import Order
     import json as _json
     for t in tasks:
         resp = _task_to_response(t)
+        task_dict = {
+            "id": t.id,
+            "task_type": t.task_type,
+            "status": t.status,
+            "title": t.title,
+            "description": t.description,
+            "created_by_id": t.created_by_id,
+            "related_order_id": t.related_order_id,
+            "metadata": (
+                t.task_metadata
+                if isinstance(t.task_metadata, dict)
+                else (_json.loads(t.task_metadata) if isinstance(t.task_metadata, str) and t.task_metadata else {})
+            ),
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+            "assignments": resp.model_dump().get("assignments", []),
+        }
+
+        order_details = {}
+        sale_status = "none"
+
         if getattr(t, 'related_order_id', None):
             try:
+                from sqlalchemy import select
+                from app.db.models import Order, Sale
+                import ast
+
                 res = await db.execute(select(Order).where(Order.id == t.related_order_id))
                 order = res.scalar_one_or_none()
                 if order:
-                    import ast
+                    # Check for active (non-reversed) sale
+                    active_sale_res = await db.execute(
+                        select(Sale.id).where(
+                            Sale.related_order_id == t.related_order_id,
+                            Sale.is_reversed == False,
+                        ).limit(1)
+                    )
+                    active_sale = active_sale_res.scalar_one_or_none()
+
+                    # Check for any reversed sale (all sales reversed)
+                    reversed_sale_res = await db.execute(
+                        select(Sale.id).where(
+                            Sale.related_order_id == t.related_order_id,
+                            Sale.is_reversed == True,
+                        ).limit(1)
+                    )
+                    reversed_sale = reversed_sale_res.scalar_one_or_none()
+
+                    if active_sale is not None:
+                        sale_status = "active"
+                    elif reversed_sale is not None:
+                        sale_status = "reversed"
+
                     order_items = None
                     try:
                         order_items = _json.loads(order.items) if order.items else None
@@ -243,17 +290,13 @@ async def list_tasks(
                         except Exception:
                             meta = None
 
-                    # Fallbacks: sometimes items or customer info live inside meta/form payloads
                     if not order_items and isinstance(meta, dict):
-                        # First, try legacy keys
                         order_items = meta.get('items') or meta.get('line_items')
 
-                        # Try to extract from dynamic form payload or responses
                         form_info = _extract_from_form_payload(meta)
                         if not order_items and form_info.get('items'):
                             order_items = form_info.get('items')
 
-                        # If form_info found fields, use them as fallbacks
                         quantities = None
                         if isinstance(order_items, list):
                             try:
@@ -273,9 +316,7 @@ async def list_tasks(
                         if not customer_phone:
                             customer_phone = form_info.get('customer_phone')
 
-                        # If we found a form payload, include it under meta for UI
                         if form_info.get('form_payload'):
-                            # Preserve original meta but include normalized form under 'form_payload'
                             try:
                                 meta = dict(meta)
                                 meta['form_payload'] = form_info.get('form_payload')
@@ -305,11 +346,15 @@ async def list_tasks(
                         'customer_phone': customer_phone,
                         'meta': meta,
                     }
-                    data = resp.model_dump()
-                    data['order_details'] = order_details
-                    resp = TaskResponse.model_validate(data)
             except Exception:
                 pass
+
+        if not task_dict.get('order_details'):
+            task_dict['order_details'] = {}
+        task_dict['order_details'].update(order_details)
+        task_dict['order_details']['sale_status'] = sale_status
+
+        resp = TaskResponse.model_validate(task_dict)
         enriched.append(resp)
 
     return TaskListResponse(
@@ -320,12 +365,13 @@ async def list_tasks(
 
 @router.get("/available-tasks", response_model=TaskListResponse)
 async def available_tasks(
-    role: str,
+    role: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get tasks available to a role (unclaimed tasks with required_role == role)."""
+    """Get tasks available to a role (unclaimed tasks with required_role == role).
+    If role is None, returns all unclaimed open tasks (admin overview)."""
     tasks = await AutomationService.available_tasks_for_role(db=db, role=role, limit=limit, offset=offset)
     return TaskListResponse(tasks=[_task_to_response(t) for t in tasks], total=len(tasks))
 
@@ -345,14 +391,29 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # Check access: creator, assignee, or system admin
+    # Check access: creator, assignee, system admin, or eligible browser
     is_assignee = await AutomationService.is_assigned_to_task(db, task_id, user_id)
-    can_view = (
-        task.created_by_id == user_id or
-        is_assignee or
-        user.is_system_admin
+
+    # Multi-role safe: fresh DB query for operational roles
+    op_result = await db.execute(
+        select(UserOperationalRole).where(UserOperationalRole.user_id == user_id)
     )
-    
+    op_roles = {r.role for r in op_result.scalars().all()}
+
+    # Allow pre-claim preview: task is open, unclaimed, and user holds the required role
+    is_eligible_browser = (
+        task.status == AutomationTaskStatus.open
+        and task.claimed_by_user_id is None
+        and bool(task.required_role and task.required_role in op_roles)
+    )
+
+    can_view = (
+        task.created_by_id == user_id
+        or is_assignee
+        or user.is_system_admin
+        or is_eligible_browser
+    )
+
     if not can_view:
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -367,6 +428,26 @@ async def get_task(
             res = await db.execute(select(Order).where(Order.id == task.related_order_id))
             order = res.scalar_one_or_none()
             if order:
+                # Determine sale_status: active (non-reversed) > reversed > none
+                from app.db.models import Sale as _Sale
+                sale_status = "none"
+                _active_res = await db.execute(
+                    select(_Sale.id).where(
+                        _Sale.related_order_id == task.related_order_id,
+                        _Sale.is_reversed == False,
+                    ).limit(1)
+                )
+                if _active_res.scalar_one_or_none() is not None:
+                    sale_status = "active"
+                else:
+                    _rev_res = await db.execute(
+                        select(_Sale.id).where(
+                            _Sale.related_order_id == task.related_order_id,
+                            _Sale.is_reversed == True,
+                        ).limit(1)
+                    )
+                    if _rev_res.scalar_one_or_none() is not None:
+                        sale_status = "reversed"
                 import ast
                 order_items = None
                 try:
@@ -445,6 +526,7 @@ async def get_task(
                     'customer_name': customer_name,
                     'customer_phone': customer_phone,
                     'meta': meta,
+                    'sale_status': sale_status,
                 }
 
                 # Inject order_details into response (create new validated model)
@@ -455,7 +537,9 @@ async def get_task(
             # Best-effort: do not fail if enrichment fails
             pass
 
-    return resp
+    data = resp.model_dump()
+    data['order_details'] = {}
+    return TaskResponse.model_validate(data)
 
 
 @router.get("/tasks/{task_id}/events", response_model=list[TaskEventResponse])
@@ -473,18 +557,38 @@ async def get_task_events(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # Creator, assignees, or system admin can see events
+    # Creator, assignees, system admin, or eligible browser can see events
     is_assignee = await AutomationService.is_assigned_to_task(db, task_id, user_id)
-    can_view = (
-        task.created_by_id == user_id or
-        is_assignee or
-        user.is_system_admin
+
+    # Multi-role safe: fresh DB query for operational roles
+    op_result = await db.execute(
+        select(UserOperationalRole).where(UserOperationalRole.user_id == user_id)
     )
-    
+    op_roles = {r.role for r in op_result.scalars().all()}
+
+    # Allow pre-claim preview: task is open, unclaimed, and user holds the required role
+    is_eligible_browser = (
+        task.status == AutomationTaskStatus.open
+        and task.claimed_by_user_id is None
+        and bool(task.required_role and task.required_role in op_roles)
+    )
+
+    can_view = (
+        task.created_by_id == user_id
+        or is_assignee
+        or user.is_system_admin
+        or is_eligible_browser
+    )
+
     if not can_view:
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    events = await AutomationService.get_task_events(db, task_id)
+
+    # For order-root tasks, return events from ALL sibling tasks so the
+    # timeline includes activity logged against role-specific tasks.
+    if getattr(task, 'is_order_root', False) and task.related_order_id:
+        events = await AutomationService.get_order_task_events(db, task.related_order_id)
+    else:
+        events = await AutomationService.get_task_events(db, task_id)
     
     return [_event_to_response(e) for e in events]
 
@@ -515,7 +619,33 @@ async def get_active_workflow_step(
     
     if not automation_task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
+    # Permission guard: mirror get_task access model
+    user = await _get_user(db, user_id)
+    is_assignee_ws = await AutomationService.is_assigned_to_task(db, task_id, user_id)
+
+    # Multi-role safe: fresh DB query for operational roles
+    op_result_ws = await db.execute(
+        select(UserOperationalRole).where(UserOperationalRole.user_id == user_id)
+    )
+    op_roles_ws = {r.role for r in op_result_ws.scalars().all()}
+
+    is_eligible_browser_ws = (
+        automation_task.status == AutomationTaskStatus.open
+        and automation_task.claimed_by_user_id is None
+        and bool(automation_task.required_role and automation_task.required_role in op_roles_ws)
+    )
+
+    can_view_ws = (
+        automation_task.created_by_id == user_id
+        or is_assignee_ws
+        or user.is_system_admin
+        or is_eligible_browser_ws
+    )
+
+    if not can_view_ws:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     if not automation_task.related_order_id:
         return {"active_step": None, "all_steps": [], "my_steps": []}
     
@@ -931,6 +1061,7 @@ async def get_my_assignments(
         select(TaskAssignment)
         .join(ATModel, TaskAssignment.task_id == ATModel.id)
         .outerjoin(OrderModel, ATModel.related_order_id == OrderModel.id)
+        .options(selectinload(TaskAssignment.user))
     )
 
     if not user.is_system_admin:
@@ -1036,13 +1167,22 @@ def _task_to_response(task) -> TaskResponse:
 
 def _assignment_to_response(assignment) -> AssignmentResponse:
     """Convert assignment model to response schema."""
+    from app.automation.schemas import UserBrief
     # Preserve assignment status value (may be enum or string)
     status_value = assignment.status
+    user_brief = None
+    if hasattr(assignment, 'user') and assignment.user:
+        user_brief = UserBrief(
+            id=assignment.user.id,
+            username=assignment.user.username,
+            display_name=assignment.user.display_name,
+        )
 
     return AssignmentResponse(
         id=assignment.id,
         task_id=assignment.task_id,
         user_id=assignment.user_id,
+        user=user_brief,
         role_hint=assignment.role_hint,
         status=status_value,
         notes=assignment.notes,
@@ -1054,10 +1194,19 @@ def _assignment_to_response(assignment) -> AssignmentResponse:
 def _event_to_response(event) -> TaskEventResponse:
     """Convert event model to response schema."""
     import json
+    from app.automation.schemas import UserBrief
+    user_brief = None
+    if hasattr(event, 'user') and event.user:
+        user_brief = UserBrief(
+            id=event.user.id,
+            username=event.user.username,
+            display_name=event.user.display_name,
+        )
     return TaskEventResponse(
         id=event.id,
         task_id=event.task_id,
         user_id=event.user_id,
+        user=user_brief,
         event_type=event.event_type,
         metadata=json.loads(event.event_metadata) if event.event_metadata else None,
         created_at=event.created_at,

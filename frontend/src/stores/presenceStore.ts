@@ -23,16 +23,12 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
   onlineUserIds: new Set(),
   
   setInitialPresence: (userIds: number[]) => {
-    // Ensure all IDs are numbers (socket might send strings)
     const normalizedIds = userIds.map(id => Number(id))
-    console.log('[Presence] Setting initial presence:', normalizedIds)
     set({ onlineUserIds: new Set(normalizedIds) })
   },
   
   userOnline: (userId: number) => {
-    // Ensure ID is a number (socket might send string)
     const normalizedId = Number(userId)
-    console.log('[Presence] User online:', normalizedId)
     set((state) => {
       const newSet = new Set(state.onlineUserIds)
       newSet.add(normalizedId)
@@ -41,9 +37,7 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
   },
   
   userOffline: (userId: number) => {
-    // Ensure ID is a number (socket might send string)
     const normalizedId = Number(userId)
-    console.log('[Presence] User offline:', normalizedId)
     set((state) => {
       const newSet = new Set(state.onlineUserIds)
       newSet.delete(normalizedId)
@@ -57,7 +51,6 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
   },
   
   clearPresence: () => {
-    console.log('[Presence] Clearing all presence')
     set({ onlineUserIds: new Set() })
   },
 }))

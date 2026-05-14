@@ -727,3 +727,22 @@ async def emit_task_completed(task_id: int, step_key: str, order_id: int = None)
     
     await sio.emit("task:completed", payload)
     logger.info(f"Emitted task:completed for task {task_id}, step={step_key}")
+
+
+async def emit_sale_created(sale_id: int, product_id: int, quantity: int, user_id: int = None, channel: str = None):
+    """
+    Emit sale:created event to all connected clients for real-time UI sync.
+    """
+    if settings.TESTING:
+        return
+
+    payload = {
+        "sale_id": sale_id,
+        "product_id": product_id,
+        "quantity": quantity,
+        "user_id": user_id,
+        "channel": channel,
+    }
+
+    await sio.emit("sale:created", payload)
+    logger.info(f"Emitted sale:created for sale {sale_id}, product={product_id}, qty={quantity}")

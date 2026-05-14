@@ -53,7 +53,6 @@ export default function EmojiPickerPopover({
   // Positioning (compute only after mount; don't gate render on anchorRef)
   useLayoutEffect(() => {
     if (!open) return
-    console.log('[Emoji] popover open')
     if (!anchorRef?.current) {
       // Wait until anchor is available
       setPosition(null)
@@ -69,7 +68,6 @@ export default function EmojiPickerPopover({
 
     const left = Math.min(Math.max(8, rect.left), window.innerWidth - 360 - 8)
     const computed = { top: Math.round(top), left: Math.round(left) }
-    console.log('[Emoji] computed position', computed)
     setPosition(computed)
   }, [open, anchorRef])
 

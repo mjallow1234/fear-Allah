@@ -286,19 +286,16 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     
     // Skip if rate limited
     if (rateLimited && !force) {
-      console.log('[SystemStore] Skipping fetchUsers - rate limited')
       return
     }
     
     // Skip if already fetched this session (unless forced)
     if (_usersFetched && !force) {
-      console.log('[SystemStore] Skipping fetchUsers - already fetched')
       return
     }
     
     // Skip if already in-flight
     if (_fetchingUsers) {
-      console.log('[SystemStore] Skipping fetchUsers - in-flight')
       return
     }
     
@@ -465,19 +462,16 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     
     // Skip if rate limited
     if (rateLimited && !force) {
-      console.log('[SystemStore] Skipping fetchRoles - rate limited')
       return
     }
     
     // Skip if already fetched this session (unless forced)
     if (_rolesFetched && !force) {
-      console.log('[SystemStore] Skipping fetchRoles - already fetched')
       return
     }
     
     // Skip if already in-flight
     if (_fetchingRoles) {
-      console.log('[SystemStore] Skipping fetchRoles - in-flight')
       return
     }
     
@@ -523,17 +517,14 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     const { _operationalRolesFetched, _fetchingOperationalRoles, rateLimited } = get()
 
     if (rateLimited && !force) {
-      console.log('[SystemStore] Skipping fetchOperationalRoles - rate limited')
       return
     }
 
     if (_operationalRolesFetched && !force) {
-      console.log('[SystemStore] Skipping fetchOperationalRoles - already fetched')
       return
     }
 
     if (_fetchingOperationalRoles) {
-      console.log('[SystemStore] Skipping fetchOperationalRoles - in-flight')
       return
     }
 
@@ -575,19 +566,16 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     
     // Skip if rate limited
     if (rateLimited && !force) {
-      console.log('[SystemStore] Skipping fetchPermissions - rate limited')
       return
     }
     
     // Skip if already fetched this session (unless forced)
     if (_permissionsFetched && !force) {
-      console.log('[SystemStore] Skipping fetchPermissions - already fetched')
       return
     }
     
     // Skip if already in-flight
     if (_fetchingPermissions) {
-      console.log('[SystemStore] Skipping fetchPermissions - in-flight')
       return
     }
     
@@ -691,19 +679,16 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     
     // Skip if rate limited
     if (rateLimited && !force) {
-      console.log('[SystemStore] Skipping fetchSettings - rate limited')
       return
     }
     
     // Skip if already fetched this session (unless forced)
     if (_settingsFetched && !force) {
-      console.log('[SystemStore] Skipping fetchSettings - already fetched')
       return
     }
     
     // Skip if already in-flight
     if (_fetchingSettings) {
-      console.log('[SystemStore] Skipping fetchSettings - in-flight')
       return
     }
     
@@ -746,19 +731,16 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     
     // Skip if rate limited
     if (rateLimited && !force) {
-      console.log('[SystemStore] Skipping fetchStats - rate limited')
       return
     }
     
     // Skip if already fetched this session (unless forced)
     if (_statsFetched && !force) {
-      console.log('[SystemStore] Skipping fetchStats - already fetched')
       return
     }
     
     // Skip if already in-flight
     if (_fetchingStats) {
-      console.log('[SystemStore] Skipping fetchStats - in-flight')
       return
     }
     

@@ -151,3 +151,69 @@ async def test_sale_linked_to_non_completed_order_conflict(client: AsyncClient, 
     # sale linked to non-completed order should return 409
     resp = await client.post('/api/sales/', json={'product_id': 11, 'quantity': 1, 'unit_price': 10.0, 'sale_channel': 'AGENT', 'related_order_id': order.id}, headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_sale_reversal_marks_sale_as_reversed_and_clears_active_order_sale(client: AsyncClient, test_session):
+    # Register admin user and elevate to system_admin
+    r = await client.post('/api/auth/register', json={'email': 'adminrev@example.com', 'password': 'Password123!', 'username': 'adminrev'})
+    assert r.status_code == 201
+    login = await client.post('/api/auth/login', json={'identifier': 'adminrev@example.com', 'password': 'Password123!'})
+    token = login.json()['access_token']
+
+    from app.db.enums import UserRole as UserRoleEnum
+    from app.db.models import User, Inventory, Order, InventoryTransaction, Sale, Role, UserRole as UserRoleModel
+    sel = __import__('sqlalchemy').select
+
+    result = await test_session.execute(sel(User).where(User.email == 'adminrev@example.com'))
+    admin_user = result.scalar_one()
+    admin_user.role = UserRoleEnum.system_admin
+
+    role_result = await test_session.execute(sel(Role).where(Role.name == 'admin'))
+    admin_role = role_result.scalar_one_or_none()
+    if not admin_role:
+        admin_role = Role(name='admin', is_system=False)
+        test_session.add(admin_role)
+        await test_session.commit()
+
+    test_session.add(UserRoleModel(user_id=admin_user.id, role_id=admin_role.id))
+    await test_session.commit()
+
+    inv = Inventory(product_id=99, total_stock=10, total_sold=0)
+    order = Order(order_type='agent_retail', status='completed')
+    test_session.add_all([inv, order])
+    await test_session.commit()
+
+    response = await client.post(
+        '/api/sales/',
+        json={
+            'product_id': 99,
+            'quantity': 2,
+            'unit_price': 10.0,
+            'sale_channel': 'AGENT',
+            'related_order_id': order.id,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code in (200, 201)
+    sale_id = response.json().get('sale_id')
+    assert sale_id is not None
+
+    tx_result = await test_session.execute(sel(InventoryTransaction).where(InventoryTransaction.related_sale_id == sale_id))
+    original_tx = tx_result.scalar_one()
+
+    rev_response = await client.post(f'/api/inventory/transactions/{original_tx.id}/reverse', headers={'Authorization': f'Bearer {token}'})
+    assert rev_response.status_code == 200
+
+    sale_result = await test_session.execute(sel(Sale).where(Sale.id == sale_id))
+    sale = sale_result.scalar_one()
+    assert sale.is_reversed is True
+    assert sale.reversed_by_id == admin_user.id
+    assert sale.reversed_at is not None
+
+    orders_response = await client.get('/api/orders/', headers={'Authorization': f'Bearer {token}'})
+    assert orders_response.status_code == 200
+    orders = orders_response.json()
+    order_info = next((o for o in orders if o['id'] == order.id), None)
+    assert order_info is not None
+    assert order_info['has_sale'] is False

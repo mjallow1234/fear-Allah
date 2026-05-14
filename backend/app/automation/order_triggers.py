@@ -159,6 +159,29 @@ class OrderAutomationTriggers:
             except Exception as e:
                 logger.warning(f"[OrderAutomation] Failed to ensure uq_order_root_per_order index: {e}")
 
+            # Extract order_items from meta.form_payload (source of truth for form-submitted orders)
+            _order_items = []
+            try:
+                # order object attributes are expired after session.commit() in task_engine.
+                # We must refresh to reload order.meta from DB before accessing it.
+                await db.refresh(order)
+                _meta = order.meta
+                print("RAW order.meta at trigger:", _meta, type(_meta))
+                if isinstance(_meta, str):
+                    _meta = json.loads(_meta)
+                if isinstance(_meta, dict):
+                    _fp = _meta.get("form_payload") or {}
+                    print("FORM PAYLOAD at trigger:", _fp)
+                    _pid = _fp.get("product_id")
+                    _qty = _fp.get("quantity")
+                    if _pid and _qty:
+                        _order_items = [{"product_id": int(_pid), "quantity": int(_qty)}]
+            except Exception as _e:
+                logger.warning(f"[OrderAutomation] Failed to extract order_items from form_payload: {_e}")
+                import traceback
+                traceback.print_exc()
+            print("SAVING ORDER ITEMS:", _order_items)
+
             # Create the global order-root automation task (explicitly NOT role-scoped)
             root_task = await AutomationService.create_task(
                 db=db,
@@ -170,7 +193,7 @@ class OrderAutomationTriggers:
                 metadata={
                     "order_type": order_type,
                     "triggered_by": "order_created",
-                    "order_items": order.items,
+                    "order_items": _order_items,
                 },
                 required_role=None,
                 is_order_root=True,

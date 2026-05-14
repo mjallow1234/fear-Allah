@@ -30,13 +30,13 @@ const ORDER_TYPES: OrderTypeConfig[] = [
     value: 'AGENT_RESTOCK',
     label: 'Agent Restock',
     description: 'Agent requests inventory restock from warehouse',
-    allowedRoles: ['agent', 'admin', 'system_admin', 'team_admin', 'member'],
+    allowedRoles: ['sales_agent', 'admin', 'system_admin', 'team_admin', 'member'],
   },
   {
     value: 'AGENT_RETAIL',
     label: 'Agent Retail Delivery',
     description: 'Agent orders retail delivery to customer location',
-    allowedRoles: ['agent', 'admin', 'system_admin', 'team_admin', 'member'],
+    allowedRoles: ['sales_agent', 'admin', 'system_admin', 'team_admin', 'member'],
   },
   {
     value: 'STORE_KEEPER_RESTOCK',
@@ -48,7 +48,7 @@ const ORDER_TYPES: OrderTypeConfig[] = [
     value: 'CUSTOMER_WHOLESALE',
     label: 'Customer Wholesale',
     description: 'Customer places wholesale order for delivery',
-    allowedRoles: ['customer', 'agent', 'storekeeper', 'admin', 'system_admin', 'team_admin', 'member'],
+    allowedRoles: ['customer', 'sales_agent', 'storekeeper', 'admin', 'system_admin', 'team_admin', 'member'],
   },
 ]
 
@@ -94,9 +94,9 @@ export default function OrderForm({ isOpen, onClose, onSuccess }: OrderFormProps
       : 'member'
   
   // Filter order types based on role
-  const availableOrderTypes = ORDER_TYPES.filter(ot => 
-    ot.allowedRoles.includes(effectiveRole) || 
-    (ot.allowedRoles.includes('admin') && isAdmin)
+  const availableOrderTypes = ORDER_TYPES.filter(ot =>
+    (isAdmin && ot.allowedRoles.includes('admin')) ||
+    user?.operational_roles?.some(role => ot.allowedRoles.includes(role))
   )
   
   // Reset form when closed

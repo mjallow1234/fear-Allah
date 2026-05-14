@@ -15,6 +15,7 @@ from app.db.enums import ChannelType
 from app.core.security import get_current_user, check_user_can_post
 from app.permissions.constants import Permission
 from app.permissions.dependencies import require_permission
+from app.services.identity import resolve_display_name
 
 router = APIRouter()
 
@@ -253,7 +254,7 @@ async def create_message(
 
         # Create notifications for @mentions
         await create_mention_notifications(
-            db, request.content, current_user["user_id"], username, request.channel_id, message.id
+            db, request.content, current_user["user_id"], resolve_display_name(user), request.channel_id, message.id
         )
 
         # Emit unread_update for each channel member except sender
@@ -283,6 +284,7 @@ async def create_message(
             "channel_id": request.channel_id,
             "author_id": current_user["user_id"],
             "author_username": username,
+            "author_display_name": resolve_display_name(user),
             "parent_id": request.parent_id,
             "created_at": message.created_at.isoformat(),
             "is_edited": False,
@@ -308,7 +310,7 @@ async def create_message(
                             db,
                             user_id=parent_author.id,
                             notification_type=NotificationType.channel_reply,
-                            title=f"New reply from {username}",
+                            title=f"New reply from {resolve_display_name(user)}",
                             content=(message.content or '')[:100],
                             message_id=message.id,
                             sender_id=current_user['user_id'],
@@ -558,7 +560,8 @@ async def create_reply(
         from app.api.ws import manager, create_mention_notifications
         from app.services.unread import get_unread_count
 
-        username = reply.author.username if reply.author else f"user_{current_user['user_id']}"
+        username = resolve_display_name(reply.author) if reply.author else None
+        raw_username = reply.author.username if reply.author else None
 
         # Create mention notifications for replies (same behavior as top-level messages)
         try:
@@ -609,7 +612,8 @@ async def create_reply(
             "channel_id": reply.channel_id,
             "direct_conversation_id": reply.direct_conversation_id,
             "author_id": current_user["user_id"],
-            "author_username": username,
+            "author_username": raw_username,
+            "author_display_name": username,
             "parent_id": message_id,
             "created_at": reply.created_at.isoformat(),
             "is_edited": False,

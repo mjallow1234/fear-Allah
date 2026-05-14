@@ -102,6 +102,16 @@
   }
 }
 
+/* ============================================
+   SAFE AREA INSETS (iPhone notch / home bar)
+   ============================================ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
 @media (max-width: 768px) {
   :root {
     --topbar-height: 52px;
@@ -132,6 +142,13 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background-color: var(--main-bg);
   color: var(--main-text);
+  /* Prevent iOS 300ms tap delay */
+  touch-action: manipulation;
+}
+
+/* Prevent iOS Safari from zooming on input focus (font-size must be ≥ 16px) */
+input, textarea, select {
+  font-size: 16px;
 }
 
 * {
@@ -188,22 +205,25 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    height: 100vh;
+    height: 100dvh;
     width: 280px;
     z-index: 1000;
     transform: translateX(-100%);
     transition: transform 0.25s ease;
     background: var(--sidebar-bg);
+    /* Respect device left-side safe area (landscape notch) */
+    padding-left: var(--safe-left);
   }
 
   .sidebar.open {
     transform: translateX(0);
   }
 
-  /* Mobile TopBar */
+  /* Mobile TopBar — account for top safe area (status bar on notched devices) */
   .topbar {
     height: var(--topbar-height);
     padding: 0 12px;
+    padding-top: var(--safe-top);
   }
 }
 
@@ -273,12 +293,21 @@ button, a, [role="button"] {
   display: none;
 }
 
+/* Hide scrollbar utility (for tab bars, etc.) */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Page Layout with Fixed Tabs */
 .page-container {
-  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .page-tabs {
@@ -288,7 +317,8 @@ button, a, [role="button"] {
   align-items: center;
   overflow-x: auto;
   scrollbar-width: none;
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 10;
 }
 
@@ -305,8 +335,6 @@ button, a, [role="button"] {
 
 .page-content {
   flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 /* Body scroll lock when sidebar open */
@@ -315,3 +343,117 @@ body.sidebar-open {
   position: fixed;
   width: 100%;
 }
+
+/* ============================================
+   SAFE AREA UTILITIES
+   ============================================ */
+
+/* Bottom safe area — use on fixed bottom bars, modals, composers */
+.pb-safe {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Keyboard-safe modal: slides up from bottom on mobile, centered on desktop */
+.modal-sheet {
+  /* Mobile: anchor to bottom so keyboard pushes it up naturally */
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .modal-sheet {
+    align-items: center;
+  }
+}
+
+.modal-sheet-content {
+  width: 100%;
+  max-height: 92dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  border-radius: 16px 16px 0 0;
+}
+
+@media (min-width: 640px) {
+  .modal-sheet-content {
+    max-width: 36rem;
+    max-height: 90vh;
+    border-radius: 12px;
+    margin: 0 1rem;
+  }
+}
+
+/* Prevent modal background scroll on iOS */
+.modal-open {
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* ============================================
+   PWA — STANDALONE MODE
+   Applies when the app is launched from the
+   Home Screen (display: standalone).
+   ============================================ */
+
+/* Standalone: push content below the iOS status bar */
+@media (display-mode: standalone) {
+  html {
+    /* Use the full-height API so the status bar isn't cut off */
+    height: 100dvh;
+  }
+
+  body,
+  #root {
+    height: 100dvh;
+    /* Top padding for iOS notch / status bar */
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* TopBar: do NOT double-pad — it already gets var(--safe-top) on mobile */
+  .topbar {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Sidebar: full-height including status bar area */
+  .sidebar {
+    padding-top: env(safe-area-inset-top, 0px);
+    height: 100dvh;
+  }
+
+  /* Bottom bar / composer: push above home indicator */
+  .bottom-bar,
+  .message-composer {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* ============================================
+   PWA — UTILITY CLASSES FOR SAFE AREAS
+   ============================================ */
+
+/* Use on any fixed-position element at the very bottom */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Disable pull-to-refresh in standalone so it doesn't conflict
+   with the app's own scroll containers */
+@media (display-mode: standalone) {
+  body {
+    overscroll-behavior-y: none;
+  }
+}
+
