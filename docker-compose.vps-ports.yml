@@ -1,0 +1,43 @@
+# VPS-only compose overlay.
+#
+# Usage on VPS (REPLACES docker-compose.override.yml — do NOT include override.yml):
+#   docker compose -f docker-compose.yml -f docker-compose.vps-ports.yml up -d
+#
+# This file mirrors docker-compose.override.yml exactly, with ONE change:
+#   frontend ports: "3001:3000"  (avoids conflict with sales-dashboard on host port 3000)
+# Internal container port stays 3000 — Vite, WS, PWA, and api-proxy routing unchanged.
+
+services:
+  backend:
+    volumes:
+      - ./backend:/app:cached
+    environment:
+      PYTHONUNBUFFERED: 1
+      ENABLE_RELOAD: 0
+    command: /app/scripts/dev-entrypoint.sh
+
+  frontend:
+    image: fear-allah-frontend-dev
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM node:20-slim
+        RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+    volumes:
+      - ./frontend:/app:cached
+    working_dir: /app
+    ports:
+      - "3001:3000"   # host 3001 → Vite internal 3000 (host 3000 is taken by sales-dashboard)
+    environment:
+      VITE_PROXY_TARGET: http://api-proxy:80
+    command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0"
+
+  api-proxy:
+    image: nginx:alpine
+    volumes:
+      - ./deploy/api-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    ports:
+      - "18002:80"
+    depends_on:
+      - backend
