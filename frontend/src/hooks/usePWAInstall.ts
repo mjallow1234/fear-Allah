@@ -42,6 +42,10 @@ export interface PWAInstallState {
   isStandalone: boolean
   /** True on iOS Safari — no beforeinstallprompt, need manual instructions */
   isIOS: boolean
+  /** True on iOS Safari specifically — the only iOS browser that supports Add to Home Screen */
+  isIOSSafari: boolean
+  /** True on iOS but NOT Safari (Chrome/Firefox/Edge on iOS) — user must open Safari first */
+  isIOSNonSafari: boolean
   /** True on Android Chrome — standard install prompt available */
   isAndroid: boolean
   /** True when we have something to show the user */
@@ -61,7 +65,11 @@ export function usePWAInstall(): PWAInstallState {
     (window.navigator as Navigator & { standalone?: boolean }).standalone === true
 
   const ua = navigator.userAgent.toLowerCase()
-  const isIOS = /iphone|ipad|ipod/.test(ua) && !/crios/.test(ua)
+  const isIOS = /iphone|ipad|ipod/.test(ua)
+  // iOS Safari: has 'safari' in UA, does NOT have crios/fxios/edgios
+  const isIOSSafari = isIOS && ua.includes('safari') && !/crios|fxios|edgios/.test(ua)
+  // iOS non-Safari: Chrome/Firefox/Edge on iPhone — cannot install without switching to Safari
+  const isIOSNonSafari = isIOS && !isIOSSafari
   const isAndroid = /android/.test(ua)
 
   useEffect(() => {
@@ -100,5 +108,5 @@ export function usePWAInstall(): PWAInstallState {
     !dismissed &&
     (canInstall || isIOS)
 
-  return { canInstall, isStandalone, isIOS, isAndroid, shouldShowBanner, promptInstall, dismiss }
+  return { canInstall, isStandalone, isIOS, isIOSSafari, isIOSNonSafari, isAndroid, shouldShowBanner, promptInstall, dismiss }
 }
