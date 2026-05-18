@@ -78,6 +78,13 @@
   gap: var(--sidebar-item-gap);
   display: flex;
   align-items: center;
+  /* Suppress iOS tap flash — we supply our own :active state below */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sidebar-item:active {
+  background-color: var(--sidebar-active) !important;
+  color: var(--text-primary) !important;
 }
 
 .message-item {
@@ -276,6 +283,9 @@ button, a, [role="button"] {
 .icon-button {
   width: 40px;
   height: 40px;
+  /* Enforce 44px minimum touch target even though visual size is 40px */
+  min-height: 44px;
+  min-width: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -337,11 +347,13 @@ button, a, [role="button"] {
   flex: 1;
 }
 
-/* Body scroll lock when sidebar open */
+/* Body scroll lock when sidebar open — saves/restores scroll position
+   to prevent the page from jumping to the top when the sidebar is closed. */
 body.sidebar-open {
   overflow: hidden;
   position: fixed;
   width: 100%;
+  top: var(--scroll-y, 0px);
 }
 
 /* ============================================
@@ -418,10 +430,8 @@ body.sidebar-open {
     padding-top: env(safe-area-inset-top, 0px);
   }
 
-  /* TopBar: do NOT double-pad — it already gets var(--safe-top) on mobile */
-  .topbar {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
+  /* TopBar: body already shifts content below status bar — do NOT re-pad topbar */
+  /* .topbar intentionally omitted here to prevent double safe-area padding */
 
   /* Sidebar: full-height including status bar area */
   .sidebar {

@@ -427,6 +427,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <Link
               key={channel.id}
               to={`/channels/${channel.id}`}
+              onClick={() => onClose?.()}
               className={clsx(
                 'flex items-center sidebar-item rounded transition-colors',
                 location.pathname === `/channels/${channel.id}` && 'font-medium'
@@ -483,6 +484,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <Link
               key={dm.id}
               to={`/direct/${dm.id}`}
+              onClick={() => onClose?.()}
               className={clsx(
                 'flex items-center sidebar-item rounded transition-colors',
                 location.pathname === `/direct/${dm.id}` && 'font-medium'

@@ -58,7 +58,7 @@ export default function Welcome() {
   }
 
   return (
-    <div className="min-h-screen bg-[#313338] flex items-center justify-center p-4">
+    <div className="min-h-dvh bg-[#313338] flex items-center justify-center p-4">
       <div className="w-full max-w-2xl bg-[#2b2d31] rounded-lg p-12 shadow-lg text-center">
         <div className="flex items-center justify-center mb-8">
           <div className="bg-[#5865f2] p-4 rounded-full">

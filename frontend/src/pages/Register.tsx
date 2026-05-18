@@ -28,7 +28,7 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-900">
+    <div className="min-h-dvh flex items-center justify-center bg-gray-900">
       <div className="max-w-md w-full bg-[#111215] p-8 rounded">
         <h1 className="text-2xl text-white font-bold mb-4">Register</h1>
         {error && <div className="text-red-400 mb-2">{error}</div>}

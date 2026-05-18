@@ -34,7 +34,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#313338]">
+    <div className="min-h-dvh flex items-center justify-center bg-[#313338]">
       <div className="bg-[#1e1f22] p-8 rounded-lg shadow-xl w-full max-w-md">
         <h1 className="text-2xl font-bold text-white text-center mb-6">
           fear-Allah

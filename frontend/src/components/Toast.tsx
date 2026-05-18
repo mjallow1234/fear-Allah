@@ -61,7 +61,7 @@ function Toast({ notification, onDismiss, duration = 5000 }: ToastProps) {
         'flex items-start gap-3 p-4 rounded-lg shadow-lg border cursor-pointer',
         'bg-gray-800 border-gray-700 text-white',
         'animate-slide-in-right hover:bg-gray-750',
-        'min-w-[300px] max-w-[400px]'
+        'min-w-[300px] max-w-[400px] w-full sm:w-auto sm:min-w-[300px]'
       )}
     >
       <div className="flex-shrink-0 mt-0.5">
@@ -96,7 +96,10 @@ export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+    <div
+      className="fixed right-4 z-50 flex flex-col gap-2 w-[calc(100vw-2rem)] max-w-sm sm:w-auto"
+      style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+    >
       {toasts.map((toast) => (
         <Toast key={toast.id} notification={toast} onDismiss={onDismiss} />
       ))}
