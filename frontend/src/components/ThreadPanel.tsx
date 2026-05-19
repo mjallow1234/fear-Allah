@@ -135,7 +135,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
   }
 
   return (
-    <div className="w-80 border-l border-gray-700 flex flex-col h-full bg-gray-900">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-900 md:relative md:inset-auto md:z-auto md:w-80 md:border-l md:border-gray-700 h-full">
       {/* Header */}
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">
         <h3 className="font-semibold text-sm">Thread</h3>

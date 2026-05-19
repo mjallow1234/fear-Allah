@@ -4,7 +4,6 @@ import Sidebar from '../components/Sidebar'
 import ErrorBoundary from '../components/ErrorBoundary'
 import TopBar from '../components/TopBar'
 import api from '../services/api'
-import { requestNotificationPermission } from '../utils/notifications'
 import { ChatSocketProvider } from '../contexts/ChatSocketContext'
 
 export default function MainLayout() {
@@ -12,17 +11,17 @@ export default function MainLayout() {
   const [channelName, setChannelName] = useState('general')
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // Request notification permission on mount
-  useEffect(() => {
-    requestNotificationPermission()
-  }, [])
-
   // Lock body scroll when sidebar is open on mobile
   useEffect(() => {
     if (sidebarOpen) {
+      const scrollY = window.scrollY
+      document.documentElement.style.setProperty('--scroll-y', `-${scrollY}px`)
       document.body.classList.add('sidebar-open')
     } else {
+      const stored = document.documentElement.style.getPropertyValue('--scroll-y')
       document.body.classList.remove('sidebar-open')
+      const y = parseInt(stored || '0', 10)
+      window.scrollTo(0, Math.abs(y))
     }
     return () => {
       document.body.classList.remove('sidebar-open')

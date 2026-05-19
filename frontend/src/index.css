@@ -356,6 +356,15 @@ body.sidebar-open {
   top: var(--scroll-y, 0px);
 }
 
+/* Message action buttons: always visible at reduced opacity on touch devices
+   (hover events don't fire reliably on mobile, so group-hover:opacity-100 is useless there). */
+@media (hover: none) {
+  .reactions-area,
+  .message-menu {
+    opacity: 0.45 !important;
+  }
+}
+
 /* ============================================
    SAFE AREA UTILITIES
    ============================================ */
