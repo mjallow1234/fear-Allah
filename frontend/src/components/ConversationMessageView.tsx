@@ -1038,7 +1038,7 @@ export default function ConversationMessageView(props: Props) {
 
       {/* THREAD PANEL (RIGHT SIDE) */}
       {isThreadOpen && (
-        <div className="w-[480px] flex flex-col min-h-0 border-l border-gray-700">
+        <div className="w-0 flex-none md:flex md:flex-col md:w-[480px] md:min-h-0 md:border-l md:border-gray-700">
           <ThreadPanel parentMessage={selectedThread} onClose={() => setSelectedThread(null)} />
         </div>
       )}

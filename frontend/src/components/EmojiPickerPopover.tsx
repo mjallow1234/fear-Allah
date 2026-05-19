@@ -46,7 +46,9 @@ export default function EmojiPickerPopover({
 
   useEffect(() => {
     const stored = localStorage.getItem(RECENT_KEY)
-    setRecent(stored ? JSON.parse(stored) : [])
+    const recentList: string[] = stored ? JSON.parse(stored) : []
+    setRecent(recentList)
+    if (recentList.length === 0) setActiveCategory('people')
   }, [])
 
 
