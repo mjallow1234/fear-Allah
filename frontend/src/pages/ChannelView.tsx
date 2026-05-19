@@ -49,8 +49,8 @@ export default function ChannelView() {
   }
 
   return (
-    <div className="flex h-full relative">
-      <div className="flex flex-col flex-1 h-full min-h-0">
+    <div className="flex flex-1 min-h-0 relative">
+      <div className="flex flex-col flex-1 min-h-0">
         {/* Header */}
         <div className="p-4 border-b border-gray-700 flex items-center justify-between">
           <h1 className="text-xl font-semibold">{loading ? 'Loading…' : (channelName || 'Channel')}</h1>

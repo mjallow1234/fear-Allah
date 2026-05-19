@@ -135,7 +135,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-900 md:relative md:inset-auto md:z-auto md:w-full md:h-full">
+    <div className="fixed inset-x-0 top-0 z-50 flex flex-col bg-gray-900 h-dvh md:relative md:inset-auto md:z-auto md:w-full md:h-full">
       {/* Header */}
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">
         <h3 className="font-semibold text-sm">Thread</h3>
@@ -205,7 +205,7 @@ export default function ThreadPanel({ parentMessage, onClose }: ThreadPanelProps
       </div>
 
       {/* Reply input */}
-      <form onSubmit={handleSendReply} className="p-3 border-t border-gray-700">
+      <form onSubmit={handleSendReply} className="p-3 border-t border-gray-700" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex gap-2">
           <input
             type="text"

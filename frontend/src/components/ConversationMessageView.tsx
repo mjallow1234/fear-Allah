@@ -880,7 +880,7 @@ export default function ConversationMessageView(props: Props) {
   }
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex flex-1 min-h-0">
       {/* MESSAGE COLUMN */}
       <div className={`flex flex-col min-h-0 ${isThreadOpen ? "flex-1" : "flex-1"}`}>
         <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 pb-24">
@@ -982,7 +982,7 @@ export default function ConversationMessageView(props: Props) {
         </div>
 
         {/* COMPOSER */}
-        <div className="border-t shrink-0 border-gray-700">
+        <div className="border-t shrink-0 border-gray-700" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           {stagedFiles.length > 0 && (
             <AttachmentPreview files={stagedFiles} onRemove={removeStagedFile} disabled={sending} />
           )}
